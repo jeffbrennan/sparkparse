@@ -130,3 +130,10 @@ class ParsedLog(BaseModel):
     jobs: list[Job]
     stages: list[Stage]
     tasks: list[Task]
+
+
+class OutputFormat(StrEnum):
+    csv = "csv"
+    parquet = "parquet"
+    delta = "delta"
+    json = "json"
