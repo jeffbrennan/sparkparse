@@ -4,6 +4,7 @@ from pathlib import Path
 
 import polars as pl
 
+from sparkparse.common import timeit
 from sparkparse.models import (
     EventType,
     ExecutorMetrics,
@@ -74,6 +75,7 @@ def parse_task(line_dict: dict) -> Task:
     )
 
 
+@timeit
 def parse_log(log_path: Path) -> ParsedLog:
     logger.debug(f"Starting to parse log file: {log_path}")
     with log_path.open("r") as f:
@@ -125,7 +127,8 @@ def parse_log(log_path: Path) -> ParsedLog:
     return ParsedLog(jobs=jobs, stages=stages, tasks=tasks)
 
 
-def log_to_df(result: ParsedLog) -> pl.DataFrame:
+@timeit
+def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
     jobs = pl.DataFrame(result.jobs)
     jobs_with_duration = (
         jobs.select("job_id", "event_type", "job_timestamp")
@@ -163,6 +166,6 @@ def log_to_df(result: ParsedLog) -> pl.DataFrame:
         .unnest("input_metrics")
         .unnest("output_metrics")
         .unnest("push_based_shuffle")
-    )
+    ).with_columns(pl.lit(log_name).alias("log_name"))
 
     return combined
