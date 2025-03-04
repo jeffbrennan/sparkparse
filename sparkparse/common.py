@@ -1,9 +1,32 @@
+import datetime
+import time
+from functools import wraps
 from pathlib import Path
 
 import polars as pl
 from pyspark.sql import SparkSession
 
 from sparkparse.models import OutputFormat
+
+
+def get_current_time() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def timeit(func):
+    # https://dev.to/kcdchennai/python-decorator-to-measure-execution-time-54hk
+    @wraps(func)
+    def timeit_wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        total_time = end_time - start_time
+        print(
+            f"{get_current_time()} -- Function {func.__name__} Took {total_time * 1000:.2f} ms"
+        )
+        return result
+
+    return timeit_wrapper
 
 
 def write_dataframe(
