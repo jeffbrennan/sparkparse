@@ -9,7 +9,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dash>=2.18.2",
     "falsa>=0.0.3",
     "pandas>=2.2.3",
     "polars>=1.24.0",
@@ -17,7 +16,14 @@ dependencies = [
     "pyspark>=3.5.5",
     "pytest>=8.3.5",
     "ruff>=0.9.9",
+    "dash-bootstrap-components>=1.6.0,<2",
+    "plotly>=6.0.0",
+    "ipykernel>=6.29.5",
 ]
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["sparkparse"]
+
+[project.scripts]
+sparkparse = "sparkparse.app:app"
