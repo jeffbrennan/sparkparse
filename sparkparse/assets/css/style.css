@@ -1,0 +1,593 @@
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("/assets/fonts/jetbrainsmonoregular.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+}
+
+#sparkparse-page,
+#navbar {
+    transition: background-color 0.2s ease;
+}
+
+#sparkparse-page.light-mode,
+#navbar.light-mode {
+    background-color: rgb(242, 240, 227) !important;
+}
+
+#sparkparse-page.dark-mode,
+#navbar.dark-mode {
+    background-color: rgb(33, 33, 33) !important;
+}
+
+#sparkparse-page {
+    padding-left: 5%;
+    padding-right: 5%;
+    padding-bottom: 3%;
+}
+
+.light-mode .dropdown-menu.show {
+    background-color: rgb(242, 240, 227) !important;
+    color: rgb(33, 33, 33) !important;
+    border: 2px solid rgb(33, 33, 33) !important;
+}
+
+.light-mode .dropdown-item:hover,
+.light-mode .dropdown-item:focus,
+.light-mode .dropdown-item:active {
+    outline: none;
+    color: rgb(33, 33, 33);
+    background-color: rgb(242, 240, 227) !important;
+}
+
+body,
+.Select input,
+.Select-value-label,
+.form-check-input,
+#sparkparse-page,
+.dash-table-container {
+    font-family: "JetBrains Mono", serif !important;
+    font-weight: 600 !important;
+}
+
+
+.gtitle,
+.g-gtitle,
+.plotly-graph-div,
+.js-plotly-plot .plotly .modebar,
+.annotation-text,
+.legend-item-text,
+.ytitle,
+.xtitle,
+.zerolinelayer,
+.tick text,
+.legendtext {
+    font-family: "JetBrains Mono", serif !important;
+    font-weight: 300 !important;
+}
+
+._dash-loading {
+    display: none !important;
+}
+
+/* date slider */
+
+/* common */
+.rc-slider-tooltip-inner {
+    box-shadow: none !important;
+    outline: none !important;
+    padding-top: 8px !important;
+    padding-left: 4px;
+    padding-right: 4px;
+    border-radius: 10px;
+}
+
+.rc-slider-track {
+    height: 4px !important;
+}
+
+.rc-slider-handle:hover,
+.rc-slider-handle:focus,
+.rc-slider-handle:active,
+.rc-slider-handle.rc-slider-handle-dragging {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+/* light */
+.light-mode .rc-slider-tooltip-inner {
+    color: rgb(33, 33, 33) !important;
+    background: rgb(242, 240, 227) !important;
+    border: 1px solid rgb(33, 33, 33) !important;
+}
+
+.light-mode .rc-slider-track {
+    background-color: rgb(33, 33, 33) !important;
+}
+
+.light-mode .rc-slider-handle:hover,
+.light-mode .rc-slider-handle:focus,
+.light-mode .rc-slider-handle:active,
+.light-mode .rc-slider-handle.rc-slider-handle-dragging,
+.light-mode .rc-slider-handle {
+    border: 2px solid rgb(33, 33, 33) !important;
+}
+
+.light-mode .rc-slider-handle {
+    background-color: rgb(242, 240, 227);
+}
+
+.light-mode .rc-slider-rail,
+.light-mode .rc-slider-dot {
+    border: 1px solid rgb(33, 33, 33) !important;
+    background-color: rgb(242, 240, 227) !important;
+}
+
+/* dark */
+.dark-mode .rc-slider-tooltip-inner {
+    color: rgb(242, 240, 227) !important;
+    background: rgb(33, 33, 33) !important;
+    border: 1px solid rgb(242, 240, 227) !important;
+}
+
+.dark-mode .rc-slider-track {
+    background-color: rgb(242, 240, 227) !important;
+}
+
+
+.dark-mode .rc-slider-handle:hover,
+.dark-mode .rc-slider-handle:focus,
+.dark-mode .rc-slider-handle:active,
+.dark-mode .rc-slider-handle.rc-slider-handle-dragging,
+.dark-mode .rc-slider-handle {
+    border: 2px solid rgb(242, 240, 227) !important;
+}
+
+.dark-mode .rc-slider-handle {
+    background-color: rgb(33, 33, 33);
+}
+
+
+.dark-mode .rc-slider-rail,
+.dark-mode .rc-slider-dot {
+    background-color: rgb(33, 33, 33) !important;
+    border: solid 1px rgb(242, 240, 227) !important;
+}
+
+
+/* repo selector */
+
+/* common */
+.Select-control {
+    padding-right: 0 !important;
+    padding-bottom: 2px !important;
+    padding-top: 2px !important;
+    margin-top: 2% !important;
+    border-radius: 10px !important;
+}
+
+.Select-control:hover {
+    box-shadow: none;
+    outline: none;
+}
+
+.Select-menu-outer {
+    border-radius: 10px !important;
+    margin-top: 5px !important;
+    padding-top: 20px !important;
+    padding-bottom: 20px !important;
+    margin-right: 30%;
+}
+
+.Select-arrow-zone {
+    display: none !important;
+    outline: none !important;
+}
+
+.Select-arrow {
+    display: none !important;
+    outline: none !important;
+}
+
+.Select-input {
+    display: none !important;
+    outline: none !important;
+}
+
+/* light */
+.light-mode .Select-control {
+    background-color: rgb(33, 33, 33) !important;
+    color: rgb(242, 240, 227) !important;
+    border: 2px rgb(33, 33, 33) !important;
+}
+
+.light-mode .Select-menu-outer {
+    background-color: rgb(242, 240, 227) !important;
+    border: 2px solid rgb(33, 33, 33) !important;
+}
+
+.light-mode .Select-value {
+    color: rgb(242, 240, 227) !important;
+}
+
+.light-mode .Select-value-label {
+    color: rgb(242, 240, 227) !important;
+}
+
+.light-mode .VirtualizedSelectOption {
+    background-color: rgb(242, 240, 227) !important;
+    color: rgb(33, 33, 33) !important;
+}
+
+.light-mode .Select-menu-outer {
+    background-color: rgb(242, 240, 227) !important;
+}
+
+.light-mode .VirtualizedSelectOption {
+    background-color: rgb(242, 240, 227) !important;
+    color: black !important;
+}
+
+.light-mode .VirtualizedSelectFocusedOption {
+    background-color: rgb(242, 240, 227) !important;
+}
+
+/* dark */
+.dark-mode .Select-control {
+    background-color: rgb(242, 240, 227) !important;
+    color: rgb(33, 33, 33) !important;
+    border: 2px rgb(33, 33, 33) !important;
+}
+
+
+.dark-mode .Select-menu-outer {
+    background-color: rgb(33, 33, 33) !important;
+    border: 2px solid rgb(242, 240, 227) !important;
+}
+
+.dark-mode .Select-value {
+    color: rgb(33, 33, 33) !important;
+}
+
+.dark-mode .Select-value-label {
+    color: rgb(33, 33, 33) !important;
+}
+
+.dark-mode .VirtualizedSelectOption {
+    background-color: rgb(33, 33, 33) !important;
+    color: rgb(242, 240, 227) !important;
+}
+
+.dark-mode .VirtualizedSelectFocusedOption {
+    background-color: rgb(33, 33, 33) !important;
+}
+
+
+.navbar-container {
+    display: grid !important;
+    grid-template-areas:
+        "brand toggler switch"
+        "menu menu menu" !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    width: 100% !important;
+    margin-top: 0.5rem !important;
+}
+
+.navbar-brand {
+    grid-area: brand !important;
+    justify-self: start !important;
+    font-weight: bold;
+    padding-left: 1em;
+    padding-right: 1em;
+    padding-bottom: 8px;
+}
+
+/* navbar toggler */
+
+/* common */
+.navbar-toggler {
+    grid-area: toggler !important;
+    justify-self: center !important;
+    transform: scale(0.7, 0.9) !important;
+    border-radius: 10px !important;
+}
+
+
+/* light */
+.light-mode .navbar-toggler {
+    border: solid 4px rgb(33, 33, 33) !important;
+}
+
+.light-mode .navbar-toggler-icon {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(33, 33, 33, 1)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='3' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
+/* dark */
+.dark-mode .navbar-toggler {
+    border: solid 4px rgb(242, 240, 227) !important;
+}
+
+.dark-mode .navbar-toggler-icon {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(242, 240, 227, 1)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='3' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
+.navbar-toggler:focus,
+.navbar-toggler:active {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.navbar-collapse {
+    grid-area: menu !important;
+    width: 100% !important;
+}
+
+
+#color-mode-switch {
+    grid-area: switch !important;
+    justify-self: end !important;
+    width: 20px !important;
+    height: 20px !important;
+    transform: scale(1.4) !important;
+    padding: 0 0 28px !important;
+    margin: 0;
+}
+
+
+@media (max-width: 767px) {
+    .nav-link {
+        padding-left: 1rem !important;
+    }
+
+    .dropdown-toggle {
+        padding-left: 1rem !important;
+    }
+
+    #navbar-collapse {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+    }
+
+    #navbar a {
+        margin: 10px !important;
+    }
+
+    .navbar-brand {
+        margin: 0 !important;
+    }
+
+    .navbar-toggler {
+        margin-right: 20px !important;
+    }
+
+    #color-mode-switch {
+        margin: 0 !important;
+    }
+
+    /* Light mode background */
+    .light-mode #navbar-collapse {
+        background-color: rgba(242, 240, 227, 1) !important;
+        border: 2px solid rgba(33, 33, 33, 1) !important;
+        border-radius: 20px !important;
+    }
+
+    /* Dark mode background */
+    .dark-mode #navbar-collapse {
+        background-color: rgba(33, 33, 33, 1) !important;
+        border: 2px solid rgba(242, 240, 227, 1) !important;
+        border-radius: 20px !important;
+    }
+
+}
+
+@media (min-width: 768px) {
+
+
+    #navbar a {
+        margin-right: 15px;
+    }
+
+    .navbar-container {
+        display: grid !important;
+        grid-template-areas: "brand menu switch" !important;
+        grid-template-columns: auto 1fr auto !important;
+    }
+
+    .navbar-toggler {
+        display: none !important;
+    }
+
+    .navbar-collapse {
+        grid-area: menu !important;
+        display: flex !important;
+        justify-content: flex-start !important;
+        margin-left: 0 !important;
+        padding-left: 10px;
+    }
+
+}
+
+
+/* table styling */
+
+/* common  */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+    border-collapse: collapse !important;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    font-family: "JetBrains Mono", serif !important;
+    font-weight: 600 !important;
+    margin: 0 !important;
+    padding-left: 12px !important;
+    padding: 0 !important;
+    position: relative;
+    border: none !important;
+    padding-right: 12px !important;
+    margin: 0 !important;
+    font-size: 0.8em !important;
+}
+
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td,
+.dash-cell-value {
+    font-family: "JetBrains Mono", serif !important;
+    font-weight: 300 !important;
+    font-size: 0.9em !important;
+    padding-left: 5px !important;
+    padding-right: 5px !important;
+    margin: 0 !important;
+    /* text-align: center !important; */
+    border-right: none !important;
+}
+
+td.dash-cell.cell--selected.focused {
+    background-color: transparent !important;
+}
+
+.dash-table-container .dash-cell-value p {
+    margin-bottom: 0 !important;
+    padding-bottom: 15px !important;
+    padding-top: 15px !important;
+    padding-left: 5px !important;
+    padding-right: 5px !important;
+    text-align: left !important;
+}
+
+/* light mode  */
+
+.light-mode .dash-spreadsheet-container .column-header--sort,
+.light-mode .dash-filter--case .dash-filter--case--sensitive,
+.light-mode .dash-filter--case--insensitive {
+    opacity: 1 !important;
+    padding-left: 5px !important;
+    padding-right: 6px !important;
+    color: rgb(242, 240, 227) !important;
+}
+
+
+/* table border */
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner {
+    border: 2px solid rgb(33, 33, 33) !important;
+}
+
+
+/* headers */
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    border-bottom: 2px solid rgb(242, 240, 227) !important;
+    border-right: 2px solid rgb(242, 240, 227) !important;
+    background-color: rgb(33, 33, 33) !important;
+    color: rgb(242, 240, 227) !important;
+}
+
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th:last-child {
+    border-right: none !important;
+}
+
+
+/* Remove right border for the last header cell */
+/* filters */
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner .dash-filter {
+    border-right: 2px solid rgb(242, 240, 227) !important;
+}
+
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner .dash-filter>div input[type="text"] {
+    color: rgb(242, 240, 227) !important;
+}
+
+
+/* cells  */
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+    border-bottom: 1px solid rgb(33, 33, 33) !important;
+    border-right: 2px solid rgb(33, 33, 33) !important;
+}
+
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr td:last-child {
+    border-right: none !important;
+}
+
+/* row change on hover */
+.light-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+    background-color: rgba(255, 120, 23, 0.3) !important;
+}
+
+
+.light-mode .current-page {
+    font-size: 1em !important;
+}
+
+.light-mode .dash-table-container .previous-next-container .page-number .current-page-container input.current-page {
+    border-bottom: 1px solid rgb(33, 33, 33) !important;
+}
+
+/* dark mode  */
+
+.dark-mode .dash-spreadsheet-container .column-header--sort,
+.dark-mode .dash-filter--case .dash-filter--case--sensitive,
+.dark-mode .dash-filter--case--insensitive {
+    opacity: 1 !important;
+    padding-left: 5px !important;
+    color: rgb(33, 33, 33) !important;
+}
+
+
+/* table border */
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner {
+    border: 2px solid rgb(242, 240, 227) !important;
+}
+
+
+/* headers */
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    border-bottom: 2px solid rgb(33, 33, 33) !important;
+    border-right: 2px solid rgb(33, 33, 33) !important;
+    background-color: rgb(242, 240, 227) !important;
+    color: rgb(33, 33, 33) !important;
+}
+
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th:last-child {
+    border-right: none !important;
+}
+
+
+/* Remove right border for the last header cell */
+/* filters */
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner .dash-filter {
+    border-right: 2px solid rgb(33, 33, 33) !important;
+}
+
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner .dash-filter>div input[type="text"] {
+    color: rgb(33, 33, 33) !important;
+}
+
+
+/* cells  */
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+    border-bottom: 1px solid rgb(242, 240, 227) !important;
+    border-right: 2px solid rgb(242, 240, 227) !important;
+}
+
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr td:last-child {
+    border-right: none !important;
+}
+
+.dark-mode .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+    background-color: rgb(147, 65, 54) !important;
+}
+
+.dark-mode .current-page {
+    font-size: 1em !important;
+}
+
+.plotly .yaxis .domain {
+    stroke: red !important;
+}
+
+/* Apply red only to the grid lines (the minor lines at ratings 2, 4, …) */
+.plotly-graph-div .ygrid line {
+    stroke: red !important;
+}
