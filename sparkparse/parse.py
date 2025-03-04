@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import polars as pl
@@ -17,6 +18,8 @@ from sparkparse.models import (
     Task,
     TaskMetrics,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def parse_job(line_dict: dict) -> Job:
@@ -72,6 +75,7 @@ def parse_task(line_dict: dict) -> Task:
 
 
 def parse_log(log_path: Path) -> ParsedLog:
+    logger.debug(f"Starting to parse log file: {log_path}")
     with log_path.open("r") as f:
         all_contents = f.readlines()
 
@@ -87,24 +91,37 @@ def parse_log(log_path: Path) -> ParsedLog:
     stages = []
     tasks = []
     for i, line in enumerate(contents_to_parse, start_index):
-        print("parsing line number", i)
+        logger.debug("-" * 40)
+        logger.debug(f"[line {i:04d}] parse start")
         line_dict = json.loads(line)
         event_type = line_dict["Event"]
         if event_type.startswith("SparkListenerJob"):
             job = parse_job(line_dict)
             jobs.append(job)
-            print(job)
+            logger.debug(
+                f"[line {i:04d}] parse finish - job#{job.job_id}  type:{job.event_type}"
+            )
         elif event_type.startswith("SparkListenerStage"):
             stage = parse_stage(line_dict)
             stages.append(stage)
-            print(stage)
+            logger.debug(
+                f"[line {i:04d}] parse finish - stage#{stage.stage_id} type:{stage.event_type}"
+            )
         elif event_type == "SparkListenerTaskEnd":
             task = parse_task(line_dict)
             tasks.append(task)
-            print(task)
+            logger.debug(
+                f"[line {i:04d}] parse finish - task#{task.task_id} stage#{task.stage_id}"
+            )
         else:
-            print(event_type, "unhandled, skipping")
+            logger.debug(
+                f"[line {i:04d}] parse skip - unhandled event type {event_type}"
+            )
             continue
+
+    logger.debug(
+        f"Finished parsing log [n={len(jobs)} jobs | n={len(stages)} stages | n={len(tasks)} tasks]"
+    )
     return ParsedLog(jobs=jobs, stages=stages, tasks=tasks)
 
 
