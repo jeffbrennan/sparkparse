@@ -1,24 +1,45 @@
 import logging
 from pathlib import Path
 
+import polars as pl
 import typer
 
 from sparkparse.common import write_dataframe
+from sparkparse.dashboard import init_dashboard, run_app
 from sparkparse.models import OutputFormat
 from sparkparse.parse import log_to_df, parse_log
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
 
-@app.command()
-def get(
+@app.command("viz")
+def viz_parsed_metrics(
     base_dir: str = "data",
     log_dir: str = "logs/raw",
-    output_dir: str = "logs/parsed",
     log_file: str | None = None,
-    out_format: OutputFormat = OutputFormat.csv,
     verbose: bool = False,
-):
+) -> None:
+    df = get_parsed_metrics(
+        base_dir=base_dir,
+        log_dir=log_dir,
+        log_file=log_file,
+        output_dir=None,
+        out_format=None,
+        verbose=verbose,
+    )
+    app = init_dashboard(df)
+    run_app(app)
+
+
+@app.command("get")
+def get_parsed_metrics(
+    base_dir: str = "data",
+    log_dir: str = "logs/raw",
+    log_file: str | None = None,
+    output_dir: str | None = "logs/parsed",
+    out_format: OutputFormat | None = OutputFormat.csv,
+    verbose: bool = False,
+) -> pl.DataFrame:
     base_dir_path = Path(__file__).parents[1] / base_dir
     log_dir_path = base_dir_path / log_dir
 
@@ -39,7 +60,11 @@ def get(
     logging.info(f"Reading log file: {log_to_parse}")
 
     result = parse_log(log_to_parse)
-    df = log_to_df(result)
+    df = log_to_df(result, log_to_parse.stem)
+
+    if out_format is None or output_dir is None:
+        logging.info("Skipping writing parsed log")
+        return df
 
     out_dir = base_dir_path / output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -52,6 +77,7 @@ def get(
     logging.debug(f"{df.head()}")
 
     write_dataframe(df, out_path, out_format)
+    return df
 
 
 @app.command()
