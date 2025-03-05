@@ -35,6 +35,16 @@ class NodeType(StrEnum):
     BroadcastHashJoin = auto()
     ColumnarToRow = auto()
     Scan = auto()
+    InsertIntoHadoopFsRelationCommand = auto()
+    AQEShuffleRead = auto()
+    ShuffleQueryStage = auto()
+    HashAggregate = auto()
+    BuildRight = auto()
+    BroadcastQueryStage = auto()
+    BroadcastExchange = auto()
+    Filter = auto()
+    GlobalLimit = auto()
+    LocalLimit = auto()
 
 
 class PhysicalPlanNode(BaseModel):
