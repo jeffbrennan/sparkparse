@@ -16,7 +16,8 @@ def viz_parsed_metrics(
     base_dir: str = "data",
     log_dir: str = "logs/raw",
     log_file: str | None = None,
-    output_dir: str | None = "logs/parsed",
+    out_dir: str | None = "logs/parsed",
+    out_name: str | None = None,
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
 ) -> None:
@@ -24,7 +25,8 @@ def viz_parsed_metrics(
         base_dir=base_dir,
         log_dir=log_dir,
         log_file=log_file,
-        output_dir=output_dir,
+        out_dir=out_dir,
+        out_name=out_name,
         out_format=out_format,
         verbose=verbose,
     )
@@ -37,7 +39,8 @@ def get_parsed_metrics(
     base_dir: str = "data",
     log_dir: str = "logs/raw",
     log_file: str | None = None,
-    output_dir: str | None = "logs/parsed",
+    out_dir: str | None = "logs/parsed",
+    out_name: str | None = None,
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
 ) -> pl.DataFrame:
@@ -60,14 +63,14 @@ def get_parsed_metrics(
 
     logging.info(f"Reading log file: {log_to_parse}")
 
-    result = parse_log(log_to_parse)
+    result = parse_log(log_to_parse, out_name)
     df = log_to_df(result, log_to_parse.stem)
 
-    if out_format is None or output_dir is None:
+    if out_dir is None or out_format is None:
         logging.info("Skipping writing parsed log")
         return df
 
-    write_parsed_log(df, base_dir_path, output_dir, out_format, result.name)
+    write_parsed_log(df, base_dir_path, out_dir, out_format, result.name)
     return df
 
 

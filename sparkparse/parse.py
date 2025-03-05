@@ -1,10 +1,10 @@
 import copy
+import datetime
 import json
 import logging
 from pathlib import Path
 
 import polars as pl
-from pydantic import BaseModel
 
 from sparkparse.common import timeit, write_dataframe
 from sparkparse.models import (
@@ -81,16 +81,46 @@ def parse_task(line_dict: dict) -> Task:
     )
 
 
+def get_plan_io(
+    plan_lines: list[str], tree_end: int, n_nodes: int
+) -> tuple[list[str], list[str]]:
+    sources = []
+    targets = []
+
+    details_start = plan_lines[tree_end:].index("") + tree_end + 2
+    details_end = len(plan_lines) - 1
+    task_details = plan_lines[details_start:details_end]
+    for i, line in enumerate(task_details):
+        if line == "":
+            task_details[i] = "\n\n"
+    task_details_split = "".join(task_details).split("\n\n")
+    task_details_split = [i for i in task_details_split if i != ""][0:n_nodes]
+    assert len(task_details_split) == n_nodes
+
+    for details in task_details_split:
+        if "Scan" in details:
+            source = details.split("[file:")[1].split("]")[0]
+            sources.append(source)
+        elif "file:" in details:
+            target = details.split("file:")[-1].split(",")[0]
+            targets.append(target)
+        else:
+            continue
+    return sources, targets
+
+
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
-    plan_string = line_dict["sparkPlanInfo"]["physicalPlanDescription"]
+    base_indentation = 3
+    step = 3
+    nodes = []
+
+    plan_string = line_dict["physicalPlanDescription"]
     plan_lines = plan_string.split("\n")
 
-    plan_start = plan_lines.index("== Final Plan ==") + 1
-    plan_end = plan_lines.index("== Initial Plan ==") - 1
-
-    base_indentation = 2
-    step = 2
-    nodes = []
+    tree_start = plan_lines.index("+- == Final Plan ==") + 1
+    tree_end = plan_lines.index("+- == Initial Plan ==")
+    tree = plan_lines[tree_start:tree_end]
+    logging.debug("\n".join(tree))
 
     # lookup of indentation level : node ids
     indentation_nodes: dict[int, list[int]] = {}
@@ -98,11 +128,17 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     # lookup of node id : indentation level
     node_indentation: dict[int, int] = {}
 
-    for i, line in enumerate(plan_lines[plan_start:plan_end]):
+    for i, line in enumerate(tree):
         is_whole_stage_codegen = "*" in line
         node_id = int(line.split(",")[0].strip().split("(")[-1].removesuffix(")"))
-        node_type_raw = line.split(",")[1].strip().split(" (")[0].split(" ")[-1]
-        node_type = NodeType(node_type_raw)
+        if "Scan" in line:
+            node_type_raw = "Scan"
+        else:
+            node_type_raw = (
+                line.split(",")[0].strip().split(" (")[0].strip().split(" ")[-1].strip()
+            )
+
+        node_type = NodeType(node_type_raw.lower())
         node = PhysicalPlanNode(
             node_id=node_id,
             node_type=node_type,
@@ -119,36 +155,45 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
         else:
             indentation_nodes[indentation].append(node_id)
 
-    for node in nodes:
-        children = indentation_nodes.get(node_indentation[node.node_id] + step)
+    for i, node in enumerate(nodes):
+        # for first node, children are at the same indentation level
+        increment = step if i > 0 else 0
+        children = indentation_nodes.get(node_indentation[node.node_id] + increment)
+
         if children:
+            if node.node_id in children:
+                children.remove(node.node_id)
             node.child_nodes = children
 
-    path_start = (
-        plan_lines[plan_lines.index("== Initial Plan ==") + 1 :].index("\n") + 2
+    sources, targets = get_plan_io(
+        plan_lines,
+        tree_end,
+        len(nodes),
     )
-
-    path_end = len(plan_lines) - 1
-
-    sources = []
-    targets = []
-
-    task_details = "".join(plan_lines[path_start:path_end]).split("\n\n")
-    for i, details in enumerate(task_details):
-        if "Scan" in details:
-            source = details.split("[file:")[1].split("]")[0]
-            sources.append(source)
-        elif "WriteFiles" in details:
-            target = details.split("file:")[-1].split(",")[0]
-            targets.append(target)
-        else:
-            continue
 
     return PhysicalPlan(sources=sources, targets=targets, nodes=nodes)
 
 
+def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
+    name_len_limit = 100
+    if out_name is not None:
+        return out_name[:name_len_limit]
+
+    parsed_paths = []
+    if len(parsed_plan.targets) > 0:
+        paths_to_use = parsed_plan.targets
+    else:
+        paths_to_use = parsed_plan.sources
+
+    for path in set(paths_to_use):
+        path_name = path.split("/")[-1].split(".")[0]
+        parsed_paths.append(path_name)
+
+    return "_".join(parsed_paths)[:name_len_limit]
+
+
 @timeit
-def parse_log(log_path: Path) -> ParsedLog:
+def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     logger.debug(f"Starting to parse log file: {log_path}")
     with log_path.open("r") as f:
         all_contents = f.readlines()
@@ -165,6 +210,7 @@ def parse_log(log_path: Path) -> ParsedLog:
     jobs = []
     stages = []
     tasks = []
+    final_plan = None
     for i, line in enumerate(contents_to_parse, start_index):
         logger.debug("-" * 40)
         logger.debug(f"[line {i:04d}] parse start")
@@ -188,7 +234,7 @@ def parse_log(log_path: Path) -> ParsedLog:
             logger.debug(
                 f"[line {i:04d}] parse finish - task#{task.task_id} stage#{task.stage_id}"
             )
-        elif event_type == "SparkListenerSQLAdaptiveExecutionUpdate":
+        elif event_type.endswith("SparkListenerSQLAdaptiveExecutionUpdate"):
             is_final_plan = (
                 line_dict["sparkPlanInfo"]["simpleString"].split("isFinalPlan=")[-1]
                 == "true"
@@ -201,15 +247,22 @@ def parse_log(log_path: Path) -> ParsedLog:
                 f"[line {i:04d}] parse skip - unhandled event type {event_type}"
             )
             continue
+    if final_plan is None:
+        raise ValueError("No final physical plan found in log file")
+
     parsed_plan = parse_physical_plan(final_plan)
 
     logger.debug(
         f"Finished parsing log [n={len(jobs)} jobs | n={len(stages)} stages | n={len(tasks)} tasks]"
     )
 
-    log_name = ",".join(sorted(set(i.split("/")[-1] for i in parsed_plan.targets)))
+    parsed_log_name = get_parsed_log_name(parsed_plan, out_name)
     return ParsedLog(
-        name=log_name, jobs=jobs, stages=stages, tasks=tasks, plan=parsed_plan
+        name=parsed_log_name,
+        jobs=jobs,
+        stages=stages,
+        tasks=tasks,
+        plan=parsed_plan,
     )
 
 
@@ -260,14 +313,16 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
 def write_parsed_log(
     df: pl.DataFrame,
     base_dir_path: Path,
-    output_dir: str,
+    out_dir: str,
     out_format: OutputFormat,
     parsed_name: str,
 ) -> None:
-    out_dir = base_dir_path / output_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir_path = base_dir_path / out_dir
+    out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    out_path = out_dir / f"{parsed_name}.csv"
+    today = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+
+    out_path = out_dir_path / f"{today}__{parsed_name}"
 
     logging.info(f"Writing parsed log: {out_path}")
     logging.debug(f"Output format: {out_format}")

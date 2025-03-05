@@ -36,13 +36,13 @@ def write_dataframe(
         out_path.unlink(missing_ok=True)
 
     if out_format == OutputFormat.csv:
-        df.write_csv(out_path.as_posix(), include_header=True)
+        df.write_csv(out_path.with_suffix(".csv").as_posix(), include_header=True)
     elif out_format == OutputFormat.parquet:
-        df.write_parquet(out_path.as_posix())
+        df.write_parquet(out_path.with_suffix(".parquet").as_posix())
     elif out_format == OutputFormat.delta:
         df.write_delta(out_path.as_posix())
     elif out_format == OutputFormat.json:
-        df.write_json(out_path.as_posix())
+        df.write_json(out_path.with_suffix(".json").as_posix())
 
 
 def get_spark(log_dir: Path) -> SparkSession:
