@@ -28,6 +28,10 @@ class Metric(BaseModel):
 
 
 class NodeType(StrEnum):
+    @staticmethod
+    def _generate_next_value_(name, *args) -> str:
+        return name
+
     Sort = auto()
     WriteFiles = auto()
     Exchange = auto()

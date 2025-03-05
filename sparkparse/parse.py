@@ -138,7 +138,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
                 line.split(",")[0].strip().split(" (")[0].strip().split(" ")[-1].strip()
             )
 
-        node_type = NodeType(node_type_raw.lower())
+        node_type = NodeType(node_type_raw)
         node = PhysicalPlanNode(
             node_id=node_id,
             node_type=node_type,
@@ -163,7 +163,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
         if children:
             if node.node_id in children:
                 children.remove(node.node_id)
-            node.child_nodes = children
+            node.child_nodes = sorted(children)
 
     sources, targets = get_plan_io(
         plan_lines,
@@ -176,6 +176,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
 def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
     name_len_limit = 100
+    today = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     if out_name is not None:
         return out_name[:name_len_limit]
 
@@ -189,7 +190,9 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
         path_name = path.split("/")[-1].split(".")[0]
         parsed_paths.append(path_name)
 
-    return "_".join(parsed_paths)[:name_len_limit]
+    paths_final = "_".join(parsed_paths)[:name_len_limit]
+
+    return f"{today}__{paths_final}"
 
 
 @timeit
@@ -290,10 +293,29 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
     )
 
     tasks = pl.DataFrame(result.tasks)
+    tasks_final = tasks.with_columns(
+        (pl.col("task_finish_time") - pl.col("task_start_time")).alias(
+            "task_duration_ms"
+        )
+    ).rename(
+        {
+            "task_start_time": "task_start_timestamp",
+            "task_finish_time": "task_end_timestamp",
+        }
+    )
+
+    plan = pl.DataFrame(result.plan.nodes)
+    plan_final = plan.rename({"node_id": "task_id"}).with_columns(
+        pl.col("child_nodes")
+        .cast(pl.List(pl.String))
+        .list.join(", ")
+        .alias("child_nodes")
+    )
 
     combined = (
         (
-            tasks.join(stages_final, on="stage_id", how="left")
+            tasks_final.join(plan_final, on="task_id", how="left")
+            .join(stages_final, on="stage_id", how="left")
             .join(jobs_final, on="stage_id", how="left")
             .sort("job_id", "stage_id", "task_id")
         )
@@ -307,7 +329,41 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         .unnest("push_based_shuffle")
     ).with_columns(pl.lit(log_name).alias("log_name"))
 
-    return combined
+    id_cols = [
+        "job_id",
+        "stage_id",
+        "task_id",
+        "node_type",
+        "is_whole_stage_codegen",
+        "child_nodes",
+        "job_start_timestamp",
+        "job_end_timestamp",
+        "job_duration_ms",
+        "stage_start_timestamp",
+        "stage_end_timestamp",
+        "stage_duration_ms",
+        "task_start_timestamp",
+        "task_end_timestamp",
+        "task_duration_ms",
+        "host",
+        "log_name",
+    ]
+
+    metrics_cols = sorted(set(combined.columns) - set(id_cols))
+    timestamp_cols = [col for col in combined.columns if "timestamp" in col]
+
+    final = combined.select(id_cols + metrics_cols).with_columns(
+        [
+            pl.col(col)
+            .mul(1000)
+            .cast(pl.Datetime)
+            .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+            .alias(col)
+            for col in timestamp_cols
+        ]
+    )
+
+    return final
 
 
 def write_parsed_log(
@@ -320,9 +376,7 @@ def write_parsed_log(
     out_dir_path = base_dir_path / out_dir
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    today = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-
-    out_path = out_dir_path / f"{today}__{parsed_name}"
+    out_path = out_dir_path / f"{parsed_name}"
 
     logging.info(f"Writing parsed log: {out_path}")
     logging.debug(f"Output format: {out_format}")
