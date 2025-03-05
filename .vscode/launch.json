@@ -8,8 +8,15 @@
       "name": "get",
       "type": "debugpy",
       "request": "launch",
-      "program": "${file}",
+      "program": "sparkparse/app.py",
       "args": ["get"]
+    },
+    {
+      "name": "get verbose",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "sparkparse/app.py",
+      "args": ["get", "--verbose"]
     }
   ]
 }
