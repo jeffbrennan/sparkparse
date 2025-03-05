@@ -1,10 +1,9 @@
 import dash
 import dash_bootstrap_components as dbc
-import dash_table
 import pandas as pd
 import plotly.express as px
 import polars as pl
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback, dash_table, dcc, html
 from plotly.graph_objs import Figure
 
 from sparkparse.common import timeit

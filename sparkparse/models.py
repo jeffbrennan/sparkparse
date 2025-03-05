@@ -21,6 +21,35 @@ class Stage(BaseModel):
     stage_timestamp: int
 
 
+class Metric(BaseModel):
+    name: str
+    accumulator_id: int
+    metric_type: str
+
+
+class NodeType(StrEnum):
+    Sort = auto()
+    WriteFiles = auto()
+    Exchange = auto()
+    Project = auto()
+    BroadcastHashJoin = auto()
+    ColumnarToRow = auto()
+    Scan = auto()
+
+
+class PhysicalPlanNode(BaseModel):
+    node_id: int
+    node_type: NodeType
+    is_whole_stage_codegen: bool
+    child_nodes: list[int] | None
+
+
+class PhysicalPlan(BaseModel):
+    sources: list[str]
+    targets: list[str]
+    nodes: list[PhysicalPlanNode]
+
+
 class ExecutorMetrics(BaseModel):
     jvm_heap_memory: int = Field(alias="JVMHeapMemory")
     jvm_offheap_memory: int = Field(alias="JVMOffHeapMemory")
@@ -127,9 +156,11 @@ class Task(BaseModel):
 
 
 class ParsedLog(BaseModel):
+    name: str
     jobs: list[Job]
     stages: list[Stage]
     tasks: list[Task]
+    plan: PhysicalPlan
 
 
 class OutputFormat(StrEnum):
