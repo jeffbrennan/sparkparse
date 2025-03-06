@@ -56,8 +56,8 @@ class NodeType(StrEnum):
 class PhysicalPlanNode(BaseModel):
     node_id: int
     node_type: NodeType
-    is_whole_stage_codegen: bool
-    child_nodes: list[int] | None
+    child_nodes: list[int] | None = None
+    whole_stage_codegen_id: int | None = None
 
 
 class PhysicalPlan(BaseModel):
@@ -184,3 +184,9 @@ class OutputFormat(StrEnum):
     parquet = "parquet"
     delta = "delta"
     json = "json"
+
+
+class PhysicalPlanDetails(BaseModel):
+    sources: list[str]
+    targets: list[str]
+    codegen_lookup: dict[int, int]

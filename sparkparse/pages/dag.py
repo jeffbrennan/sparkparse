@@ -45,6 +45,27 @@ def get_node_color(
 )
 def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
     elements = []
+    codegen_groups = {
+        row["whole_stage_codegen_id"]
+        for row in df_data
+        if row["whole_stage_codegen_id"] is not None
+    }
+    for group_id in codegen_groups:
+        codegen_label = f"WholeStageCodegen ({group_id})"
+        tooltip = [
+            i["node_name"] for i in df_data if i["whole_stage_codegen_id"] == group_id
+        ]
+        tooltip_str = codegen_label + "\n\n" + "\n".join(tooltip)
+        elements.append(
+            {
+                "data": {
+                    "id": f"codegen_{group_id}",
+                    "label": codegen_label,
+                    "tooltip": tooltip_str,
+                },
+                "classes": "codegen-container",
+            }
+        )
 
     durations = [row["task_duration_seconds"] for row in df_data]
     min_duration = min(durations)
@@ -52,7 +73,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
 
     for row in df_data:
         hover_info = (
-            f"[{row['task_id']}] {row['node_type']}\n"
+            f"{row['node_name']}\n"
             "\nDuration\n"
             f"Task Time: {row['task_duration_seconds']:.2f}s\n"
             f"GC Time: {row['jvm_gc_time_seconds']:.2f}s\n"
@@ -71,20 +92,21 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         node_color = get_node_color(
             row["task_duration_seconds"], min_duration, max_duration, dark_mode
         )
-
         n_value = (
             row["records_read"] if row["records_read"] > 0 else row["records_written"]
         )
-        elements.append(
-            {
-                "data": {
-                    "id": str(row["task_id"]),
-                    "label": f"[{row['task_id']}] {row['node_type']}\nn={n_value:,}",
-                    "tooltip": hover_info,
-                    "color": node_color,
-                }
-            }
-        )
+
+        node_data = {
+            "id": str(row["task_id"]),
+            "label": f"{row['node_name']}\nn={n_value:,}",
+            "tooltip": hover_info,
+            "color": node_color,
+        }
+
+        if row["whole_stage_codegen_id"] is not None:
+            node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
+
+        elements.append({"data": node_data})
 
         if row["child_nodes"] and row["child_nodes"] != "None":
             children = row["child_nodes"].strip("[]").split(",")
@@ -104,6 +126,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
 )
 def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
     bg_color, text_color = get_site_colors(dark_mode, contrast=True)
+
     return [
         {
             "selector": "node",
@@ -115,12 +138,30 @@ def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
                 "background-color": "data(color)",
                 "border-color": bg_color,
                 "border-width": "1px",
-                "font-size": "14px",
+                "font-size": "10px",
                 "color": text_color,
                 "text-background-color": bg_color,
                 "text-background-opacity": 1,
                 "text-background-shape": "round-rectangle",
                 "text-background-padding": "4px",
+            },
+        },
+        {
+            "selector": ".codegen-container",
+            "style": {
+                "background-color": text_color,
+                "border-width": "2px",
+                "border-color": bg_color,
+                "shape": "round-rectangle",
+                "padding": "50px",
+                "text-valign": "top",
+                "text-halign": "left",
+                "text-margin-x": "160px",
+                "text-margin-y": "20px",
+                "font-size": "14px",
+                "text-background-color": text_color,
+                "text-background-opacity": 1,
+                "color": bg_color,
             },
         },
         {
@@ -166,6 +207,7 @@ def layout() -> html.Div:
                     "name": "dagre",
                     "rankDir": "TB",
                     "ranker": "longest-path",
+                    "spacingFactor": 1.2,
                 },
                 style={"width": "100%", "height": "100vh"},
             ),

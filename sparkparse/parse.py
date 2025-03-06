@@ -18,6 +18,7 @@ from sparkparse.models import (
     OutputMetrics,
     ParsedLog,
     PhysicalPlan,
+    PhysicalPlanDetails,
     PhysicalPlanNode,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
@@ -81,9 +82,9 @@ def parse_task(line_dict: dict) -> Task:
     )
 
 
-def get_plan_io(
+def get_plan_details(
     plan_lines: list[str], tree_end: int, n_nodes: int
-) -> tuple[list[str], list[str]]:
+) -> PhysicalPlanDetails:
     sources = []
     targets = []
 
@@ -106,7 +107,19 @@ def get_plan_io(
             targets.append(target)
         else:
             continue
-    return sources, targets
+
+    codegen_lookup = {}
+    for details in task_details_split:
+        if "[codegen id : " not in details:
+            continue
+
+        codegen_node = int(details.split(")")[0].split("(")[-1].strip())
+        codegen_id = int(details.split("[codegen id : ")[-1].split("]")[0].strip())
+        codegen_lookup[codegen_node] = codegen_id
+
+    return PhysicalPlanDetails(
+        sources=sources, targets=targets, codegen_lookup=codegen_lookup
+    )
 
 
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
@@ -129,7 +142,6 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     node_indentation: dict[int, int] = {}
 
     for i, line in enumerate(tree):
-        is_whole_stage_codegen = "*" in line
         node_id = int(line.split(",")[0].strip().split("(")[-1].removesuffix(")"))
         if "Scan" in line:
             node_type_raw = "Scan"
@@ -142,8 +154,8 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
         node = PhysicalPlanNode(
             node_id=node_id,
             node_type=node_type,
-            is_whole_stage_codegen=is_whole_stage_codegen,
             child_nodes=[],
+            whole_stage_codegen_id=None,
         )
         nodes.append(node)
 
@@ -165,13 +177,18 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
                 children.remove(node.node_id)
             node.child_nodes = sorted(children)
 
-    sources, targets = get_plan_io(
+    details = get_plan_details(
         plan_lines,
         tree_end,
         len(nodes),
     )
 
-    return PhysicalPlan(sources=sources, targets=targets, nodes=nodes)
+    if len(details.codegen_lookup) > 0:
+        for node in nodes:
+            if node.node_id in details.codegen_lookup:
+                node.whole_stage_codegen_id = details.codegen_lookup[node.node_id]
+
+    return PhysicalPlan(sources=details.sources, targets=details.targets, nodes=nodes)
 
 
 def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
@@ -354,8 +371,9 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         # core task info
         "task_id",
         "node_type",
-        "is_whole_stage_codegen",
+        "node_name",
         "child_nodes",
+        "whole_stage_codegen_id",
         "task_start_timestamp",
         "task_end_timestamp",
         "task_duration_seconds",
@@ -453,6 +471,16 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
                 "result_size": "result_size_bytes",
                 "peak_execution_memory": "peak_execution_memory_bytes",
             }
+        )
+        .with_columns(
+            pl.concat_str(
+                [
+                    pl.lit("["),
+                    pl.col("task_id").cast(pl.String),
+                    pl.lit("] "),
+                    pl.col("node_type"),
+                ]
+            ).alias("node_name")
         )
         .select(final_cols)
     )
