@@ -89,7 +89,7 @@ class ExecutorMetrics(BaseModel):
 
 
 class PushBasedShuffle(BaseModel):
-    corrupt_merged_block_chunks: int = Field(alias="Corrupt Merged Block Chunks")
+    merged_corrupt_block_chunks: int = Field(alias="Corrupt Merged Block Chunks")
     merged_fetch_fallback_count: int = Field(alias="Merged Fetch Fallback Count")
     merged_remote_blocks_fetched: int = Field(alias="Merged Remote Blocks Fetched")
     merged_local_blocks_fetched: int = Field(alias="Merged Local Blocks Fetched")
@@ -103,14 +103,14 @@ class PushBasedShuffle(BaseModel):
 
 
 class ShuffleReadMetrics(BaseModel):
-    remote_blocks_fetched: int = Field(alias="Remote Blocks Fetched")
-    local_blocks_fetched: int = Field(alias="Local Blocks Fetched")
-    fetch_wait_time: int = Field(alias="Fetch Wait Time")
-    remote_bytes_read: int = Field(alias="Remote Bytes Read")
-    remote_bytes_read_to_disk: int = Field(alias="Remote Bytes Read To Disk")
-    local_bytes_read: int = Field(alias="Local Bytes Read")
-    total_records_read: int = Field(alias="Total Records Read")
-    remote_requests_duration: int = Field(alias="Remote Requests Duration")
+    shuffle_remote_blocks_fetched: int = Field(alias="Remote Blocks Fetched")
+    shuffle_local_blocks_fetched: int = Field(alias="Local Blocks Fetched")
+    shuffle_fetch_wait_time: int = Field(alias="Fetch Wait Time")
+    shuffle_remote_bytes_read: int = Field(alias="Remote Bytes Read")
+    shuffle_remote_bytes_read_to_disk: int = Field(alias="Remote Bytes Read To Disk")
+    shuffle_local_bytes_read: int = Field(alias="Local Bytes Read")
+    shuffle_records_read: int = Field(alias="Total Records Read")
+    shuffle_remote_requests_duration: int = Field(alias="Remote Requests Duration")
     push_based_shuffle: PushBasedShuffle = Field(alias="Push Based Shuffle")
 
 

@@ -275,7 +275,11 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
     jobs_with_duration = (
         jobs.select("job_id", "event_type", "job_timestamp")
         .pivot("event_type", index="job_id", values="job_timestamp")
-        .with_columns((pl.col("end") - pl.col("start")).alias("job_duration_ms"))
+        .with_columns(
+            (pl.col("end") - pl.col("start"))
+            .mul(1 / 1_000)
+            .alias("job_duration_seconds")
+        )
         .rename({"start": "job_start_timestamp", "end": "job_end_timestamp"})
     )
     jobs_final = (
@@ -288,15 +292,19 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
     stages = pl.DataFrame(result.stages)
     stages_final = (
         stages.pivot("event_type", index="stage_id", values="stage_timestamp")
-        .with_columns((pl.col("end") - pl.col("start")).alias("stage_duration_ms"))
+        .with_columns(
+            (pl.col("end") - pl.col("start"))
+            .mul(1 / 1000)
+            .alias("stage_duration_seconds")
+        )
         .rename({"start": "stage_start_timestamp", "end": "stage_end_timestamp"})
     )
 
     tasks = pl.DataFrame(result.tasks)
     tasks_final = tasks.with_columns(
-        (pl.col("task_finish_time") - pl.col("task_start_time")).alias(
-            "task_duration_ms"
-        )
+        (pl.col("task_finish_time") - pl.col("task_start_time"))
+        .mul(1 / 1_000)
+        .alias("task_duration_seconds")
     ).rename(
         {
             "task_start_time": "task_start_timestamp",
@@ -329,38 +337,123 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         .unnest("push_based_shuffle")
     ).with_columns(pl.lit(log_name).alias("log_name"))
 
-    id_cols = [
+    timestamp_cols = [col for col in combined.columns if "timestamp" in col]
+
+    final_cols = [
+        # system identifiers / run info
+        "log_name",
         "job_id",
         "stage_id",
+        "job_start_timestamp",
+        "job_end_timestamp",
+        "job_duration_seconds",
+        "stage_start_timestamp",
+        "stage_end_timestamp",
+        "stage_duration_seconds",
+        # core task info
         "task_id",
         "node_type",
         "is_whole_stage_codegen",
         "child_nodes",
-        "job_start_timestamp",
-        "job_end_timestamp",
-        "job_duration_ms",
-        "stage_start_timestamp",
-        "stage_end_timestamp",
-        "stage_duration_ms",
         "task_start_timestamp",
         "task_end_timestamp",
-        "task_duration_ms",
+        "task_duration_seconds",
+        # task metrics
+        # general
+        "executor_run_time_seconds",
+        "executor_cpu_time_seconds",
+        "executor_deserialize_time_seconds",
+        "executor_deserialize_cpu_time_seconds",
+        "result_size_bytes",
+        "jvm_gc_time_seconds",
+        "result_serialization_time_seconds",
+        "memory_bytes_spilled",
+        "disk_bytes_spilled",
+        "peak_execution_memory_bytes",
+        # input
+        "bytes_read",
+        "records_read",
+        # output
+        "bytes_written",
+        "records_written",
+        # shuffle read
+        "shuffle_remote_blocks_fetched",
+        "shuffle_local_blocks_fetched",
+        "shuffle_fetch_wait_time_seconds",
+        "shuffle_remote_bytes_read",
+        "shuffle_remote_bytes_read_to_disk",
+        "shuffle_local_bytes_read",
+        "shuffle_records_read",
+        "shuffle_remote_requests_duration",
+        # shuffle write
+        "shuffle_bytes_written",
+        "shuffle_write_time_seconds",
+        "shuffle_records_written",
+        # push based shuffle
+        "merged_corrupt_block_chunks",
+        "merged_fetch_fallback_count",
+        "merged_remote_blocks_fetched",
+        "merged_local_blocks_fetched",
+        "merged_remote_chunks_fetched",
+        "merged_local_chunks_fetched",
+        "merged_remote_bytes_read",
+        "merged_local_bytes_read",
+        "merged_remote_requests_duration",
+        # extra task metadata
         "host",
-        "log_name",
+        "index",
+        "attempt",
+        "failed",
+        "killed",
+        "speculative",
+        "task_loc",
+        "task_type",
     ]
 
-    metrics_cols = sorted(set(combined.columns) - set(id_cols))
-    timestamp_cols = [col for col in combined.columns if "timestamp" in col]
-
-    final = combined.select(id_cols + metrics_cols).with_columns(
-        [
-            pl.col(col)
-            .mul(1000)
-            .cast(pl.Datetime)
-            .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
-            .alias(col)
-            for col in timestamp_cols
-        ]
+    final = (
+        combined.with_columns(
+            [
+                pl.col(col)
+                .mul(1000)
+                .cast(pl.Datetime)
+                .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+                .alias(col)
+                for col in timestamp_cols
+            ]
+        )
+        .with_columns(
+            [
+                pl.col("executor_cpu_time")
+                .mul(1 / 1e9)
+                .alias("executor_cpu_time_seconds"),
+                pl.col("executor_run_time")
+                .mul(1 / 1e6)
+                .alias("executor_run_time_seconds"),
+                pl.col("executor_deserialize_cpu_time")
+                .mul(1 / 1e9)
+                .alias("executor_deserialize_cpu_time_seconds"),
+                pl.col("executor_deserialize_time")
+                .mul(1 / 1e6)
+                .alias("executor_deserialize_time_seconds"),
+                pl.col("shuffle_write_time")
+                .mul(1 / 1e9)
+                .alias("shuffle_write_time_seconds"),
+                pl.col("jvm_gc_time").mul(1 / 1e6).alias("jvm_gc_time_seconds"),
+                pl.col("result_serialization_time")
+                .mul(1 / 1e6)
+                .alias("result_serialization_time_seconds"),
+                pl.col("shuffle_fetch_wait_time")
+                .mul(1 / 1e6)
+                .alias("shuffle_fetch_wait_time_seconds"),
+            ]
+        )
+        .rename(
+            {
+                "result_size": "result_size_bytes",
+                "peak_execution_memory": "peak_execution_memory_bytes",
+            }
+        )
+        .select(final_cols)
     )
 
     return final
