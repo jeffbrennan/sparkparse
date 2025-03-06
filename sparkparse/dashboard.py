@@ -139,8 +139,7 @@ def init_dashboard(df: pl.DataFrame) -> dash.Dash:
 
     dash_cytoscape.load_extra_layouts()
     if df is not None:
-        app.df = df  # type: ignore
-
+        app.df = df.filter(pl.col("node_type").is_not_null())  # type: ignore
 
     app.index_string = f"""
     <!DOCTYPE html>
