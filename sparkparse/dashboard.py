@@ -1,5 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
+import dash_cytoscape
 import polars as pl
 from dash import Input, Output, State, callback, dcc, html
 
@@ -136,8 +137,10 @@ def init_dashboard(df: pl.DataFrame) -> dash.Dash:
         suppress_callback_exceptions=True,
     )
 
+    dash_cytoscape.load_extra_layouts()
     if df is not None:
         app.df = df  # type: ignore
+
 
     app.index_string = f"""
     <!DOCTYPE html>
