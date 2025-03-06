@@ -50,5 +50,6 @@ def get_spark(log_dir: Path) -> SparkSession:
         SparkSession.builder.appName("sparkparse")  # type: ignore
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", log_dir.as_posix())
+        .config("spark.history.fs.logDirectory", log_dir.as_posix())
         .getOrCreate()
     )
