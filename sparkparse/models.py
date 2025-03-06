@@ -49,6 +49,8 @@ class NodeType(StrEnum):
     Filter = auto()
     GlobalLimit = auto()
     LocalLimit = auto()
+    TakeOrderedAndProject = auto()
+    Union = auto()
 
 
 class PhysicalPlanNode(BaseModel):
