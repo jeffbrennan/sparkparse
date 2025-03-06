@@ -8,12 +8,47 @@ from dash import Input, Output, callback, dcc, html
 from sparkparse.styling import get_site_colors
 
 
+def get_node_color(
+    node_value: float, min_value: float, max_value: float, dark_mode: bool
+) -> str:
+    """Generate a color between gray and red based on duration."""
+    if min_value == max_value:
+        normalized = 0
+    else:
+        normalized = (node_value - min_value) / (max_value - min_value)
+
+    bg_color, _ = get_site_colors(dark_mode, contrast=False)
+    base_rgb = bg_color.removeprefix("rgb(").removesuffix(")")
+    base_r, base_g, base_b = [int(x) for x in base_rgb.split(",")]
+
+    accent_r, accent_g, accent_b = 247, 111, 83
+    r_adj = normalized * abs(base_r - accent_r)
+    g_adj = normalized * abs(base_g - accent_g)
+    b_adj = normalized * abs(base_b - accent_b)
+
+    if dark_mode:
+        r = int(base_r + r_adj)
+        g = int(base_g + g_adj)
+        b = int(base_b + b_adj)
+    else:
+        r = int(base_r - r_adj)
+        g = int(base_g - g_adj)
+        b = int(base_b - b_adj)
+
+    return f"rgb({r},{g},{b})"
+
+
 @callback(
     Output("dag-graph", "elements"),
     Input("metrics-df", "data"),
+    Input("color-mode-switch", "value"),
 )
-def create_elements(df_data: List[Dict[str, Any]]) -> List[Dict]:
+def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
     elements = []
+
+    durations = [row["task_duration_seconds"] for row in df_data]
+    min_duration = min(durations)
+    max_duration = max(durations)
 
     for row in df_data:
         hover_info = (
@@ -33,12 +68,20 @@ def create_elements(df_data: List[Dict[str, Any]]) -> List[Dict]:
             f"Memory Spill Bytes: {row['memory_bytes_spilled']:,}"
         )
 
+        node_color = get_node_color(
+            row["task_duration_seconds"], min_duration, max_duration, dark_mode
+        )
+
+        n_value = (
+            row["records_read"] if row["records_read"] > 0 else row["records_written"]
+        )
         elements.append(
             {
                 "data": {
                     "id": str(row["task_id"]),
-                    "label": f"{row['node_type']} ({row['task_id']})\nn={row['records_read']:,}",
+                    "label": f"{row['node_type']} ({row['task_id']})\nn={n_value:,}",
                     "tooltip": hover_info,
+                    "color": node_color,
                 }
             }
         )
@@ -53,6 +96,43 @@ def create_elements(df_data: List[Dict[str, Any]]) -> List[Dict]:
                     )
 
     return elements
+
+
+@callback(
+    Output("dag-graph", "stylesheet"),
+    Input("color-mode-switch", "value"),
+)
+def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
+    bg_color, text_color = get_site_colors(dark_mode, contrast=True)
+    return [
+        {
+            "selector": "node",
+            "style": {
+                "label": "data(label)",
+                "text-wrap": "wrap",
+                "text-valign": "top",
+                "text-halign": "center",
+                "background-color": "data(color)",
+                "border-color": bg_color,
+                "border-width": "1px",
+                "font-size": "12px",
+                "color": text_color,
+                "text-background-color": bg_color,
+                "text-background-opacity": 1,
+                "text-background-shape": "round-rectangle",
+                "text-background-padding": "4px",
+            },
+        },
+        {
+            "selector": "edge",
+            "style": {
+                "curve-style": "bezier",
+                "target-arrow-shape": "triangle",
+                "target-arrow-color": bg_color,
+                "line-color": bg_color,
+            },
+        },
+    ]
 
 
 def layout() -> html.Div:
@@ -73,28 +153,6 @@ def layout() -> html.Div:
                     "ranker": "longest-path",
                 },
                 style={"width": "100%", "height": "100vh"},
-                stylesheet=[
-                    {
-                        "selector": "node",
-                        "style": {
-                            "label": "data(label)",
-                            "text-wrap": "wrap",
-                            "text-valign": "center",
-                            "text-halign": "center",
-                            "background-color": "#6FB1FC",
-                            "font-size": "12px",
-                        },
-                    },
-                    {
-                        "selector": "edge",
-                        "style": {
-                            "curve-style": "bezier",
-                            "target-arrow-shape": "triangle",
-                            "line-color": "#ccc",
-                            "target-arrow-color": "#ccc",
-                        },
-                    },
-                ],
             ),
             html.Div(id="tooltip"),
         ]
