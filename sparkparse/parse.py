@@ -321,12 +321,10 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
     )
 
     combined = (
-        (
-            tasks_final.join(plan_final, on="task_id", how="left")
-            .join(stages_final, on="stage_id", how="left")
-            .join(jobs_final, on="stage_id", how="left")
-            .sort("job_id", "stage_id", "task_id")
-        )
+        tasks_final.join(plan_final, on="task_id", how="left")
+        .join(stages_final, on="stage_id", how="left")
+        .join(jobs_final, on="stage_id", how="left")
+        .sort("job_id", "stage_id", "task_id")
         .unnest("metrics")
         .unnest("task_metrics")
         .unnest("executor_metrics")
@@ -335,13 +333,16 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         .unnest("input_metrics")
         .unnest("output_metrics")
         .unnest("push_based_shuffle")
-    ).with_columns(pl.lit(log_name).alias("log_name"))
+        .with_columns(pl.lit(log_name).alias("log_name"))
+        .with_columns(pl.lit(result.name).alias("parsed_log_name"))
+    )
 
     timestamp_cols = [col for col in combined.columns if "timestamp" in col]
 
     final_cols = [
         # system identifiers / run info
         "log_name",
+        "parsed_log_name",
         "job_id",
         "stage_id",
         "job_start_timestamp",
