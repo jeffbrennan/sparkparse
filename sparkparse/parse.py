@@ -170,7 +170,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     for i, node in enumerate(nodes):
         # for first node, children are at the same indentation level
         increment = step if i > 0 else 0
-        children = indentation_nodes.get(node_indentation[node.node_id] + increment)
+        children = indentation_nodes.get(node_indentation[node.node_id] - increment)
 
         if children:
             if node.node_id in children:

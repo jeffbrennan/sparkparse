@@ -86,7 +86,9 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             f"Result Size Bytes: {row['result_size_bytes']:,}\n"
             "\nSpill\n"
             f"Disk Spill Bytes: {row['disk_bytes_spilled']:,}\n"
-            f"Memory Spill Bytes: {row['memory_bytes_spilled']:,}"
+            f"Memory Spill Bytes: {row['memory_bytes_spilled']:,}\n"
+            "\nChild Nodes\n",
+            row["child_nodes"],
         )
 
         node_color = get_node_color(
@@ -114,7 +116,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
                 child = child.strip()
                 if child:
                     elements.append(
-                        {"data": {"source": child, "target": str(row["task_id"])}}
+                        {"data": {"target": child, "source": str(row["task_id"])}}
                     )
 
     return elements
