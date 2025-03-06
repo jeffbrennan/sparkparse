@@ -19,6 +19,7 @@ dependencies = [
     "dash-bootstrap-components>=1.6.0,<2",
     "plotly>=6.0.0",
     "ipykernel>=6.29.5",
+    "dash-cytoscape>=1.0.2",
 ]
 
 

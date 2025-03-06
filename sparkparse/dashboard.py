@@ -3,13 +3,14 @@ import dash_bootstrap_components as dbc
 import polars as pl
 from dash import Input, Output, State, callback, dcc, html
 
-from sparkparse.pages import home
+from sparkparse.pages import dag, home
 from sparkparse.styling import SitePalette, get_site_colors
 
 
 @callback(
     [
         Output("navbar-brand", "style"),
+        Output("dag-link", "style"),
     ],
     [
         Input("current-url", "pathname"),
@@ -22,11 +23,8 @@ def update_link_color(pathname: str, dark_mode: bool):
         dark_mode, contrast=True
     )
 
-    pages = [""]
+    pages = ["", "dag"]
     output_styles = [{"color": color} for _ in range(len(pages))]
-
-    if pathname in ["network"]:
-        return output_styles
 
     current_page = pathname.removeprefix("/").split("-")[0]
 
@@ -84,8 +82,20 @@ def layout():
                     dbc.Nav(
                         [
                             dcc.Location("current-url", refresh=False),
-                        ]
-                    )
+                            dbc.NavItem(
+                                dbc.NavLink(
+                                    id="dag-link",
+                                    children="dag",
+                                    href="dag",
+                                    # class_name="downloads-link",
+                                )
+                            ),
+                        ],
+                        className="ml-auto",
+                        navbar=True,
+                    ),
+                    id="navbar-collapse",
+                    navbar=True,
                 ),
                 dbc.NavItem(
                     dbc.Button(
@@ -158,6 +168,7 @@ def init_dashboard(df: pl.DataFrame) -> dash.Dash:
 
     app.layout = layout()
     dash.register_page(home.__name__, name="summary", path="/", layout=home.layout)
+    dash.register_page(dag.__name__, name="dag", layout=dag.layout)
     return app
 
 
