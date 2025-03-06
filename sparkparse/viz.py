@@ -15,6 +15,8 @@ def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
             font=dict(size=legend_font_size, color=font_color),
         )
     )
+
+    fig.update_traces(marker={'size': 15})
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     fig.for_each_yaxis(
         lambda y: y.update(
@@ -40,7 +42,7 @@ def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
         )
     )
     fig.update_yaxes(matches=None, showticklabels=True, showgrid=False, fixedrange=True)
-
+ 
     x_padding = (x_max - x_min) * 0.01
     fig.update_xaxes(
         showgrid=False,

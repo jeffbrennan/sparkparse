@@ -33,18 +33,32 @@ def get_metrics_viz(
         template = "plotly"
 
     df = pd.DataFrame(df_data).sort_values("task_id")
-    df["cumulative_runtime"] = df["executor_run_time"].cumsum()
+    df["cumulative_runtime"] = df["task_duration_seconds"].cumsum()
 
-    title = f"<b>Cumulative Task Runtime</b><br><sup>{df['log_name'].iloc[0]}</sup>"
+    title = (
+        f"<b>Cumulative Task Runtime</b><br><sup>{df['parsed_log_name'].iloc[0]}</sup>"
+    )
 
-    fig = px.scatter(
+    fig = px.line(
         df,
         x="task_id",
         y="cumulative_runtime",
-        color="task_type",
         title=title,
         template=template,
     )
+    scatter = px.scatter(
+        df,
+        x="task_id",
+        y="cumulative_runtime",
+        color="node_type",
+        template=template,
+    )
+
+    for trace in scatter.data:
+        fig.add_trace(trace)
+
+    fig.data[0].line.color = "black"  # type: ignore
+
     x_min = df["task_id"].min()
     x_max = df["task_id"].max()
 
@@ -74,17 +88,16 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
         "job_id",
         "stage_id",
         "task_id",
-        "task_type",
-        "executor_run_time",
-        "result_size",
+        "node_type",
+        "task_duration_seconds",
+        "executor_run_time_seconds",
+        "result_size_bytes",
         "records_read",
         "records_written",
         "bytes_read",
         "bytes_written",
-        "shuffle_write_time",
+        "shuffle_write_time_seconds",
         "shuffle_bytes_written",
-        "memory_bytes_spilled",
-        "disk_bytes_spilled",
     ]
 
     col_mapping = {col: int_style for col in core_cols if col in df.columns}
