@@ -52,7 +52,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
 
     for row in df_data:
         hover_info = (
-            f"{row['node_type']} (#{row['task_id']})\n"
+            f"[{row['task_id']}] {row['node_type']}\n"
             "\nDuration\n"
             f"Task Time: {row['task_duration_seconds']:.2f}s\n"
             f"GC Time: {row['jvm_gc_time_seconds']:.2f}s\n"
@@ -79,7 +79,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             {
                 "data": {
                     "id": str(row["task_id"]),
-                    "label": f"{row['node_type']} ({row['task_id']})\nn={n_value:,}",
+                    "label": f"[{row['task_id']}] {row['node_type']}\nn={n_value:,}",
                     "tooltip": hover_info,
                     "color": node_color,
                 }
@@ -115,7 +115,7 @@ def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
                 "background-color": "data(color)",
                 "border-color": bg_color,
                 "border-width": "1px",
-                "font-size": "12px",
+                "font-size": "14px",
                 "color": text_color,
                 "text-background-color": bg_color,
                 "text-background-opacity": 1,
@@ -133,6 +133,21 @@ def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
             },
         },
     ]
+
+
+@callback(
+    Output("dag-graph", "style"),
+    Input("color-mode-switch", "value"),
+)
+def update_cyto_border_color(dark_mode: bool) -> dict:
+    _, border_color = get_site_colors(dark_mode, contrast=False)
+    return {
+        "width": "100%",
+        "height": "100vh",
+        "borderRadius": "15px",
+        "border": f"2px solid {border_color}",
+        "overflow": "hidden",
+    }
 
 
 def layout() -> html.Div:
@@ -186,6 +201,6 @@ def update_tooltip(mouseover_data, dark_mode: bool):
             "zIndex": 9999,
             "left": "7%",
             "top": "10%",
-            "fontSize": "12px",
+            "fontSize": "16px",
         },
     )
