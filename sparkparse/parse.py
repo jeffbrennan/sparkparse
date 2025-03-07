@@ -146,14 +146,16 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
 
         node_id = int(match.group(1))
 
-        if "Scan" in line:
-            node_type_raw = "Scan"
-        else:
-            node_type_raw = (
-                line.split(",")[0].strip().split(" (")[0].strip().split(" ")[-1].strip()
-            )
+        node_type_match = re.search(
+            r"(\b\w+\b).*\(\d{1,4}\)", line.replace("Execute", "")
+        )
 
-        node_type = NodeType(node_type_raw)
+        if node_type_match:
+            node_type = NodeType(node_type_match.group(1))
+
+        else:
+            raise ValueError(f"Could not parse node type from line: {line}")
+
         node = PhysicalPlanNode(
             node_id=node_id,
             node_type=node_type,
