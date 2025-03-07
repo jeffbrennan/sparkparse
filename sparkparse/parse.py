@@ -1,8 +1,10 @@
+from collections import defaultdict
 import copy
 import datetime
 import json
 import logging
 from pathlib import Path
+import re
 
 import polars as pl
 
@@ -122,27 +124,29 @@ def get_plan_details(
     )
 
 
-def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
-    base_indentation = 3
+def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     step = 3
-    nodes = []
+    empty_leading_lines = 0
+    node_map: dict[int, PhysicalPlanNode] = {}
+    indentation_history = []
 
-    plan_string = line_dict["physicalPlanDescription"]
-    plan_lines = plan_string.split("\n")
+    lines = tree.split("\n")
+    node_pattern = re.compile(r".*\((\d+)\)")
 
-    tree_start = plan_lines.index("+- == Final Plan ==") + 1
-    tree_end = plan_lines.index("+- == Initial Plan ==")
-    tree = plan_lines[tree_start:tree_end]
-    logging.debug("\n".join(tree))
+    for i, line in enumerate(lines):
+        if line == "":
+            print("empty line")
+            empty_leading_lines += 1
+            continue
 
-    # lookup of indentation level : node ids
-    indentation_nodes: dict[int, list[int]] = {}
+        # remove leading spaces and nested indentation after :
+        line_strip = line.lstrip().removeprefix(": ").lstrip()
+        match = node_pattern.search(line)
+        if not match:
+            continue
 
-    # lookup of node id : indentation level
-    node_indentation: dict[int, int] = {}
+        node_id = int(match.group(1))
 
-    for i, line in enumerate(tree):
-        node_id = int(line.split(",")[0].strip().split("(")[-1].removesuffix(")"))
         if "Scan" in line:
             node_type_raw = "Scan"
         else:
@@ -157,38 +161,55 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
             child_nodes=[],
             whole_stage_codegen_id=None,
         )
-        nodes.append(node)
+        node_map[node_id] = node
 
-        indentation = len(line) - len(line.lstrip()) - base_indentation
-        node_indentation[node_id] = indentation
+        indentation_level = len(line) - len(line_strip)
 
-        if indentation not in indentation_nodes:
-            indentation_nodes[indentation] = [node_id]
-        else:
-            indentation_nodes[indentation].append(node_id)
+        # first non-empty line is always the leaf node
+        if i == 0 + empty_leading_lines:
+            indentation_history.append((indentation_level, node_id))
+            continue
 
-    for i, node in enumerate(nodes):
-        # for first node, children are at the same indentation level
-        increment = step if i > 0 else 0
-        children = indentation_nodes.get(node_indentation[node.node_id] - increment)
+        prev_indentation = indentation_history[-1]
+        indentation_history.append((indentation_level, node_id))
+        if prev_indentation[0] > indentation_level:
+            child_nodes = [
+                i[1] for i in indentation_history if i[0] == indentation_level - step
+            ]
+            if child_nodes:
+                node_map[node_id].child_nodes = child_nodes
+            continue
 
-        if children:
-            if node.node_id in children:
-                children.remove(node.node_id)
-            node.child_nodes = sorted(children)
+        node_map[node_id].child_nodes = [prev_indentation[1]]
+    return node_map
 
+
+def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
+    plan_string = line_dict["physicalPlanDescription"]
+    plan_lines = plan_string.split("\n")
+
+    tree_start = plan_lines.index("+- == Final Plan ==") + 1
+    tree_end = plan_lines.index("+- == Initial Plan ==")
+    tree = "\n".join(plan_lines[tree_start:tree_end])
+
+    logging.debug(tree)
+
+    node_map = parse_spark_ui_tree("\n".join(tree))
     details = get_plan_details(
         plan_lines,
         tree_end,
-        len(nodes),
+        len(node_map),
     )
 
     if len(details.codegen_lookup) > 0:
-        for node in nodes:
-            if node.node_id in details.codegen_lookup:
-                node.whole_stage_codegen_id = details.codegen_lookup[node.node_id]
+        for k, v in details.codegen_lookup.items():
+            node_map[k].whole_stage_codegen_id = v
 
-    return PhysicalPlan(sources=details.sources, targets=details.targets, nodes=nodes)
+    return PhysicalPlan(
+        sources=details.sources,
+        targets=details.targets,
+        nodes=list(node_map.values()),
+    )
 
 
 def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
