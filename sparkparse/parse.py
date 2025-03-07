@@ -135,7 +135,6 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
 
     for i, line in enumerate(lines):
         if line == "":
-            print("empty line")
             empty_leading_lines += 1
             continue
 
@@ -194,7 +193,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
     logging.debug(tree)
 
-    node_map = parse_spark_ui_tree("\n".join(tree))
+    node_map = parse_spark_ui_tree(tree)
     details = get_plan_details(
         plan_lines,
         tree_end,
