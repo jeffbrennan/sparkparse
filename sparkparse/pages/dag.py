@@ -108,8 +108,12 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         if row["whole_stage_codegen_id"] is not None:
             node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
 
-        elements.append({"data": node_data})
+        nodes_to_exclude = ["BroadcastQueryStage"]
+        if row["node_type"] in nodes_to_exclude:
+            elements[-1]["data"]["target"] = row["child_nodes"]
+            continue
 
+        elements.append({"data": node_data})
         if row["child_nodes"] and row["child_nodes"] != "None":
             children = row["child_nodes"].strip("[]").split(",")
             for child in children:
