@@ -51,5 +51,14 @@ def get_spark(log_dir: Path) -> SparkSession:
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", log_dir.as_posix())
         .config("spark.history.fs.logDirectory", log_dir.as_posix())
+        .config("spark.executor.memory", "12g")
+        .config("spark.driver.memory", "8g")
+        .config("spark.shuffle.spill", "true")
+        .config(
+            "spark.sql.execution.arrow.maxRecordsPerBatch", "1000000"
+        )
+        .config(
+            "spark.sql.shuffle.partitions", "auto"
+        )
         .getOrCreate()
     )
