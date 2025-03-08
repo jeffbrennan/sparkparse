@@ -100,7 +100,7 @@ def get_plan_details(
     assert len(task_details_split) == n_nodes
 
     for details in task_details_split:
-        if "Scan" in details and "LocalTableScan" not in details:
+        if "Scan " in details and "LocalTableScan" not in details:
             source = details.split("[file:")[1].split("]")[0]
             sources.append(source)
         elif "file:" in details:

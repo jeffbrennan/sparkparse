@@ -56,6 +56,9 @@ class NodeType(StrEnum):
     Window = auto()
     WindowGroupLimit = auto()
     SortMergeJoin = auto()
+    TableCacheQueryStage = auto()
+    InMemoryTableScan = auto()
+    InMemoryRelation = auto()
 
 
 class PhysicalPlanNode(BaseModel):
