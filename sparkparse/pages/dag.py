@@ -54,11 +54,11 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         if row["whole_stage_codegen_id"] is not None
     }
     for group_id in codegen_groups:
-        codegen_label = f"WholeStageCodegen ({group_id})"
+        codegen_label = f"codegen\n#{group_id}"
         tooltip = [
             i["node_name"] for i in df_data if i["whole_stage_codegen_id"] == group_id
         ]
-        tooltip_str = codegen_label + "\n\n" + "\n".join(tooltip)
+        tooltip_str = codegen_label.replace("\n", " ") + "\n\n" + "\n".join(tooltip)
         elements.append(
             {
                 "data": {
@@ -109,9 +109,13 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         if row["whole_stage_codegen_id"] is not None:
             node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
 
-        nodes_to_exclude = ["BroadcastQueryStage"]
+        # skip nodes not displayed in spark ui and connect the previous node to the next node
+        nodes_to_exclude = ["BroadcastQueryStage", "ShuffleQueryStage"]
         if row["node_type"] in nodes_to_exclude:
-            elements[-1]["data"]["target"] = row["child_nodes"]
+            if not row["child_nodes"]:
+                continue
+            next_child = row["child_nodes"].split(",")[0]
+            elements[-1]["data"]["target"] = f"query_{row['query_id']}_{next_child}"
             continue
 
         elements.append({"data": node_data})
@@ -121,9 +125,12 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         children = row["child_nodes"].split(",")
         for child in children:
             target_formatted = f"query_{row['query_id']}_{child}"
+            source_formatted = f"query_{row['query_id']}_{row['task_id']}"
+
             elements.append(
-                {"data": {"target": target_formatted, "source": node_id_formatted}}
+                {"data": {"target": target_formatted, "source": source_formatted}}
             )
+
     return elements
 
 
@@ -160,13 +167,12 @@ def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
                 "border-width": "2px",
                 "border-color": bg_color,
                 "shape": "round-rectangle",
-                "padding": "65px",
-                "text-valign": "bottom",
-                "text-halign": "center",
-                "text-margin-y": "-20px",
+                "padding": "5px",
+                "text-valign": "top",
+                "text-halign": "right",
                 "font-size": "12px",
-                "text-background-color": text_color,
-                "text-background-opacity": 1,
+                "text-background-color": "rgb(255,255,255)",
+                "text-background-opacity": 0,
                 "color": bg_color,
             },
         },
