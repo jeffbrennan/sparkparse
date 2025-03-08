@@ -1,5 +1,3 @@
-from collections import defaultdict
-import copy
 import datetime
 import json
 import logging
@@ -22,6 +20,7 @@ from sparkparse.models import (
     PhysicalPlan,
     PhysicalPlanDetails,
     PhysicalPlanNode,
+    QueryEvent,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
@@ -101,7 +100,7 @@ def get_plan_details(
     assert len(task_details_split) == n_nodes
 
     for details in task_details_split:
-        if "Scan" in details:
+        if "Scan" in details and "LocalTableScan" not in details:
             source = details.split("[file:")[1].split("]")[0]
             sources.append(source)
         elif "file:" in details:
@@ -187,6 +186,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
 
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     plan_string = line_dict["physicalPlanDescription"]
+    query_id = line_dict["executionId"]
     plan_lines = plan_string.split("\n")
 
     tree_start = plan_lines.index("+- == Final Plan ==") + 1
@@ -207,6 +207,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
             node_map[k].whole_stage_codegen_id = v
 
     return PhysicalPlan(
+        query_id=query_id,
         sources=details.sources,
         targets=details.targets,
         nodes=list(node_map.values()),
@@ -252,7 +253,8 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     jobs = []
     stages = []
     tasks = []
-    final_plan = None
+    queries = []
+    query_times = []
     for i, line in enumerate(contents_to_parse, start_index):
         logger.debug("-" * 40)
         logger.debug(f"[line {i:04d}] parse start")
@@ -283,28 +285,43 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
             )
             if is_final_plan:
                 logger.debug(f"Found final plan at line {i}")
-                final_plan = copy.deepcopy(line_dict)
-        else:
+                queries.append(line_dict)
             logger.debug(
                 f"[line {i:04d}] parse skip - unhandled event type {event_type}"
             )
-            continue
-    if final_plan is None:
-        raise ValueError("No final physical plan found in log file")
+        elif event_type.endswith("SparkListenerSQLExecutionStart"):
+            query_times.append(
+                QueryEvent(
+                    query_id=line_dict["executionId"],
+                    query_time=line_dict["time"],
+                    event_type=EventType.start,
+                )
+            )
+        elif event_type.endswith("SparkListenerSQLExecutionEnd"):
+            query_times.append(
+                QueryEvent(
+                    query_id=line_dict["executionId"],
+                    query_time=line_dict["time"],
+                    event_type=EventType.end,
+                )
+            )
+    if len(queries) == 0:
+        raise ValueError("No queries found in log file")
 
-    parsed_plan = parse_physical_plan(final_plan)
-
+    parsed_queries = [parse_physical_plan(query) for query in queries]
     logger.debug(
-        f"Finished parsing log [n={len(jobs)} jobs | n={len(stages)} stages | n={len(tasks)} tasks]"
+        f"Finished parsing log [n={len(jobs)} jobs | n={len(stages)} stages | n={len(tasks)} tasks | n={len(parsed_queries)} queries]"
     )
 
-    parsed_log_name = get_parsed_log_name(parsed_plan, out_name)
+    parsed_log_name = get_parsed_log_name(parsed_queries[0], out_name)
+
     return ParsedLog(
         name=parsed_log_name,
         jobs=jobs,
         stages=stages,
         tasks=tasks,
-        plan=parsed_plan,
+        queries=parsed_queries,
+        query_times=query_times,
     )
 
 
@@ -350,13 +367,35 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
             "task_finish_time": "task_end_timestamp",
         }
     )
-
-    plan = pl.DataFrame(result.plan.nodes)
-    plan_final = plan.rename({"node_id": "task_id"}).with_columns(
-        pl.col("child_nodes")
-        .cast(pl.List(pl.String))
-        .list.join(", ")
-        .alias("child_nodes")
+    plan = pl.DataFrame()
+    for query in result.queries:
+        plan = pl.concat(
+            [
+                plan,
+                pl.DataFrame(query.nodes).with_columns(
+                    pl.lit(query.query_id).alias("query_id")
+                ),
+            ]
+        )
+    query_times = pl.DataFrame(result.query_times)
+    query_times_pivoted = (
+        query_times.pivot("event_type", index="query_id", values="query_time")
+        .rename({"start": "query_start_timestamp", "end": "query_end_timestamp"})
+        .with_columns(
+            (pl.col("query_end_timestamp") - pl.col("query_start_timestamp"))
+            .mul(1 / 1_000)
+            .alias("query_duration_seconds")
+        )
+    )
+    plan_final = (
+        plan.rename({"node_id": "task_id"})
+        .with_columns(
+            pl.col("child_nodes")
+            .cast(pl.List(pl.String))
+            .list.join(", ")
+            .alias("child_nodes")
+        )
+        .join(query_times_pivoted, on="query_id", how="left")
     )
 
     combined = (
@@ -391,6 +430,10 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         "stage_end_timestamp",
         "stage_duration_seconds",
         # core task info
+        "query_id",
+        "query_start_timestamp",
+        "query_end_timestamp",
+        "query_duration_seconds",
         "task_id",
         "node_type",
         "node_name",
@@ -457,7 +500,7 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
                 pl.col(col)
                 .mul(1000)
                 .cast(pl.Datetime)
-                .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+                .dt.strftime("%Y-%m-%dT%H:%M:%S")
                 .alias(col)
                 for col in timestamp_cols
             ]

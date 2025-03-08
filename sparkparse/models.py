@@ -51,6 +51,11 @@ class NodeType(StrEnum):
     LocalLimit = auto()
     TakeOrderedAndProject = auto()
     Union = auto()
+    LocalTableScan = auto()
+    Coalesce = auto()
+    Window = auto()
+    WindowGroupLimit = auto()
+    SortMergeJoin = auto()
 
 
 class PhysicalPlanNode(BaseModel):
@@ -60,7 +65,14 @@ class PhysicalPlanNode(BaseModel):
     whole_stage_codegen_id: int | None = None
 
 
+class QueryEvent(BaseModel):
+    query_id: int
+    event_type: EventType
+    query_time: int
+
+
 class PhysicalPlan(BaseModel):
+    query_id: int
     sources: list[str]
     targets: list[str]
     nodes: list[PhysicalPlanNode]
@@ -176,7 +188,8 @@ class ParsedLog(BaseModel):
     jobs: list[Job]
     stages: list[Stage]
     tasks: list[Task]
-    plan: PhysicalPlan
+    queries: list[PhysicalPlan]
+    query_times: list[QueryEvent]
 
 
 class OutputFormat(StrEnum):

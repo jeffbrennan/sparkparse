@@ -188,12 +188,6 @@ body,
     display: none !important;
     outline: none !important;
 }
-
-.Select-input {
-    display: none !important;
-    outline: none !important;
-}
-
 /* light */
 .light-mode .Select-control {
     background-color: rgb(33, 33, 33) !important;

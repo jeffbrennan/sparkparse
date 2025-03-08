@@ -4,6 +4,7 @@ import dash
 import dash_cytoscape as cyto
 import polars as pl
 from dash import Input, Output, callback, dcc, html
+import dash_bootstrap_components as dbc
 
 from sparkparse.styling import get_site_colors
 
@@ -40,8 +41,10 @@ def get_node_color(
 
 @callback(
     Output("dag-graph", "elements"),
-    Input("metrics-df", "data"),
-    Input("color-mode-switch", "value"),
+    [
+        Input("metrics-df", "data"),
+        Input("color-mode-switch", "value"),
+    ],
 )
 def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
     elements = []
@@ -94,13 +97,11 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         node_color = get_node_color(
             row["task_duration_seconds"], min_duration, max_duration, dark_mode
         )
-        n_value = (
-            row["records_read"] if row["records_read"] > 0 else row["records_written"]
-        )
 
+        node_id_formatted = f"query_{row['query_id']}_{row['task_id']}"
         node_data = {
-            "id": str(row["task_id"]),
-            "label": f"{row['node_name']}\nn={n_value:,}",
+            "id": node_id_formatted,
+            "label": f"{row['node_name']}",
             "tooltip": hover_info,
             "color": node_color,
         }
@@ -114,15 +115,15 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             continue
 
         elements.append({"data": node_data})
-        if row["child_nodes"] and row["child_nodes"] != "None":
-            children = row["child_nodes"].strip("[]").split(",")
-            for child in children:
-                child = child.strip()
-                if child:
-                    elements.append(
-                        {"data": {"target": child, "source": str(row["task_id"])}}
-                    )
+        if not row["child_nodes"]:
+            continue
 
+        children = row["child_nodes"].split(",")
+        for child in children:
+            target_formatted = f"query_{row['query_id']}_{child}"
+            elements.append(
+                {"data": {"target": target_formatted, "source": node_id_formatted}}
+            )
     return elements
 
 
@@ -159,12 +160,11 @@ def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
                 "border-width": "2px",
                 "border-color": bg_color,
                 "shape": "round-rectangle",
-                "padding": "50px",
-                "text-valign": "top",
-                "text-halign": "left",
-                "text-margin-x": "160px",
-                "text-margin-y": "20px",
-                "font-size": "14px",
+                "padding": "65px",
+                "text-valign": "bottom",
+                "text-halign": "center",
+                "text-margin-y": "-20px",
+                "font-size": "12px",
                 "text-background-color": text_color,
                 "text-background-opacity": 1,
                 "color": bg_color,
@@ -197,25 +197,84 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
     }
 
 
+@callback(
+    [
+        Output("query-id-dropdown", "value"),
+        Output("query-id-dropdown", "options"),
+    ],
+    Input("metrics-df", "id"),  # This triggers when the component is mounted
+)
+def initialize_dropdown(_):
+    df: pl.DataFrame = dash.get_app().df
+    query_ids = sorted(df.select("query_id").unique().get_column("query_id").to_list())
+    options = [{"label": f"Query {i}", "value": i} for i in query_ids]
+    return query_ids[0], options
+
+
+@callback(
+    [
+        Output("metrics-df", "data"),
+        Output("dag-title", "children"),
+    ],
+    Input("query-id-dropdown", "value"),
+)
+def get_records(query_id: int) -> tuple[list[dict[str, Any]], list[str]]:
+    df: pl.DataFrame = dash.get_app().df
+    filtered_df = df.filter(pl.col("query_id") == query_id)
+    records = filtered_df.to_pandas().to_dict("records")
+
+    title = filtered_df.select(
+        "parsed_log_name",
+        "query_start_timestamp",
+        pl.col("query_duration_seconds").mul(1 / 60).alias("query_duration_minutes"),
+    ).to_dicts()[0]
+    dag_title = [
+        html.Div(
+            f"{title['parsed_log_name']}",
+            style={"fontWeight": "bold", "fontSize": "24px"},
+        ),
+        f"{title['query_start_timestamp']} - {title['query_duration_minutes']:.2f} minutes",
+    ]
+
+    return records, dag_title
+
+
 def layout() -> html.Div:
     if not hasattr(dash.get_app(), "df"):
         return html.Div("No data loaded")
 
-    df: pl.DataFrame = dash.get_app().df
-    records = df.to_pandas().to_dict("records")
-
+    # add a dropdown to select the query_id
     return html.Div(
         [
-            dcc.Store("metrics-df", data=records),
+            dcc.Store("metrics-df"),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        width=1,
+                        children=[
+                            dcc.Dropdown(
+                                id="query-id-dropdown",
+                                clearable=False,
+                                style={"marginTop": "15px"},
+                            )
+                        ],
+                    ),
+                    dbc.Col(
+                        width=11,
+                        children=[html.Div(id="dag-title")],
+                    ),
+                ]
+            ),
+            html.Br(),
             cyto.Cytoscape(
                 id="dag-graph",
                 layout={
                     "name": "dagre",
                     "rankDir": "TB",
                     "ranker": "longest-path",
-                    "spacingFactor": 1.2,
+                    "spacingFactor": 1,
                 },
-                style={"width": "100%", "height": "100vh"},
+                style={"width": "100%", "height": "100vh", "zIndex": 999},
             ),
             html.Div(id="tooltip"),
         ]
@@ -246,9 +305,9 @@ def update_tooltip(mouseover_data, dark_mode: bool):
             "padding": "10px",
             "border": f"1px solid {text_color}",
             "borderRadius": "5px",
-            "zIndex": 9999,
+            "zIndex": 100,
             "left": "7%",
-            "top": "10%",
+            "top": "14%",
             "fontSize": "16px",
         },
     )
