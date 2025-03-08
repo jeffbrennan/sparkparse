@@ -4,13 +4,14 @@ import dash_cytoscape
 import polars as pl
 from dash import Input, Output, State, callback, dcc, html
 
-from sparkparse.pages import dag, home
+from sparkparse.pages import dag, home, summary
 from sparkparse.styling import SitePalette, get_site_colors
 
 
 @callback(
     [
         Output("navbar-brand", "style"),
+        Output("summary-link", "style"),
         Output("dag-link", "style"),
     ],
     [
@@ -24,7 +25,7 @@ def update_link_color(pathname: str, dark_mode: bool):
         dark_mode, contrast=True
     )
 
-    pages = ["", "dag"]
+    pages = ["", "summary", "dag"]
     output_styles = [{"color": color} for _ in range(len(pages))]
 
     current_page = pathname.removeprefix("/").split("-")[0]
@@ -85,10 +86,16 @@ def layout():
                             dcc.Location("current-url", refresh=False),
                             dbc.NavItem(
                                 dbc.NavLink(
+                                    id="summary-link",
+                                    children="summary",
+                                    href="summary",
+                                )
+                            ),
+                            dbc.NavItem(
+                                dbc.NavLink(
                                     id="dag-link",
                                     children="dag",
                                     href="dag",
-                                    # class_name="downloads-link",
                                 )
                             ),
                         ],
@@ -169,7 +176,8 @@ def init_dashboard(df: pl.DataFrame) -> dash.Dash:
     """
 
     app.layout = layout()
-    dash.register_page(home.__name__, name="summary", path="/", layout=home.layout)
+    dash.register_page(home.__name__, name="home", path="/", layout=home.layout)
+    dash.register_page(summary.__name__, name="summary", layout=summary.layout)
     dash.register_page(dag.__name__, name="dag", layout=dag.layout)
     return app
 
