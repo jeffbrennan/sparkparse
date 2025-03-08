@@ -54,11 +54,6 @@ def get_spark(log_dir: Path) -> SparkSession:
         .config("spark.executor.memory", "12g")
         .config("spark.driver.memory", "8g")
         .config("spark.shuffle.spill", "true")
-        .config(
-            "spark.sql.execution.arrow.maxRecordsPerBatch", "1000000"
-        )
-        .config(
-            "spark.sql.shuffle.partitions", "auto"
-        )
+        .config("spark.sql.execution.arrow.maxRecordsPerBatch", "1000000")
         .getOrCreate()
     )
