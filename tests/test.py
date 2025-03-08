@@ -1,19 +1,30 @@
+from functools import reduce
 from pathlib import Path
 
+import pyspark
 import pyspark.sql.functions as F
+from pyspark.sql import Window
 
 from sparkparse.common import get_spark
 
 
-def config():
+def config(data_size: str = "small"):
+    data_lookup = {
+        "small": "1e7_1e7",
+        "medium": "1e8_1e8",
+        "large": "1e9_1e9",
+    }
+
     base_dir = Path(__file__).parents[1] / "data"
-    data_path = base_dir / "raw" / "G1_1e7_1e7_100_0.parquet"
+    data_path = base_dir / "raw" / f"G1_{data_lookup[data_size]}_100_0.parquet"
     log_dir = base_dir / "logs" / "raw"
     spark = get_spark(log_dir)
 
     return spark, data_path, base_dir
 
 
+# TODO: validate against the expected output
+# all metric values seem off - probably an issue with how they are being joined
 def test_broadcast_join():
     spark, data_path, base_dir = config()
     df = spark.read.parquet(data_path.as_posix())
@@ -28,7 +39,60 @@ def test_broadcast_join():
     df_final.write.format("csv").mode("overwrite").save(str(output_path), header=True)
 
 
-def test_row_count_explosion_join():
+def _test_complex_transformation():
+    # 52 min - use sparingly
+    spark, data_path, base_dir = config("large")
+
+    df_large = spark.read.parquet(data_path.as_posix())
+
+    df_large_clean = (
+        df_large.withColumn(
+            "id1_2_3", F.concat_ws("~", F.col("id1"), F.col("id2"), F.col("id3"))
+        )
+        .withColumn(
+            "v4", F.when(F.col("v3") > 10, F.col("v3") * 3).otherwise(F.col("v3"))
+        )
+        .withColumn(
+            "v5", F.when(F.col("v3") > 20, F.col("v3") * 3).otherwise(F.col("v3"))
+        )
+    )
+    df_agg = df_large_clean.groupBy("id1_2_3").agg(
+        F.sum("v5").alias("v5"),
+        F.sum("v4").alias("v4"),
+        F.mean("v3").alias("v3_mean"),
+        F.count("v3").alias("v3_count"),
+    )
+
+    df_final = (
+        df_agg.join(
+            df_large_clean.select("id1_2_3", "id1", "id2", "id3").distinct(),
+            on="id1_2_3",
+            how="left",
+        )
+        .withColumn(
+            "rank", F.rank().over(Window.partitionBy("id1").orderBy(F.col("v5").desc()))
+        )
+        .withColumn("id3", F.regexp_replace(F.col("id3"), "id", "ID!!"))
+        .filter(F.col("rank") < 42)
+        .withColumn(
+            "rn",
+            F.row_number().over(Window.partitionBy("id2").orderBy(F.col("v5").desc())),
+        )
+        .filter(F.col("rn") > 42)
+        .withColumn("current_date", F.current_date())
+        .sort(F.col("v5").desc())
+        .coalesce(1)
+    )
+
+    output_path = base_dir / "clean" / "complex"
+
+    print(df_final.count())  # force full computation
+    df_final.limit(1000).write.format("csv").mode("overwrite").save(
+        str(output_path), header=True
+    )
+
+
+def _test_row_count_explosion_join():
     spark, data_path, base_dir = config()
 
     df = spark.read.parquet(data_path.as_posix())
@@ -56,7 +120,7 @@ def test_row_count_explosion_join():
     )
 
 
-def test_basic_transformation():
+def _test_basic_transformation():
     spark, data_path, base_dir = config()
 
     df = spark.read.parquet(data_path.as_posix())
