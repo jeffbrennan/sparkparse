@@ -1,13 +1,14 @@
 import datetime
 import json
 import logging
-from pathlib import Path
 import re
+from pathlib import Path
 
 import polars as pl
 
 from sparkparse.common import timeit, write_dataframe
 from sparkparse.models import (
+    Accumulator,
     EventType,
     ExecutorMetrics,
     InputMetrics,
@@ -20,6 +21,7 @@ from sparkparse.models import (
     PhysicalPlan,
     PhysicalPlanDetails,
     PhysicalPlanNode,
+    PlanAccumulator,
     QueryEvent,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
@@ -65,6 +67,7 @@ def parse_task(line_dict: dict) -> Task:
     task_info["Stage ID"] = line_dict["Stage ID"]
     task_info["Task Type"] = line_dict["Task Type"]
 
+    task_id = task_info["Task ID"]
     task_metrics = line_dict["Task Metrics"]
     metrics = Metrics(
         task_metrics=TaskMetrics(**task_metrics),
@@ -76,9 +79,12 @@ def parse_task(line_dict: dict) -> Task:
         input_metrics=InputMetrics(**task_metrics["Input Metrics"]),
         output_metrics=OutputMetrics(**task_metrics["Output Metrics"]),
     )
-
+    accumulators = [
+        Accumulator(task_id=task_id, **i) for i in task_info["Accumulables"]
+    ]
     return Task(
         metrics=metrics,
+        accumulators=accumulators,
         **line_dict["Task Info"],
     )
 
@@ -121,6 +127,53 @@ def get_plan_details(
     return PhysicalPlanDetails(
         sources=sources, targets=targets, codegen_lookup=codegen_lookup
     )
+
+
+def parse_node_accumulators(plan: dict, node_map) -> dict[int, list[PlanAccumulator]]:
+    def process_node(node_info: dict, child_index: int):
+        if child_index in node_accumulator_lookup:
+            node_id = node_accumulator_lookup[child_index]
+            node_name = node_info["nodeName"]
+            node_string = node_info["simpleString"]
+            is_excluded = any(
+                [excluded in node_info["nodeName"] for excluded in nodes_to_exclude]
+            )
+
+            if is_excluded:
+                child_index -= 1
+
+            # Process metrics for current node
+            if "metrics" in node_info and node_info["metrics"] and not is_excluded:
+                metrics_parsed = [
+                    PlanAccumulator(
+                        node_id=node_id,
+                        node_name=node_name,
+                        node_string=node_string,
+                        child_index=child_index,
+                        **metric,
+                    )
+                    for metric in node_info["metrics"]
+                ]
+                accumulators[node_id] = metrics_parsed
+
+        if "children" in node_info and node_info["children"]:
+            for i, child in enumerate(node_info["children"]):
+                process_node(child, child_index + i + 1)
+
+    accumulators = {}
+    n_nodes = len(node_map)
+    nodes_to_exclude = ["WholeStageCodegen", "InputAdapter"]
+
+    node_accumulator_lookup: dict[int, int] = {}
+    for node_id in sorted(node_map.keys()):
+        lookup_id = n_nodes - node_id  # 42 node id -> child 0
+        node_accumulator_lookup[lookup_id] = node_id
+
+    if "sparkPlanInfo" in plan and "children" in plan["sparkPlanInfo"]:
+        for i, child in enumerate(plan["sparkPlanInfo"]["children"]):
+            process_node(child, i)
+
+    return accumulators
 
 
 def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
@@ -196,6 +249,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     logging.debug(tree)
 
     node_map = parse_spark_ui_tree(tree)
+    plan_accumulators = parse_node_accumulators(line_dict, node_map)
     details = get_plan_details(
         plan_lines,
         tree_end,
@@ -205,6 +259,10 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     if len(details.codegen_lookup) > 0:
         for k, v in details.codegen_lookup.items():
             node_map[k].whole_stage_codegen_id = v
+
+    if len(plan_accumulators) > 0:
+        for k, v in plan_accumulators.items():
+            node_map[k].accumulators = v
 
     return PhysicalPlan(
         query_id=query_id,
@@ -571,6 +629,7 @@ def write_parsed_log(
     logging.debug(f"{df.head()}")
 
     write_dataframe(df, out_path, out_format)
+
 
 def get_parsed_metrics(
     base_dir: str = "data",
