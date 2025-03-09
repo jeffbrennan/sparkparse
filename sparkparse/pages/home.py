@@ -2,10 +2,10 @@ import datetime
 from pathlib import Path
 
 import pandas as pd
-from dash import Input, Output, callback, dash_table, dcc, html
+from dash import Input, Output, callback, dcc, html
 from pydantic import BaseModel
 
-from sparkparse.styling import get_dt_style
+import dash_ag_grid as dag
 
 
 @callback(
@@ -16,7 +16,6 @@ def get_available_logs(_, base_dir="data", log_dir="logs/raw"):
     base_path = Path(__file__).parents[2] / base_dir / log_dir
     log_files = list(base_path.glob("*"))
     log_files = [log.as_posix() for log in log_files if log.name != ".DS_Store"]
-    print("obtained", len(log_files), "log files")
     return sorted(log_files)
 
 
@@ -28,8 +27,8 @@ class RawLogDetails(BaseModel):
 
 @callback(
     [
-        Output("log-table", "children"),
-        Output("log-table", "style"),
+        Output("log-table-container", "children"),
+        Output("log-table-container", "style"),
     ],
     [
         Input("available-logs", "data"),
@@ -49,10 +48,9 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
                 size_mb=round(log.stat().st_size / 1024 / 1024, 2),
             )
         )
-
+    log_df = pd.DataFrame([log.model_dump() for log in log_items])
     log_records = (
-        pd.DataFrame([log.model_dump() for log in log_items])
-        .assign(
+        log_df.assign(
             days_old=lambda x: (
                 (pd.Timestamp.now() - pd.to_datetime(x["modified"])).dt.total_seconds()
                 / 60
@@ -60,36 +58,32 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
                 / 24
             ).round(2)
         )
-        .assign(
-            name=lambda x: x["name"].apply(
-                lambda y: f"[{y}](http://127.0.0.1:8050/{y}/summary)"
-            )
-        )
+        .assign(name=lambda x: x["name"].apply(lambda y: f"[{y}](/{y}/summary)"))
         .sort_values(by=["modified"], ascending=False)
         .to_dict(orient="records")
     )
 
-    log_table_style = get_dt_style(dark_mode)
-    log_table_style["style_cell"].update({"padding": "20px"})
-    log_table_style["style_table"].update({"width": "50%", "margin": "auto"})
-    log_table_style["css"] = [
-        dict(
-            selector=".dash-cell-value a",
-            rule="display: block; text-align: center !important;",
-        ),
-    ]
-
-    tbl = dash_table.DataTable(
-        log_records,
-        columns=[
-            {"name": "Name", "id": "name", "presentation": "markdown"},
-            {"name": "Modified", "id": "modified"},
-            {"name": "Days Old", "id": "days_old"},
-            {"name": "Size (MB)", "id": "size_mb"},
-        ],
-        **log_table_style,
+    grid = dag.AgGrid(
+        id="log-table",
+        rowData=log_records,
+        columnDefs=[{"field": i} for i in log_df.columns],
+        defaultColDef={"filter": True, "cellRenderer": "markdown"},
+        columnSize="sizeToFit",
+        getRowId="params.data.State",
+        dashGridOptions={"animateRows": False},
     )
-    return tbl, {}
+    return grid, {}
+
+
+@callback(
+    Output("selected-log", "data"),
+    Input("log-table", "cellClicked"),
+)
+def update_selected_log(cell: dict):
+    if cell is None:
+        return None
+    selected_log = cell["value"].split("]")[0].removeprefix("[")
+    return selected_log
 
 
 def layout():
@@ -97,7 +91,7 @@ def layout():
         [
             dcc.Store(id="available-logs"),
             html.Div(
-                id="log-table",
+                id="log-table-container",
                 style={"visibility": "hidden"},
             ),
         ]

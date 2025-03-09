@@ -1,11 +1,11 @@
 from typing import Any, Dict, List
 
-import dash
 import dash_cytoscape as cyto
 import polars as pl
 from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 
+from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
 
 
@@ -208,10 +208,12 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
         Output("query-id-dropdown", "value"),
         Output("query-id-dropdown", "options"),
     ],
-    Input("metrics-df", "id"),  # This triggers when the component is mounted
+    Input("log-name", "data"),  # This triggers when the component is mounted
 )
-def initialize_dropdown(_):
-    df: pl.DataFrame = dash.get_app().df
+def initialize_dropdown(log_name: str):
+    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).filter(
+        pl.col("node_type").is_not_null()
+    )
     query_ids = sorted(df.select("query_id").unique().get_column("query_id").to_list())
     options = [{"label": f"Query {i}", "value": i} for i in query_ids]
     return query_ids[0], options
@@ -222,11 +224,17 @@ def initialize_dropdown(_):
         Output("metrics-df", "data"),
         Output("dag-title", "children"),
     ],
-    Input("query-id-dropdown", "value"),
+    [
+        Input("log-name", "data"),
+        Input("query-id-dropdown", "value"),
+    ],
 )
-def get_records(query_id: int) -> tuple[list[dict[str, Any]], list[str]]:
-    df: pl.DataFrame = dash.get_app().df
-    filtered_df = df.filter(pl.col("query_id") == query_id)
+def get_records(log_name: str, query_id: int):
+    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).filter(
+        pl.col("node_type").is_not_null()
+    )
+
+    filtered_df = df.filter(pl.col("query_id").eq(query_id))
     records = filtered_df.to_pandas().to_dict("records")
 
     title = filtered_df.select(
@@ -245,14 +253,11 @@ def get_records(query_id: int) -> tuple[list[dict[str, Any]], list[str]]:
     return records, dag_title
 
 
-def layout() -> html.Div:
-    if not hasattr(dash.get_app(), "df"):
-        return html.Div("No data loaded")
-
-    # add a dropdown to select the query_id
+def layout(log_name: str, **kwargs) -> html.Div:
     return html.Div(
         [
             dcc.Store("metrics-df"),
+            dcc.Store("log-name", data=log_name),
             dbc.Row(
                 [
                     dbc.Col(

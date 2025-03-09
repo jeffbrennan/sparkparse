@@ -1,7 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
 import dash_cytoscape
-import polars as pl
 from dash import Input, Output, State, callback, dcc, html
 
 from sparkparse.pages import dag, home, summary
@@ -13,22 +12,43 @@ from sparkparse.styling import SitePalette, get_site_colors
         Output("navbar-brand", "style"),
         Output("summary-link", "style"),
         Output("dag-link", "style"),
+        Output("summary-link", "href"),
+        Output("dag-link", "href"),
     ],
     [
         Input("current-url", "pathname"),
         Input("color-mode-switch", "value"),
+        Input("selected-log", "data"),
     ],
 )
-def update_link_color(pathname: str, dark_mode: bool):
+def update_link_color(pathname: str, dark_mode: bool, selected_log: str | None):
     _, color = get_site_colors(dark_mode, contrast=False)
     highlighted_background_color, highlighted_text_color = get_site_colors(
         dark_mode, contrast=True
     )
 
-    pages = ["", "summary", "dag"]
-    output_styles = [{"color": color} for _ in range(len(pages))]
+    highlighted_page_style = {
+        "color": highlighted_text_color,
+        "backgroundColor": highlighted_background_color,
+        "borderRadius": "20px",
+    }
 
-    current_page = pathname.removeprefix("/").split("-")[0]
+    hidden_page_style = {"display": "none"}
+
+    print("-------")
+    print(selected_log)
+    if selected_log is None:
+        return highlighted_page_style, hidden_page_style, hidden_page_style, "", ""
+
+    pages = [
+        "",
+        f"{selected_log}/summary",
+        f"{selected_log}/dag",
+    ]
+    print(pages)
+    print("-----------")
+    output_styles = [{"color": color} for _ in range(len(pages))]
+    current_page = pathname.removeprefix("/")
 
     output_styles[pages.index(current_page)] = {
         "color": highlighted_text_color,
@@ -36,7 +56,10 @@ def update_link_color(pathname: str, dark_mode: bool):
         "borderRadius": "20px",
     }
 
-    return output_styles
+    summary_href = f"/{selected_log}/summary"
+    dag_href = f"/{selected_log}/dag"
+
+    return *output_styles, summary_href, dag_href
 
 
 @callback(
@@ -128,6 +151,7 @@ def layout():
     return dbc.Container(
         id="sparkparse-page",
         children=[
+            dcc.Store("selected-log", storage_type="session"),
             navbar,
             html.Br(),
             dash.page_container,
@@ -136,7 +160,7 @@ def layout():
     )
 
 
-def init_dashboard(df: pl.DataFrame) -> dash.Dash:
+def init_dashboard() -> dash.Dash:
     app = dash.Dash(
         __name__,
         use_pages=True,
@@ -145,8 +169,6 @@ def init_dashboard(df: pl.DataFrame) -> dash.Dash:
     )
 
     dash_cytoscape.load_extra_layouts()
-    if df is not None:
-        app.df = df.filter(pl.col("node_type").is_not_null())  # type: ignore
 
     app.index_string = f"""
     <!DOCTYPE html>
@@ -177,8 +199,19 @@ def init_dashboard(df: pl.DataFrame) -> dash.Dash:
 
     app.layout = layout()
     dash.register_page(home.__name__, name="home", path="/", layout=home.layout)
-    dash.register_page(summary.__name__, name="summary", layout=summary.layout)
-    dash.register_page(dag.__name__, name="dag", layout=dag.layout)
+
+    dash.register_page(
+        summary.__name__,
+        name="summary",
+        path_template="/<log_name>/summary",
+        layout=summary.layout,
+    )
+    dash.register_page(
+        dag.__name__,
+        name="dag",
+        path_template="/<log_name>/dag",
+        layout=dag.layout,
+    )
     return app
 
 

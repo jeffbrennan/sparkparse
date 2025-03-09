@@ -7,6 +7,7 @@ from dash import Input, Output, callback, dash_table, dcc, html
 from plotly.graph_objs import Figure
 
 from sparkparse.common import timeit
+from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_dt_style
 from sparkparse.viz import style_fig
 
@@ -18,7 +19,7 @@ from sparkparse.viz import style_fig
         Output("metrics-graph-fade", "is_in"),
     ],
     [
-        Input("metrics-df", "data"),
+        Input("summary-metrics-df", "data"),
         Input("color-mode-switch", "value"),
     ],
 )
@@ -35,9 +36,9 @@ def get_metrics_viz(
     df = pd.DataFrame(df_data).sort_values("task_id")
     df["cumulative_runtime"] = df["task_duration_seconds"].cumsum()
 
-    title = (
-        f"<b>Cumulative Task Runtime</b><br><sup>{df['parsed_log_name'].iloc[0]}</sup>"
-    )
+    raw_log_subtitle = f"<br><sup>raw log: {df['log_name'].iloc[0]}"
+    parsed_log_subtitle = f"| parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
+    title = f"<b>Cumulative Task Runtime</b>{raw_log_subtitle}{parsed_log_subtitle}"
 
     fig = px.line(
         df,
@@ -72,7 +73,7 @@ def get_metrics_viz(
         Output("metrics-table", "style"),
     ],
     [
-        Input("metrics-df", "data"),
+        Input("summary-metrics-df", "data"),
         Input("color-mode-switch", "value"),
     ],
 )
@@ -126,15 +127,21 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
     return tbl, {}
 
 
-def layout():
-    if not hasattr(dash.get_app(), "df"):
-        return html.Div("No data loaded")
+@callback(
+    Output("summary-metrics-df", "data"),
+    Input("log-name", "data"),
+)
+def get_records(log_name: str, **kwargs):
+    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).filter(
+        pl.col("node_type").is_not_null()
+    )
+    return df.to_pandas().to_dict("records")
 
-    df: pl.DataFrame = dash.get_app().df
-    records = df.to_pandas().to_dict("records")
 
+def layout(log_name: str, **kwargs):
     return [
-        dcc.Store("metrics-df", data=records),
+        dcc.Store("log-name", data=log_name),
+        dcc.Store("summary-metrics-df"),
         dbc.Fade(
             id="metrics-graph-fade",
             children=[
