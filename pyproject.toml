@@ -20,6 +20,7 @@ dependencies = [
     "plotly>=6.0.0",
     "ipykernel>=6.29.5",
     "dash-cytoscape>=1.0.2",
+    "dash-ag-grid>=31.3.0",
 ]
 
 

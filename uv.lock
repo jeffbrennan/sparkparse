@@ -200,6 +200,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dash-ag-grid"
+version = "31.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dash" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/36/a9da325e066c18bdc8373d22f4751af79d6de999557c4822cfd7ebe5ef5c/dash_ag_grid-31.3.0.tar.gz", hash = "sha256:8f609601d25225a53130d5a2da1f43c685dc640c777a7de80bbaa070ded3d19c", size = 3858138 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/be/bbca053d741cc6ae5333bf3263be520c308b122cd3e4d720fd598231809b/dash_ag_grid-31.3.0-py3-none-any.whl", hash = "sha256:a174c00b816d03a969c5af61a60f8f6b61af5a9b7058633c86424db99e62875b", size = 3876384 },
+]
+
+[[package]]
 name = "dash-bootstrap-components"
 version = "1.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1161,6 +1173,7 @@ name = "sparkparse"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dash-ag-grid" },
     { name = "dash-bootstrap-components" },
     { name = "dash-cytoscape" },
     { name = "falsa" },
@@ -1176,6 +1189,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dash-ag-grid", specifier = ">=31.3.0" },
     { name = "dash-bootstrap-components", specifier = ">=1.6.0,<2" },
     { name = "dash-cytoscape", specifier = ">=1.0.2" },
     { name = "falsa", specifier = ">=0.0.3" },
