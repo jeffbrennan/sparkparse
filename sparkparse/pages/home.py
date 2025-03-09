@@ -60,18 +60,32 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
         )
         .assign(name=lambda x: x["name"].apply(lambda y: f"[{y}](/{y}/summary)"))
         .sort_values(by=["modified"], ascending=False)
+        .drop_duplicates()
         .to_dict(orient="records")
     )
+
+    theme = "ag-theme-alpine-dark" if dark_mode else "ag-theme-alpine"
 
     grid = dag.AgGrid(
         id="log-table",
         rowData=log_records,
-        columnDefs=[{"field": i} for i in log_df.columns],
-        defaultColDef={"filter": True, "cellRenderer": "markdown"},
+        columnDefs=[
+            {"field": "name", "headerName": "Log Name"},
+            {"field": "modified", "headerName": "Modified Date"},
+            {"field": "days_old", "headerName": "Days Old"},
+            {"field": "size_mb", "headerName": "Size (MB)"},
+        ],
+        defaultColDef={
+            "filter": True,
+            "cellRenderer": "markdown",
+            "sortable": True,
+            "resizable": True,
+        },
         columnSize="sizeToFit",
-        getRowId="params.data.State",
-        dashGridOptions={"animateRows": False},
+        className=theme,
+        style={"height": "100vh", "width": "80%", "marginLeft": "10%"},
     )
+
     return grid, {}
 
 
@@ -79,7 +93,7 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
     Output("selected-log", "data"),
     Input("log-table", "cellClicked"),
 )
-def update_selected_log(cell: dict):
+def update_selected_log(cell: dict | None):
     if cell is None:
         return None
     selected_log = cell["value"].split("]")[0].removeprefix("[")

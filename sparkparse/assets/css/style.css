@@ -188,6 +188,7 @@ body,
     display: none !important;
     outline: none !important;
 }
+
 /* light */
 .light-mode .Select-control {
     background-color: rgb(33, 33, 33) !important;
@@ -584,4 +585,66 @@ td.dash-cell.cell--selected.focused {
 /* Apply red only to the grid lines (the minor lines at ratings 2, 4, …) */
 .plotly-graph-div .ygrid line {
     stroke: red !important;
+}
+
+
+/* AgGrid Styling */
+.ag-theme-alpine,
+.ag-theme-alpine-dark {
+    --ag-font-family: "JetBrains Mono", serif !important;
+    --ag-font-size: 14px !important;
+    --ag-header-height: 40px !important;
+    --ag-grid-size: 10px !important;
+    --ag-list-item-height: 60px !important;
+    --ag-borders: solid 1px !important;
+    --ag-border-radius: 0px !important;
+}
+
+/* Light Mode AgGrid */
+.light-mode .ag-theme-alpine {
+    --ag-background-color: rgb(242, 240, 227) !important;
+    --ag-foreground-color: rgb(33, 33, 33) !important;
+    --ag-border-color: rgb(33, 33, 33) !important;
+    --ag-secondary-border-color: rgb(33, 33, 33) !important;
+    --ag-header-background-color: rgb(33, 33, 33) !important;
+    --ag-header-foreground-color: rgb(242, 240, 227) !important;
+    --ag-odd-row-background-color: rgba(33, 33, 33, 0.05) !important;
+    --ag-row-hover-color: rgba(255, 120, 23, 0.3) !important;
+    --ag-selected-row-background-color: rgba(255, 120, 23, 0.3) !important;
+    --ag-header-column-separator-color: rgb(242, 240, 227) !important;
+    --ag-header-column-resize-handle-color: rgb(242, 240, 227) !important;
+    --ag-input-focus-border-color: rgb(33, 33, 33) !important;
+}
+
+/* Dark Mode AgGrid */
+.dark-mode .ag-theme-alpine-dark {
+    --ag-background-color: rgb(33, 33, 33) !important;
+    --ag-foreground-color: rgb(242, 240, 227) !important;
+    --ag-border-color: rgb(242, 240, 227) !important;
+    --ag-secondary-border-color: rgb(242, 240, 227) !important;
+    --ag-header-background-color: rgb(242, 240, 227) !important;
+    --ag-header-foreground-color: rgb(33, 33, 33) !important;
+    --ag-odd-row-background-color: rgba(242, 240, 227, 0.05) !important;
+    --ag-row-hover-color: rgb(147, 65, 54) !important;
+    --ag-selected-row-background-color: rgb(147, 65, 54) !important;
+    --ag-header-column-separator-color: rgb(33, 33, 33) !important;
+    --ag-header-column-resize-handle-color: rgb(33, 33, 33) !important;
+    --ag-input-focus-border-color: rgb(242, 240, 227) !important;
+}
+
+/* Fix filter input styling */
+.light-mode .ag-theme-alpine .ag-filter-toolpanel-search input {
+    color: rgb(33, 33, 33) !important;
+    background-color: rgb(242, 240, 227) !important;
+}
+
+.dark-mode .ag-theme-alpine-dark .ag-filter-toolpanel-search input {
+    color: rgb(242, 240, 227) !important;
+    background-color: rgb(33, 33, 33) !important;
+}
+
+/* Fix filter input focus outline */
+.ag-theme-alpine .ag-filter-toolpanel-search input:focus,
+.ag-theme-alpine-dark .ag-filter-toolpanel-search input:focus {
+    box-shadow: none !important;
 }
