@@ -1,5 +1,25 @@
+import json
+from pathlib import Path
 from sparkparse.models import NodeType, PhysicalPlanNode
-from sparkparse.parse import parse_spark_ui_tree
+from sparkparse.parse import parse_physical_plan, parse_spark_ui_tree
+
+
+def test_plan_parses_correctly():
+    base_path = Path(__file__).parents[0] / "data" / "test_tree_parsing"
+    input_path = base_path / "test_plan_parses_correctly_input.json"
+    expected_path = base_path / "test_plan_parses_correctly_expected.json"
+
+    with input_path.open("r") as f:
+        input_data = json.load(f)
+
+    result = parse_physical_plan(input_data)
+
+    result_json = result.model_dump()
+
+    with expected_path.open("r") as f:
+        expected_json = json.load(f)
+
+    assert result_json == expected_json
 
 
 def test_tree_parses_correctly():

@@ -129,49 +129,43 @@ def get_plan_details(
     )
 
 
-def parse_node_accumulators(plan: dict, node_map) -> dict[int, list[PlanAccumulator]]:
+def parse_node_accumulators(
+    plan: dict, node_map: dict[int, PhysicalPlanNode]
+) -> dict[int, list[PlanAccumulator]]:
     def process_node(node_info: dict, child_index: int):
-        if child_index in node_accumulator_lookup:
-            node_id = node_accumulator_lookup[child_index]
-            node_name = node_info["nodeName"]
-            node_string = node_info["simpleString"]
-            is_excluded = any(
-                [excluded in node_info["nodeName"] for excluded in nodes_to_exclude]
-            )
+        node_name = node_info["nodeName"]
+        node_string = node_info["simpleString"]
 
-            if is_excluded:
-                child_index -= 1
+        node_id = node_ids[child_index]
+        is_excluded = any([excluded in node_name for excluded in nodes_to_exclude])
 
-            # Process metrics for current node
-            if "metrics" in node_info and node_info["metrics"] and not is_excluded:
-                metrics_parsed = [
-                    PlanAccumulator(
-                        node_id=node_id,
-                        node_name=node_name,
-                        node_string=node_string,
-                        child_index=child_index,
-                        **metric,
-                    )
-                    for metric in node_info["metrics"]
-                ]
-                accumulators[node_id] = metrics_parsed
+        if "metrics" in node_info and not is_excluded:
+            expected_node_name = node_map[node_id].node_type
+            assert (
+                node_name.replace("Execute ", "").split(" ")[0]
+                in expected_node_name.value
+            ), print(f"{node_name} not in {expected_node_name.value}")
+            metrics_parsed = [
+                PlanAccumulator(
+                    node_id=node_id,
+                    node_name=node_name,
+                    node_string=node_string,
+                    child_index=child_index,
+                    **metric,
+                )
+                for metric in node_info["metrics"]
+            ]
+            accumulators[node_id] = metrics_parsed
 
-        if "children" in node_info and node_info["children"]:
-            for i, child in enumerate(node_info["children"]):
-                process_node(child, child_index + i + 1)
+        if "children" in node_info:
+            for child in node_info["children"]:
+                process_node(child, child_index=len(accumulators))
 
+    node_ids = list(node_map.keys())
     accumulators = {}
-    n_nodes = len(node_map)
     nodes_to_exclude = ["WholeStageCodegen", "InputAdapter"]
-
-    node_accumulator_lookup: dict[int, int] = {}
-    for node_id in sorted(node_map.keys()):
-        lookup_id = n_nodes - node_id  # 42 node id -> child 0
-        node_accumulator_lookup[lookup_id] = node_id
-
-    if "sparkPlanInfo" in plan and "children" in plan["sparkPlanInfo"]:
-        for i, child in enumerate(plan["sparkPlanInfo"]["children"]):
-            process_node(child, i)
+    for i, child in enumerate(plan["sparkPlanInfo"]["children"]):
+        process_node(child, i)
 
     return accumulators
 
@@ -262,7 +256,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
     if len(plan_accumulators) > 0:
         for k, v in plan_accumulators.items():
-            node_map[k].accumulators = v
+            node_map[k].accumulators = v if v else None
 
     return PhysicalPlan(
         query_id=query_id,
