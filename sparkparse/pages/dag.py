@@ -5,6 +5,7 @@ import polars as pl
 from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 
+from sparkparse.common import timeit
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
 
@@ -46,6 +47,7 @@ def get_node_color(
         Input("color-mode-switch", "value"),
     ],
 )
+@timeit
 def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
     elements = []
     codegen_groups = {
@@ -70,35 +72,28 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             }
         )
 
-    durations = [row["task_duration_seconds"] for row in df_data]
+    durations = [row["node_duration_minutes"] for row in df_data]
     min_duration = min(durations)
     max_duration = max(durations)
 
     for row in df_data:
-        hover_info = (
-            f"{row['node_name']}\n"
-            "\nDuration\n"
-            f"Task Time: {row['task_duration_seconds']:.2f}s\n"
-            f"GC Time: {row['jvm_gc_time_seconds']:.2f}s\n"
-            "\nInput\n"
-            f"Records Read: {row['records_read']:,}\n"
-            f"Bytes Read: {row['bytes_read']:,}\n"
-            "\nOutput\n"
-            f"Records Written: {row['records_written']:,}\n"
-            f"Bytes Written: {row['bytes_written']:,}\n"
-            f"Result Size Bytes: {row['result_size_bytes']:,}\n"
-            "\nSpill\n"
-            f"Disk Spill Bytes: {row['disk_bytes_spilled']:,}\n"
-            f"Memory Spill Bytes: {row['memory_bytes_spilled']:,}\n"
-            "\nChild Nodes\n",
-            row["child_nodes"],
-        )
+        hover_title = f"{row['node_name']}\n"
+        hover_info = hover_title
+        if row["child_nodes"] is not None:
+            hover_info += f"Child Nodes: {row['child_nodes']}\n"
+
+        if row["accumulator_totals"] is not None:
+            prev_metric_type = []
+            for metric in row["accumulator_totals"]:
+                if metric["metric_type"] not in prev_metric_type:
+                    hover_info += f"\n{metric['metric_type'].title()}\n"
+                    prev_metric_type.append(metric["metric_type"])
+                hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
 
         node_color = get_node_color(
-            row["task_duration_seconds"], min_duration, max_duration, dark_mode
+            row["node_duration_minutes"], min_duration, max_duration, dark_mode
         )
-
-        node_id_formatted = f"query_{row['query_id']}_{row['task_id']}"
+        node_id_formatted = f"query_{row['query_id']}_{row['node_id']}"
         node_data = {
             "id": node_id_formatted,
             "label": f"{row['node_name']}",
@@ -125,7 +120,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         children = row["child_nodes"].split(",")
         for child in children:
             target_formatted = f"query_{row['query_id']}_{child}"
-            source_formatted = f"query_{row['query_id']}_{row['task_id']}"
+            source_formatted = f"query_{row['query_id']}_{row['node_id']}"
 
             elements.append(
                 {"data": {"target": target_formatted, "source": source_formatted}}
@@ -211,9 +206,9 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
     Input("log-name", "data"),  # This triggers when the component is mounted
 )
 def initialize_dropdown(log_name: str):
-    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).filter(
-        pl.col("node_type").is_not_null()
-    )
+    df = get_parsed_metrics(
+        log_file=log_name, out_dir=None, out_format=None
+    ).dag.filter(pl.col("node_type").is_not_null())
     query_ids = sorted(df.select("query_id").unique().get_column("query_id").to_list())
     options = [{"label": f"Query {i}", "value": i} for i in query_ids]
     return query_ids[0], options
@@ -229,22 +224,22 @@ def initialize_dropdown(log_name: str):
         Input("query-id-dropdown", "value"),
     ],
 )
+@timeit
 def get_records(log_name: str, query_id: int):
-    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).filter(
-        pl.col("node_type").is_not_null()
-    )
+    df = get_parsed_metrics(
+        log_file=log_name, out_dir=None, out_format=None
+    ).dag.filter(pl.col("node_type").is_not_null())
 
     filtered_df = df.filter(pl.col("query_id").eq(query_id))
     records = filtered_df.to_pandas().to_dict("records")
 
     title = filtered_df.select(
-        "parsed_log_name",
         "query_start_timestamp",
         pl.col("query_duration_seconds").mul(1 / 60).alias("query_duration_minutes"),
     ).to_dicts()[0]
     dag_title = [
         html.Div(
-            f"{title['parsed_log_name']}",
+            f"{log_name}",
             style={"fontWeight": "bold", "fontSize": "24px"},
         ),
         f"{title['query_start_timestamp']} - {title['query_duration_minutes']:.2f} minutes",
@@ -318,7 +313,7 @@ def update_tooltip(mouseover_data, dark_mode: bool):
             "borderRadius": "5px",
             "zIndex": 100,
             "left": "7%",
-            "top": "14%",
+            "top": "20%",
             "fontSize": "16px",
         },
     )

@@ -18,6 +18,7 @@ from sparkparse.models import (
     OutputFormat,
     OutputMetrics,
     ParsedLog,
+    ParsedLogDataFrames,
     PhysicalPlan,
     PhysicalPlanDetails,
     PhysicalPlanNode,
@@ -377,11 +378,10 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     )
 
 
-@timeit
-def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
-    jobs = pl.DataFrame(result.jobs)
+def clean_jobs(jobs: list[Job]) -> pl.DataFrame:
+    jobs_df = pl.DataFrame(jobs)
     jobs_with_duration = (
-        jobs.select("job_id", "event_type", "job_timestamp")
+        jobs_df.select("job_id", "event_type", "job_timestamp")
         .pivot("event_type", index="job_id", values="job_timestamp")
         .with_columns(
             (pl.col("end") - pl.col("start"))
@@ -391,15 +391,18 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         .rename({"start": "job_start_timestamp", "end": "job_end_timestamp"})
     )
     jobs_final = (
-        jobs.select("job_id", "stages")
+        jobs_df.select("job_id", "stages")
         .explode("stages")
         .rename({"stages": "stage_id"})
         .join(jobs_with_duration, on="job_id", how="left")
     )
+    return jobs_final
 
-    stages = pl.DataFrame(result.stages)
+
+def clean_stages(stages: list[Stage]) -> pl.DataFrame:
+    stages_df = pl.DataFrame(stages)
     stages_final = (
-        stages.pivot("event_type", index="stage_id", values="stage_timestamp")
+        stages_df.pivot("event_type", index="stage_id", values="stage_timestamp")
         .with_columns(
             (pl.col("end") - pl.col("start"))
             .mul(1 / 1000)
@@ -407,9 +410,12 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         )
         .rename({"start": "stage_start_timestamp", "end": "stage_end_timestamp"})
     )
+    return stages_final
 
-    tasks = pl.DataFrame(result.tasks)
-    tasks_final = tasks.with_columns(
+
+def clean_tasks(tasks: list[Task]) -> pl.DataFrame:
+    task_df = pl.DataFrame(tasks)
+    tasks_final = task_df.with_columns(
         (pl.col("task_finish_time") - pl.col("task_start_time"))
         .mul(1 / 1_000)
         .alias("task_duration_seconds")
@@ -419,8 +425,14 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
             "task_finish_time": "task_end_timestamp",
         }
     )
+    return tasks_final
+
+
+def clean_plan(
+    query_times: list[QueryEvent], queries: list[PhysicalPlan]
+) -> pl.DataFrame:
     plan = pl.DataFrame()
-    for query in result.queries:
+    for query in queries:
         plan = pl.concat(
             [
                 plan,
@@ -429,9 +441,9 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
                 ),
             ]
         )
-    query_times = pl.DataFrame(result.query_times)
+    query_times_df = pl.DataFrame(query_times)
     query_times_pivoted = (
-        query_times.pivot("event_type", index="query_id", values="query_time")
+        query_times_df.pivot("event_type", index="query_id", values="query_time")
         .rename({"start": "query_start_timestamp", "end": "query_end_timestamp"})
         .with_columns(
             (pl.col("query_end_timestamp") - pl.col("query_start_timestamp"))
@@ -439,20 +451,397 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
             .alias("query_duration_seconds")
         )
     )
-    plan_final = (
-        plan.rename({"node_id": "task_id"})
-        .with_columns(
-            pl.col("child_nodes")
-            .cast(pl.List(pl.String))
-            .list.join(", ")
-            .alias("child_nodes")
+    plan_final = plan.with_columns(
+        pl.col("child_nodes")
+        .cast(pl.List(pl.String))
+        .list.join(", ")
+        .alias("child_nodes")
+    ).join(query_times_pivoted, on="query_id", how="left")
+    return plan_final
+
+
+def get_readable_size(value_col: pl.Expr) -> pl.Expr:
+    return (
+        pl.when(value_col < 1024)
+        .then(
+            pl.struct(
+                [value_col.alias("readable_value"), pl.lit("B").alias("readable_unit")]
+            )
         )
-        .join(query_times_pivoted, on="query_id", how="left")
+        .when(value_col < 1024**2)
+        .then(
+            pl.struct(
+                [
+                    (value_col / 1024).alias("readable_value"),
+                    pl.lit("KiB").alias("readable_unit"),
+                ]
+            )
+        )
+        .when(value_col < 1024**3)
+        .then(
+            pl.struct(
+                [
+                    (value_col / 1024**2).alias("readable_value"),
+                    pl.lit("MiB").alias("readable_unit"),
+                ]
+            )
+        )
+        .when(value_col < 1024**4)
+        .then(
+            pl.struct(
+                [
+                    (value_col / 1024**3).alias("readable_value"),
+                    pl.lit("GiB").alias("readable_unit"),
+                ]
+            )
+        )
+        .otherwise(
+            pl.struct(
+                [
+                    (value_col / 1024**4).alias("readable_value"),
+                    pl.lit("TiB").alias("readable_unit"),
+                ]
+            )
+        )
     )
 
+
+def get_readable_timing(value_col: pl.Expr) -> pl.Expr:
+    return (
+        pl.when(value_col.lt(1_000))
+        .then(
+            pl.struct(
+                [value_col.alias("readable_value"), pl.lit("ms").alias("readable_unit")]
+            )
+        )
+        .when(value_col.lt(60_000))
+        .then(
+            pl.struct(
+                [
+                    value_col.mul(1 / 1000).alias("readable_value"),
+                    pl.lit("s").alias("readable_unit"),
+                ]
+            )
+        )
+        .when(value_col.lt(3_600_000))
+        .then(
+            pl.struct(
+                [
+                    value_col.mul(1 / 60_000).alias("readable_value"),
+                    pl.lit("min").alias("readable_unit"),
+                ]
+            )
+        )
+        .otherwise(
+            pl.struct(
+                [
+                    value_col.mul(1 / 3_600_000).alias("readable_value"),
+                    pl.lit("hr").alias("readable_unit"),
+                ]
+            )
+        )
+    )
+
+
+@timeit
+def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFrame:
+    if df_type == "task":
+        output_struct = "accumulators"
+        value_col = "update"
+    elif df_type == "total":
+        output_struct = "accumulator_totals"
+        value_col = "value"
+    else:
+        raise ValueError(f"Invalid df_type: {df_type}")
+
+    units = {"timing": "ms", "size": "B", "sum": "", "average": "", "nsTiming": "ms"}
+    id_cols = [
+        "query_id",
+        "node_id",
+        "stage_id",
+        "task_id",
+        "accumulator_id",
+        "metric_name",
+    ]
+    accumulator_cols = [
+        "stage_id",
+        "task_id",
+        "accumulator_id",
+        "metric_name",
+        "metric_type",
+        "value",
+        "unit",
+        "readable_value",
+        "readable_unit",
+    ]
+
+    base = dag_long.select(*id_cols, "metric_type", value_col).filter(
+        pl.col(value_col).is_not_null()
+    )
+
+    if df_type == "task":
+        base = base.rename({"update": "value"})
+    else:
+        base = (
+            base.with_columns(
+                pl.col("value")
+                .rank("ordinal", descending=True)
+                .over("query_id", "node_id", "metric_type", "metric_name")
+                .alias("rank")
+            ).filter(pl.col("rank") == 1)
+        ).drop("rank")
+
+    readable_metrics = (
+        base.sort(["metric_type", "metric_name"])
+        .with_columns(
+            pl.when(pl.col("metric_type").eq("nsTiming"))
+            .then(pl.col("value").mul(1 / 1e6))
+            .otherwise(pl.col("value").alias("value"))
+        )
+        .with_columns(
+            pl.when(pl.col("metric_type").eq("nsTiming"))
+            .then(pl.lit("timing"))
+            .otherwise(pl.col("metric_type"))
+            .alias("metric_type")
+        )
+        .with_columns(pl.col("metric_type").replace_strict(units).alias("unit"))
+        .with_columns(
+            pl.when(pl.col("metric_type") == "size")
+            .then(get_readable_size(pl.col("value")))
+            .when(pl.col("metric_type") == "timing")
+            .then(get_readable_timing(pl.col("value")))
+            .otherwise(
+                pl.struct(
+                    [
+                        pl.col("value").alias("readable_value"),
+                        pl.col("unit").alias("readable_unit"),
+                    ]
+                )
+            )
+            .alias("readable")
+        )
+        .unnest("readable")
+        .with_columns(pl.col("readable_value").round(3))
+        .with_columns(
+            pl.struct([pl.col(col) for col in accumulator_cols]).alias(output_struct)
+        )
+        .select(*id_cols, output_struct)
+    )
+    return readable_metrics
+
+
+@timeit
+def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
+    tasks = clean_tasks(result.tasks)
+    plan = clean_plan(result.query_times, result.queries)
+
+    accumulators_long = (
+        tasks.select(
+            "stage_id",
+            "task_id",
+            "task_start_timestamp",
+            "task_end_timestamp",
+            "task_duration_seconds",
+            "executor_id",
+            "accumulators",
+        )
+        .rename({"task_id": "task_id_orig"})
+        .explode("accumulators")
+        .unnest("accumulators")
+        .drop("task_id")
+        .rename({"task_id_orig": "task_id"})
+        .select(
+            "stage_id",
+            "task_id",
+            "task_start_timestamp",
+            "task_end_timestamp",
+            "task_duration_seconds",
+            "executor_id",
+            "accumulator_id",
+            "update",
+            "value",
+        )
+        .sort("stage_id", "task_id")
+    )
+
+    plan_long = (
+        (
+            plan.rename({"node_id": "node_id_orig"})
+            .explode("accumulators")
+            .unnest("accumulators")
+            .drop("node_id")
+            .rename({"node_id_orig": "node_id"})
+        )
+        .select(
+            [
+                "query_id",
+                "query_start_timestamp",
+                "query_end_timestamp",
+                "query_duration_seconds",
+                "whole_stage_codegen_id",
+                "node_id",
+                "node_type",
+                "child_nodes",
+                "metric_name",
+                "accumulator_id",
+                "metric_type",
+                "node_string",
+            ]
+        )
+        .sort("query_id", "node_id")
+    )
+
+    dag_long = plan_long.join(accumulators_long, on="accumulator_id", how="left")
+
+    # structured accumulators update values per query, node, accumulator, task
+    readable_metrics = parse_accumulator_metrics(dag_long, "task")
+
+    # structured accumulator totals per query, node, accumulator
+    readable_metrics_total = parse_accumulator_metrics(dag_long, "total")
+
+    node_durations = (
+        readable_metrics_total.with_columns(
+            pl.when(
+                pl.col("accumulator_totals").struct.field("metric_type").eq("timing")
+            )
+            .then(pl.col("accumulator_totals").struct.field("value").mul(1 / 60_000))
+            .otherwise(pl.lit(0))
+            .alias("node_duration_minutes")
+        )
+        .group_by("query_id", "node_id")
+        .agg(pl.sum("node_duration_minutes").alias("node_duration_minutes"))
+    )
+
+    dag_base_cols = [
+        "query_id",
+        "query_start_timestamp",
+        "query_end_timestamp",
+        "query_duration_seconds",
+        "whole_stage_codegen_id",
+        "node_id",
+        "node_type",
+        "child_nodes",
+    ]
+
+    metric_type_order = {
+        "timing": 0,
+        "size": 1,
+        "sum": 2,
+        "average": 3,
+    }
+
+    dag_metrics = (
+        dag_long.join(
+            readable_metrics,
+            on=["query_id", "node_id", "accumulator_id", "task_id"],
+            how="inner",
+        )
+        .with_columns(
+            pl.col("accumulators")
+            .struct.field("metric_type")
+            .replace_strict(metric_type_order)
+            .alias("metric_order")
+        )
+        .sort("metric_order", "metric_name")
+        .drop("metric_order")
+        .group_by(*dag_base_cols)
+        .agg(pl.col("accumulators"))
+        .with_columns(pl.col("accumulators").list.len().alias("n_accumulators"))
+        .with_columns(pl.coalesce("n_accumulators", pl.lit(0)).alias("n_accumulators"))
+    )
+
+    dag_metrics_totals = (
+        dag_long.select("query_id", "node_id", "metric_name")
+        .unique()
+        .join(
+            readable_metrics_total,
+            on=["query_id", "node_id", "metric_name"],
+            how="inner",
+        )
+        .with_columns(
+            pl.col("accumulator_totals")
+            .struct.field("metric_type")
+            .replace_strict(metric_type_order)
+            .alias("metric_order")
+        )
+        .sort("metric_order", "metric_name")
+        .drop("metric_order")
+        .group_by("query_id", "node_id")
+        .agg(pl.col("accumulator_totals"))
+        .with_columns(
+            pl.col("accumulator_totals").list.len().alias("n_accumulator_totals")
+        )
+        .with_columns(
+            pl.coalesce("n_accumulator_totals", pl.lit(0)).alias("n_accumulator_totals")
+        )
+    )
+
+    dag_metrics_combined = (
+        dag_metrics.join(
+            dag_metrics_totals.select(
+                "query_id", "node_id", "accumulator_totals", "n_accumulator_totals"
+            ),
+            on=["query_id", "node_id"],
+            how="left",
+        )
+        .select(
+            "query_id",
+            "node_id",
+            "accumulators",
+            "accumulator_totals",
+            "n_accumulators",
+            "n_accumulator_totals",
+        )
+        .sort("query_id", "node_id")
+    )
+
+    dag_final = (
+        (
+            plan.select(*dag_base_cols)
+            .join(dag_metrics_combined, on=["query_id", "node_id"], how="left")
+            .join(node_durations, on=["query_id", "node_id"], how="left")
+            .with_columns(
+                pl.coalesce("node_duration_minutes", pl.lit(0)).alias(
+                    "node_duration_minutes"
+                )
+            )
+            .sort("query_id", "node_id")
+        )
+        .with_columns(
+            pl.concat_str(
+                [
+                    pl.lit("["),
+                    pl.col("node_id").cast(pl.String),
+                    pl.lit("] "),
+                    pl.col("node_type"),
+                ]
+            ).alias("node_name")
+        )
+        .with_columns(
+            [
+                pl.col(col).mul(1000).cast(pl.Datetime).dt.strftime("%Y-%m-%dT%H:%M:%S")
+                for col in ["query_start_timestamp", "query_end_timestamp"]
+            ]
+        )
+    )
+
+    total_same_as_task = dag_final.filter(
+        pl.col("n_accumulators") == pl.col("n_accumulator_totals")
+    )
+    assert total_same_as_task.shape[0] < dag_final.shape[0]
+    assert dag_final.shape[0] == plan.shape[0]
+
+    return dag_final
+
+
+@timeit
+def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
+    tasks_final = clean_tasks(result.tasks)
+    stages_final = clean_stages(result.stages)
+    jobs_final = clean_jobs(result.jobs)
+
     combined = (
-        tasks_final.join(plan_final, on="task_id", how="left")
-        .join(stages_final, on="stage_id", how="left")
+        tasks_final.join(stages_final, on="stage_id", how="left")
         .join(jobs_final, on="stage_id", how="left")
         .sort("job_id", "stage_id", "task_id")
         .unnest("metrics")
@@ -482,15 +871,7 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         "stage_end_timestamp",
         "stage_duration_seconds",
         # core task info
-        "query_id",
-        "query_start_timestamp",
-        "query_end_timestamp",
-        "query_duration_seconds",
         "task_id",
-        "node_type",
-        "node_name",
-        "child_nodes",
-        "whole_stage_codegen_id",
         "task_start_timestamp",
         "task_end_timestamp",
         "task_duration_seconds",
@@ -589,16 +970,6 @@ def log_to_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
                 "peak_execution_memory": "peak_execution_memory_bytes",
             }
         )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.lit("["),
-                    pl.col("task_id").cast(pl.String),
-                    pl.lit("] "),
-                    pl.col("node_type"),
-                ]
-            ).alias("node_name")
-        )
         .select(final_cols)
     )
 
@@ -611,11 +982,12 @@ def write_parsed_log(
     out_dir: str,
     out_format: OutputFormat,
     parsed_name: str,
+    suffix: str,
 ) -> None:
     out_dir_path = base_dir_path / out_dir
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    out_path = out_dir_path / f"{parsed_name}"
+    out_path = out_dir_path / f"{parsed_name}_{suffix}"
 
     logging.info(f"Writing parsed log: {out_path}")
     logging.debug(f"Output format: {out_format}")
@@ -633,7 +1005,7 @@ def get_parsed_metrics(
     out_name: str | None = None,
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
-) -> pl.DataFrame:
+) -> ParsedLogDataFrames:
     base_dir_path = Path(__file__).parents[1] / base_dir
     log_dir_path = base_dir_path / log_dir
 
@@ -654,11 +1026,30 @@ def get_parsed_metrics(
     logging.info(f"Reading log file: {log_to_parse}")
 
     result = parse_log(log_to_parse, out_name)
-    df = log_to_df(result, log_to_parse.stem)
+    combined_df = log_to_combined_df(result, log_to_parse.stem)
+    dag_df = log_to_dag_df(result)
+
+    output = ParsedLogDataFrames(combined=combined_df, dag=dag_df)
 
     if out_dir is None or out_format is None:
         logging.info("Skipping writing parsed log")
-        return df
+        return output
 
-    write_parsed_log(df, base_dir_path, out_dir, out_format, result.name)
-    return df
+    write_parsed_log(
+        df=combined_df,
+        base_dir_path=base_dir_path,
+        out_dir=out_dir,
+        out_format=out_format,
+        parsed_name=result.name,
+        suffix="_combined",
+    )
+
+    write_parsed_log(
+        df=dag_df,
+        base_dir_path=base_dir_path,
+        out_dir=out_dir,
+        out_format=out_format,
+        parsed_name=result.name,
+        suffix="_dag",
+    )
+    return output

@@ -1,6 +1,7 @@
 from enum import StrEnum, auto
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+import polars as pl
 
 
 class EventType(StrEnum):
@@ -65,8 +66,8 @@ class Accumulator(BaseModel):
     task_id: int
     accumulator_id: int = Field(alias="ID")
     name: str = Field(alias="Name")
-    update: str | int = Field(alias="Update")
-    value: str | int = Field(alias="Value")
+    update: int = Field(alias="Update")
+    value: int = Field(alias="Value")
     internal: bool = Field(alias="Internal")
     count_failed_values: bool = Field(alias="Count Failed Values")
     metadata: str | None = Field(alias="Metadata", default=None)
@@ -76,7 +77,7 @@ class PlanAccumulator(BaseModel):
     node_id: int
     node_name: str
     node_string: str
-    child_index: int # debugging
+    child_index: int  # debugging
     metric_name: str = Field(alias="name")
     accumulator_id: int = Field(alias="accumulatorId")
     metric_type: str = Field(alias="metricType")
@@ -229,3 +230,9 @@ class PhysicalPlanDetails(BaseModel):
     sources: list[str]
     targets: list[str]
     codegen_lookup: dict[int, int]
+
+
+class ParsedLogDataFrames(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    combined: pl.DataFrame
+    dag: pl.DataFrame

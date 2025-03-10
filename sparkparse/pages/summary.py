@@ -51,7 +51,6 @@ def get_metrics_viz(
         df,
         x="task_id",
         y="cumulative_runtime",
-        color="node_type",
         template=template,
     )
 
@@ -82,14 +81,12 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
     metrics_style = get_dt_style(dark_mode)
     metrics_style["style_table"]["height"] = "60vh"
     tbl_cols = []
-    # float_style = {"type": "numeric", "format": {"specifier": ".1f"}}
     int_style = {"type": "numeric", "format": {"specifier": ",d"}}
 
     core_cols = [
         "job_id",
         "stage_id",
         "task_id",
-        "node_type",
         "task_duration_seconds",
         "executor_run_time_seconds",
         "result_size_bytes",
@@ -132,9 +129,7 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
     Input("log-name", "data"),
 )
 def get_records(log_name: str, **kwargs):
-    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).filter(
-        pl.col("node_type").is_not_null()
-    )
+    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).combined
     return df.to_pandas().to_dict("records")
 
 
