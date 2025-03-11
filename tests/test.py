@@ -39,9 +39,9 @@ def test_broadcast_join():
     df_final.write.format("csv").mode("overwrite").save(str(output_path), header=True)
 
 
-def _test_complex_transformation():
+def test_complex_transformation():
     # 52 min - use sparingly
-    spark, data_path, base_dir = config("large")
+    spark, data_path, base_dir = config("medium")
 
     df_large = spark.read.parquet(data_path.as_posix())
 
