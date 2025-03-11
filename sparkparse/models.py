@@ -210,6 +210,12 @@ class Task(BaseModel):
     accumulators: list[Accumulator]
 
 
+class DriverAccumUpdates(BaseModel):
+    query_id: int
+    accumulator_id: int
+    update: int
+
+
 class ParsedLog(BaseModel):
     name: str
     jobs: list[Job]
@@ -217,6 +223,7 @@ class ParsedLog(BaseModel):
     tasks: list[Task]
     queries: list[PhysicalPlan]
     query_times: list[QueryEvent]
+    driver_accum_updates: list[DriverAccumUpdates]
 
 
 class OutputFormat(StrEnum):

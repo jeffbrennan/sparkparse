@@ -8,6 +8,7 @@ from sparkparse.clean import log_to_combined_df, log_to_dag_df, write_parsed_log
 from sparkparse.common import timeit
 from sparkparse.models import (
     Accumulator,
+    DriverAccumUpdates,
     EventType,
     ExecutorMetrics,
     InputMetrics,
@@ -231,6 +232,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     return node_map
 
 
+# TODO: add detail parsing like project cols, scan sources etc
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     plan_string = line_dict["physicalPlanDescription"]
     query_id = line_dict["executionId"]
@@ -287,6 +289,17 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
     return f"{today}__{paths_final}"
 
 
+def parse_driver_accum_update(line_dict: dict) -> list[DriverAccumUpdates]:
+    query_id = line_dict["executionId"]
+    accum_updates = []
+    for i in line_dict["accumUpdates"]:
+        accum_updates.append(
+            DriverAccumUpdates(query_id=query_id, accumulator_id=i[0], update=i[1])
+        )
+
+    return accum_updates
+
+
 @timeit
 def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     logger.debug(f"Starting to parse log file: {log_path}")
@@ -307,6 +320,7 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     tasks = []
     queries = []
     query_times = []
+    driver_accum_updates = []
     for i, line in enumerate(contents_to_parse, start_index):
         logger.debug("-" * 40)
         logger.debug(f"[line {i:04d}] parse start")
@@ -357,6 +371,9 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
                     event_type=EventType.end,
                 )
             )
+        elif event_type.endswith("DriverAccumUpdates"):
+            driver_accum_updates.extend(parse_driver_accum_update(line_dict))
+
     if len(queries) == 0:
         raise ValueError("No queries found in log file")
 
@@ -374,6 +391,7 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
         tasks=tasks,
         queries=parsed_queries,
         query_times=query_times,
+        driver_accum_updates=driver_accum_updates,
     )
 
 

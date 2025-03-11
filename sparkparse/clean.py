@@ -258,7 +258,7 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
             .alias("readable")
         )
         .unnest("readable")
-        .with_columns(pl.col("readable_value").round(3))
+        .with_columns(pl.col("readable_value").round(1))
         .with_columns(
             pl.struct([pl.col(col) for col in accumulator_cols]).alias(output_struct)
         )
@@ -271,6 +271,12 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
 def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
     tasks = clean_tasks(result.tasks)
     plan = clean_plan(result.query_times, result.queries)
+
+    driver_accumulators = (
+        pl.DataFrame(result.driver_accum_updates)
+        .with_columns(pl.col("update").alias("driver_value"))
+        .rename({"update": "driver_update"})
+    )
 
     accumulators_long = (
         tasks.select(
@@ -328,7 +334,13 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         .sort("query_id", "node_id")
     )
 
-    dag_long = plan_long.join(accumulators_long, on="accumulator_id", how="left")
+    dag_long = (
+        plan_long.join(accumulators_long, on="accumulator_id", how="left")
+        .join(driver_accumulators, on=["query_id", "accumulator_id"], how="left")
+        .with_columns(pl.coalesce("value", "driver_value").alias("value"))
+        .with_columns(pl.coalesce("update", "driver_update").alias("update"))
+        .drop("driver_value", "driver_update")
+    )
 
     # structured accumulators update values per query, node, accumulator, task
     readable_metrics = parse_accumulator_metrics(dag_long, "task")
