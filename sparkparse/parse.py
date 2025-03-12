@@ -137,10 +137,22 @@ def parse_node_accumulators(
         node_name = node_info["nodeName"]
         node_string = node_info["simpleString"]
 
-        node_id = node_ids[child_index]
-        is_excluded = any([excluded in node_name for excluded in nodes_to_exclude])
+        # wholestagecodegen events are pseudo nodes that only contain a single timing metric
+        if node_name.startswith("WholeStageCodegen"):
+            node_id = int(node_name.split("(")[-1].split(")")[0].strip()) + 100_000
+            whole_stage_codegen_accumulators[node_id] = [
+                PlanAccumulator(
+                    node_id=node_id,
+                    node_name=node_name,
+                    node_string=node_string,
+                    child_index=child_index,
+                    **node_info["metrics"][0],
+                )
+            ]
 
+        is_excluded = any([excluded in node_name for excluded in nodes_to_exclude])
         if "metrics" in node_info and not is_excluded:
+            node_id = node_ids[child_index]
             expected_node_name = node_map[node_id].node_type
             assert (
                 node_name.replace("Execute ", "").split(" ")[0]
@@ -164,10 +176,13 @@ def parse_node_accumulators(
 
     node_ids = list(node_map.keys())
     accumulators = {}
+    whole_stage_codegen_accumulators = {}
+
     nodes_to_exclude = ["WholeStageCodegen", "InputAdapter"]
     for i, child in enumerate(plan["sparkPlanInfo"]["children"]):
         process_node(child, i)
 
+    accumulators.update(whole_stage_codegen_accumulators)
     return accumulators
 
 
@@ -258,7 +273,16 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
     if len(plan_accumulators) > 0:
         for k, v in plan_accumulators.items():
-            node_map[k].accumulators = v if v else None
+            if k not in node_map and k >= 100_000:
+                node_map[k] = PhysicalPlanNode(
+                    node_id=v[0].node_id,
+                    node_type=NodeType.WholeStageCodegen,
+                    child_nodes=None,
+                    whole_stage_codegen_id=v[0].node_id - 100_000,
+                    accumulators=v,
+                )
+            else:
+                node_map[k].accumulators = v if v else None
 
     return PhysicalPlan(
         query_id=query_id,

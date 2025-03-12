@@ -50,23 +50,60 @@ def get_node_color(
 @timeit
 def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
     elements = []
-    codegen_groups = {
-        row["whole_stage_codegen_id"]
-        for row in df_data
-        if row["whole_stage_codegen_id"] is not None
-    }
-    for group_id in codegen_groups:
-        codegen_label = f"codegen\n#{group_id}"
-        tooltip = [
-            i["node_name"] for i in df_data if i["whole_stage_codegen_id"] == group_id
-        ]
-        tooltip_str = codegen_label.replace("\n", " ") + "\n\n" + "\n".join(tooltip)
+
+    df = pl.DataFrame(df_data, strict=False)
+
+    codegen_details = (
+        df.filter(pl.col("node_id").ge(100_000))
+        .select(
+            pl.col("node_id_adj").alias("whole_stage_codegen_id"),
+            "accumulator_totals",
+        )
+        .explode("accumulator_totals")
+        .unnest("accumulator_totals")
+        .select("whole_stage_codegen_id", "value", "readable_value", "readable_unit")
+        .join(
+            df.filter(pl.col("node_id").lt(100_000)).select(
+                "whole_stage_codegen_id",
+                pl.col("node_id").cast(pl.Int64).alias("inner_node_id"),
+                pl.col("node_name").alias("inner_node_name"),
+            ),
+            on="whole_stage_codegen_id",
+            how="inner",
+        )
+        .sort("whole_stage_codegen_id", "inner_node_id")
+        .drop("inner_node_id")
+        .group_by("whole_stage_codegen_id", "value", "readable_value", "readable_unit")
+        .agg(pl.col("inner_node_name").alias("inner_node_name"))
+        .to_dicts()
+    )
+
+    codegen_durations = [i["value"] for i in codegen_details]
+    min_codegen_duration = min(codegen_durations)
+    max_codegen_duration = max(codegen_durations)
+    for row in codegen_details:
+        tooltip = row["inner_node_name"]
+        codegen_label = f"codegen\n#{row['whole_stage_codegen_id']}\n"
+        duration_str = f"duration: {row['readable_value']} {row['readable_unit']}"
+        tooltip_str = (
+            codegen_label.replace("\n", " ")
+            + "\n"
+            + duration_str
+            + "\n\n"
+            + "\n".join(tooltip)
+        )
+
+        container_color = get_node_color(
+            row["value"], min_codegen_duration, max_codegen_duration, dark_mode
+        )
+
         elements.append(
             {
                 "data": {
-                    "id": f"codegen_{group_id}",
+                    "id": f"codegen_{row['whole_stage_codegen_id']}",
                     "label": codegen_label,
                     "tooltip": tooltip_str,
+                    "color": container_color,
                 },
                 "classes": "codegen-container",
             }
@@ -77,6 +114,10 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     max_duration = max(durations)
 
     for row in df_data:
+        # skip wholestagecodegen nodes
+        if row["node_id"] >= 100_000:
+            continue
+
         hover_title = f"{row['node_name']}\n"
         hover_info = hover_title
         if row["child_nodes"] is not None:
@@ -158,7 +199,7 @@ def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
         {
             "selector": ".codegen-container",
             "style": {
-                "background-color": text_color,
+                "background-color": "data(color)",
                 "border-width": "2px",
                 "border-color": bg_color,
                 "shape": "round-rectangle",

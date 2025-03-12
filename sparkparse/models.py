@@ -60,6 +60,7 @@ class NodeType(StrEnum):
     TableCacheQueryStage = auto()
     InMemoryTableScan = auto()
     InMemoryRelation = auto()
+    WholeStageCodegen = auto()
 
 
 class Accumulator(BaseModel):
@@ -81,6 +82,7 @@ class PlanAccumulator(BaseModel):
     metric_name: str = Field(alias="name")
     accumulator_id: int = Field(alias="accumulatorId")
     metric_type: str = Field(alias="metricType")
+    is_wholestage_codegen: bool = False
 
 
 class PhysicalPlanNode(BaseModel):

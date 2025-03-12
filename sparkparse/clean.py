@@ -278,7 +278,10 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         .sort("query_id", "accumulator_id")
         .with_columns(pl.col("driver_update").alias("driver_value"))
         .with_columns(
-            pl.col("driver_update").cum_sum().over("query_id", "accumulator_id").alias("driver_value")
+            pl.col("driver_update")
+            .cum_sum()
+            .over("query_id", "accumulator_id")
+            .alias("driver_value")
         )
     )
 
@@ -461,11 +464,18 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
             )
             .sort("query_id", "node_id")
         )
+        # adjust wholestagecodegen labels
+        .with_columns(
+            pl.when(pl.col("node_id").ge(100_000))
+            .then(pl.col("node_id") - 100_000)
+            .otherwise(pl.col("node_id"))
+            .alias("node_id_adj")
+        )
         .with_columns(
             pl.concat_str(
                 [
                     pl.lit("["),
-                    pl.col("node_id").cast(pl.String),
+                    pl.col("node_id_adj").cast(pl.String),
                     pl.lit("] "),
                     pl.col("node_type"),
                 ]
