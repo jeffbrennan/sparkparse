@@ -190,9 +190,9 @@
         "accumulator_id": 324,
         "metric_name": "avg hash probes per key",
         "metric_type": "average",
-        "value": 370.0,
+        "value": 16.0,
         "unit": "",
-        "readable_value": 370.0,
+        "readable_value": 16.0,
         "readable_unit": ""
     },
     {
@@ -428,9 +428,9 @@
         "accumulator_id": 685,
         "metric_name": "avg hash probes per key",
         "metric_type": "average",
-        "value": 1600.0,
+        "value": 16.0,
         "unit": "",
-        "readable_value": 1600.0,
+        "readable_value": 16.0,
         "readable_unit": ""
     },
     {
@@ -666,9 +666,9 @@
         "accumulator_id": 386,
         "metric_name": "avg hash probes per key",
         "metric_type": "average",
-        "value": 369.0,
+        "value": 16.0,
         "unit": "",
-        "readable_value": 369.0,
+        "readable_value": 16.0,
         "readable_unit": ""
     },
     {
@@ -904,9 +904,9 @@
         "accumulator_id": 563,
         "metric_name": "avg hash probes per key",
         "metric_type": "average",
-        "value": 800.0,
+        "value": 16.0,
         "unit": "",
-        "readable_value": 800.0,
+        "readable_value": 16.0,
         "readable_unit": ""
     },
     {

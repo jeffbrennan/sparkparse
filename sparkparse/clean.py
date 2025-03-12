@@ -352,8 +352,32 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
     # structured accumulators update values per query, node, accumulator, task
     readable_metrics = parse_accumulator_metrics(dag_long, "task")
 
+    # metrics collected as averages are not summed in spark ui - reported as min, med, max
+    average_metrics = (
+        readable_metrics.select("accumulators")
+        .unnest("accumulators")
+        .filter(pl.col("metric_type") == "average")
+        .group_by("accumulator_id")
+        .agg(pl.median("value").alias("median_of_average_value"))
+    )
+
     # structured accumulator totals per query, node, accumulator
-    readable_metrics_total = parse_accumulator_metrics(dag_long, "total")
+    readable_metrics_total = (
+        parse_accumulator_metrics(dag_long, "total")
+        .join(average_metrics, on="accumulator_id", how="left")
+        .with_columns(
+            pl.col("accumulator_totals").struct.with_fields(
+                value=pl.when(pl.field("metric_type").eq("average"))
+                .then(pl.col("median_of_average_value"))
+                .otherwise(pl.field("value")),
+                readable_value=pl.when(pl.field("metric_type").eq("average"))
+                .then(pl.col("median_of_average_value"))
+                .otherwise(
+                    pl.field("readable_value"),
+                ),
+            )
+        )
+    )
 
     node_durations = (
         readable_metrics_total.with_columns(
