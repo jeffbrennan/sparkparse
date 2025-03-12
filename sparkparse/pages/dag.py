@@ -1,9 +1,9 @@
 from typing import Any, Dict, List
 
+import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import polars as pl
-from dash import Input, Output, callback, dcc, html
-import dash_bootstrap_components as dbc
+from dash import Input, Output, State, callback, dcc, html
 
 from sparkparse.common import timeit
 from sparkparse.parse import get_parsed_metrics
@@ -83,7 +83,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     max_codegen_duration = max(codegen_durations)
     for row in codegen_details:
         tooltip = row["inner_node_name"]
-        codegen_label = f"codegen\n#{row['whole_stage_codegen_id']}\n"
+        codegen_label = f"cgen\n#{row['whole_stage_codegen_id']}\n"
         duration_str = f"duration: {row['readable_value']} {row['readable_unit']}"
         tooltip_str = (
             codegen_label.replace("\n", " ")
@@ -317,14 +317,23 @@ def layout(log_name: str, **kwargs) -> html.Div:
                 id="dag-graph",
                 layout={
                     "name": "dagre",
-                    "rankDir": "TB",
-                    "ranker": "longest-path",
-                    "spacingFactor": 1,
+                    "rankDir": "TD",
+                    "ranker": "tight-tree",
+                    "spacingFactor": 1.2,
+                    "animate": True,
+                    "animationDuration": 200,
+                    "fit": False,
                 },
-                style={"width": "100%", "height": "100vh", "zIndex": 999},
+                zoom=1.5,
+                pan={"x": 800, "y": 500},
+                style={"width": "100%", "height": "100%", "zIndex": 999},
+                userZoomingEnabled=True,
+                userPanningEnabled=True,
+                zoomingEnabled=True,
+                className="dash-cytoscape",
             ),
             html.Div(id="tooltip"),
-        ]
+        ],
     )
 
 
@@ -354,7 +363,7 @@ def update_tooltip(mouseover_data, dark_mode: bool):
             "borderRadius": "5px",
             "zIndex": 100,
             "left": "7%",
-            "top": "20%",
-            "fontSize": "16px",
+            "top": "15vh",
+            "fontSize": "1em",
         },
     )
