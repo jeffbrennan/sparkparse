@@ -274,8 +274,12 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
 
     driver_accumulators = (
         pl.DataFrame(result.driver_accum_updates)
-        .with_columns(pl.col("update").alias("driver_value"))
         .rename({"update": "driver_update"})
+        .sort("query_id", "accumulator_id")
+        .with_columns(pl.col("driver_update").alias("driver_value"))
+        .with_columns(
+            pl.col("driver_update").cum_sum().over("query_id", "accumulator_id").alias("driver_value")
+        )
     )
 
     accumulators_long = (
@@ -426,10 +430,11 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
     )
 
     dag_metrics_combined = (
-        dag_metrics.join(
-            dag_metrics_totals.select(
-                "query_id", "node_id", "accumulator_totals", "n_accumulator_totals"
-            ),
+        dag_metrics_totals.select(
+            "query_id", "node_id", "accumulator_totals", "n_accumulator_totals"
+        )
+        .join(
+            dag_metrics,
             on=["query_id", "node_id"],
             how="left",
         )
