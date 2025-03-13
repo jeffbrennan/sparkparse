@@ -135,7 +135,8 @@
                     "sum(v5#42)#67"
                 ],
                 "results": [
-                    "id1_2_3#18, sum(v5#42)#67 AS v5#68"
+                    "id1_2_3#18", 
+                    "sum(v5#42)#67 AS v5#68"
                 ]
             }
         },
@@ -150,9 +151,9 @@
                 "arguments": {
                     "cols": [
                         {
-                            "name": "[id1_2_3#18",
+                            "name": "id1_2_3#18",
                             "asc": true,
-                            "nulls_first": false
+                            "nulls_first": true 
                         }
                     ],
                     "global_sort": false,
@@ -246,9 +247,9 @@
                 "arguments": {
                     "partition_cols": [
                         "id1_2_3#93",
-                        " id1#84",
-                        " id2#85",
-                        " id3#86"
+                        "id1#84",
+                        "id2#85",
+                        "id3#86"
                     ],
                     "n_partitions": 200,
                     "exchange_type": "ENSURE_REQUIREMENTS",
@@ -362,9 +363,9 @@
                 "arguments": {
                     "cols": [
                         {
-                            "name": "[id1_2_3#93",
+                            "name": "id1_2_3#93",
                             "asc": true,
-                            "nulls_first": false
+                            "nulls_first": true 
                         }
                     ],
                     "global_sort": false,
@@ -416,7 +417,7 @@
                 "arguments": {
                     "cols": [
                         {
-                            "name": "[id1#84",
+                            "name": "id1#84",
                             "asc": true,
                             "nulls_first": false
                         },
@@ -453,7 +454,7 @@
                     ],
                     "window_function": {
                         "function": "rank",
-                        "col": "v5#68), 41, Partial"
+                        "col": "v5#68"
                     },
                     "limit": 41,
                     "processing_stage": "Partial"
@@ -515,9 +516,9 @@
                 "arguments": {
                     "cols": [
                         {
-                            "name": "[id1#84",
+                            "name": "id1#84",
                             "asc": true,
-                            "nulls_first": false
+                            "nulls_first": true 
                         },
                         {
                             "name": "v5#68",
@@ -552,7 +553,7 @@
                     ],
                     "window_function": {
                         "function": "rank",
-                        "col": "v5#68), 41, Final"
+                        "col": "v5#68"
                     },
                     "limit": 41,
                     "processing_stage": "Final"
@@ -575,8 +576,7 @@
                     },
                     "window_specification": {
                         "partition_cols": [
-                            "id1#84",
-                            "v5#68 DESC NULLS LAST"
+                            "id1#84"
                         ],
                         "order_cols": [
                             {
@@ -585,7 +585,7 @@
                                 "nulls_first": false
                             }
                         ],
-                        "window_frame": "RowFrame, unboundedpreceding$(), currentrow$())"
+                        "window_frame": "specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$()) AS rank#105"
                     }
                 }
             }
@@ -603,7 +603,7 @@
                 "condition": [
                     {
                         "condition": "AND",
-                        "col": "(rank#105",
+                        "col": "rank#105",
                         "operator": "<",
                         "value": "42"
                     }
@@ -677,9 +677,9 @@
                 "arguments": {
                     "cols": [
                         {
-                            "name": "[id2#85",
+                            "name": "id2#85",
                             "asc": true,
-                            "nulls_first": false
+                            "nulls_first": true 
                         },
                         {
                             "name": "v5#68",
@@ -703,12 +703,11 @@
                 "arguments": {
                     "window_function": {
                         "function": "row_number",
-                        "col": ""
+                        "col": null
                     },
                     "window_specification": {
                         "partition_cols": [
-                            "id2#85",
-                            "v5#68 DESC NULLS LAST"
+                            "id2#85"
                         ],
                         "order_cols": [
                             {
@@ -717,7 +716,7 @@
                                 "nulls_first": false
                             }
                         ],
-                        "window_frame": "RowFrame, unboundedpreceding$(), currentrow$())"
+                        "window_frame": "specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$()) AS rn#132"
                     }
                 }
             }
@@ -734,7 +733,7 @@
                 "condition": [
                     {
                         "condition": "AND",
-                        "col": "(rn#132",
+                        "col": "rn#132",
                         "operator": ">",
                         "value": "42"
                     }
