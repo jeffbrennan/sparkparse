@@ -3,15 +3,20 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import cast
 
 from sparkparse.clean import log_to_combined_df, log_to_dag_df, write_parsed_log
 from sparkparse.common import timeit
 from sparkparse.models import (
+    NODE_ID_PATTERN,
+    NODE_TYPE_DETAIL_MAP,
+    NODE_TYPE_PATTERN,
     Accumulator,
     DriverAccumUpdates,
     EventType,
     ExecutorMetrics,
     InputMetrics,
+    InsertIntoHadoopFsRelationCommandDetail,
     Job,
     Metrics,
     NodeType,
@@ -20,10 +25,12 @@ from sparkparse.models import (
     ParsedLog,
     ParsedLogDataFrames,
     PhysicalPlan,
+    PhysicalPlanDetail,
     PhysicalPlanDetails,
     PhysicalPlanNode,
     PlanAccumulator,
     QueryEvent,
+    ScanDetail,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
@@ -91,33 +98,59 @@ def parse_task(line_dict: dict) -> Task:
 
 
 def get_plan_details(
-    plan_lines: list[str], tree_end: int, n_nodes: int
+    plan_lines: list[str],
+    tree_end: int,
+    node_map: dict[int, PhysicalPlanNode],
 ) -> PhysicalPlanDetails:
-    sources = []
-    targets = []
-
     details_start = plan_lines[tree_end:].index("") + tree_end + 2
     details_end = len(plan_lines) - 1
-    task_details = plan_lines[details_start:details_end]
-    for i, line in enumerate(task_details):
+    plan_details = plan_lines[details_start:details_end]
+    for i, line in enumerate(plan_details):
         if line == "":
-            task_details[i] = "\n\n"
-    task_details_split = "".join(task_details).split("\n\n")
-    task_details_split = [i for i in task_details_split if i != ""][0:n_nodes]
-    assert len(task_details_split) == n_nodes
+            plan_details[i] = "\n\n"
+    plan_details_split = "\n".join(plan_details).split("\n\n")
+    plan_details_split = [i for i in plan_details_split if i != ""][0 : len(node_map)]
+    assert len(plan_details_split) == len(node_map)
 
-    for details in task_details_split:
-        if "Scan " in details and "LocalTableScan" not in details:
-            source = details.split("[file:")[1].split("]")[0]
-            sources.append(source)
-        elif "file:" in details:
-            target = details.split("file:")[-1].split(",")[0]
-            targets.append(target)
-        else:
-            continue
+    details_parsed = []
+    for detail in plan_details_split:
+        node_id = re.compile(NODE_ID_PATTERN).search(detail)
+        if not node_id:
+            raise ValueError(f"Could not parse node id from line: {detail}")
+
+        node_id = int(node_id.group(1))
+        node_type = node_map[node_id].node_type
+
+        detail_model = NODE_TYPE_DETAIL_MAP.get(node_type)
+        if detail_model is None:
+            raise ValueError(f"Could not find detail model for node type: {node_type}")
+
+        print(detail)
+        detail_dict = {}
+        detail_lines = detail.split("\n")
+        for i, detail_line in enumerate(detail_lines):
+            if i == 0:
+                continue
+
+            detail_split = detail_line.split(":")
+            key = detail_split[0]
+            value = ":".join(detail_split[1:])
+
+            # remove detail size indicators like Output [4] -> Output
+            cleaned_key = re.sub(r"\s+\[\d+\]", "", key.strip())
+            detail_dict[cleaned_key] = value.strip()
+
+        detail_parsed = detail_model.model_validate(detail_dict)
+        details_parsed.append(
+            PhysicalPlanDetail(
+                node_id=node_id,
+                node_type=node_type,
+                detail=detail_parsed,  # type: ignore
+            )
+        )
 
     codegen_lookup = {}
-    for details in task_details_split:
+    for details in plan_details_split:
         if "[codegen id : " not in details:
             continue
 
@@ -125,9 +158,7 @@ def get_plan_details(
         codegen_id = int(details.split("[codegen id : ")[-1].split("]")[0].strip())
         codegen_lookup[codegen_node] = codegen_id
 
-    return PhysicalPlanDetails(
-        sources=sources, targets=targets, codegen_lookup=codegen_lookup
-    )
+    return PhysicalPlanDetails(details=details_parsed, codegen_lookup=codegen_lookup)
 
 
 def parse_node_accumulators(
@@ -193,7 +224,6 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     indentation_history = []
 
     lines = tree.split("\n")
-    node_pattern = re.compile(r".*\((\d+)\)")
 
     for i, line in enumerate(lines):
         if line == "":
@@ -202,15 +232,13 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
 
         # remove leading spaces and nested indentation after :
         line_strip = line.lstrip().removeprefix(": ").lstrip()
-        match = node_pattern.search(line)
+        match = re.compile(NODE_ID_PATTERN).search(line)
         if not match:
             continue
 
         node_id = int(match.group(1))
 
-        node_type_match = re.search(
-            r"(\b\w+\b).*\(\d{1,4}\)", line.replace("Execute", "")
-        )
+        node_type_match = re.search(NODE_TYPE_PATTERN, line.replace("Execute", ""))
 
         if node_type_match:
             node_type = NodeType(node_type_match.group(1))
@@ -247,7 +275,6 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     return node_map
 
 
-# TODO: add detail parsing like project cols, scan sources etc
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     plan_string = line_dict["physicalPlanDescription"]
     query_id = line_dict["executionId"]
@@ -261,11 +288,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
     node_map = parse_spark_ui_tree(tree)
     plan_accumulators = parse_node_accumulators(line_dict, node_map)
-    details = get_plan_details(
-        plan_lines,
-        tree_end,
-        len(node_map),
-    )
+    details = get_plan_details(plan_lines, tree_end, node_map)
 
     if len(details.codegen_lookup) > 0:
         for k, v in details.codegen_lookup.items():
@@ -286,8 +309,7 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
     return PhysicalPlan(
         query_id=query_id,
-        sources=details.sources,
-        targets=details.targets,
+        details=details,
         nodes=list(node_map.values()),
     )
 
@@ -297,12 +319,26 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
     today = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     if out_name is not None:
         return out_name[:name_len_limit]
+    source_models = [
+        cast(ScanDetail, i.detail)
+        for i in parsed_plan.details.details
+        if i.node_type in [NodeType.Scan]
+    ]
+
+    target_models = [
+        cast(InsertIntoHadoopFsRelationCommandDetail, i.detail)
+        for i in parsed_plan.details.details
+        if i.node_type in [NodeType.InsertIntoHadoopFsRelationCommand]
+    ]
+
+    sources = [i.location for i in source_models]
+    targets = [i.arguments[0] for i in target_models]
 
     parsed_paths = []
-    if len(parsed_plan.targets) > 0:
-        paths_to_use = parsed_plan.targets
+    if len(targets) > 0:
+        paths_to_use = targets
     else:
-        paths_to_use = parsed_plan.sources
+        paths_to_use = sources
 
     for path in set(paths_to_use):
         path_name = path.split("/")[-1].split(".")[0]
