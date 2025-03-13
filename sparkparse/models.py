@@ -1,6 +1,5 @@
-import re
 from enum import StrEnum, auto
-from typing import Annotated, Any, ClassVar, Type
+from typing import Annotated, Any, Type
 
 import polars as pl
 from pydantic import (
@@ -9,8 +8,6 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
-    root_validator,
 )
 
 
@@ -109,40 +106,101 @@ class QueryEvent(BaseModel):
     query_time: int
 
 
-def str_to_list(v: Any) -> list[str]:
+def str_to_list(v: Any) -> list[str] | None:
     if not isinstance(v, str):
         raise TypeError(f"Expected a string, got {type(v)}")
+
+    v = v.removeprefix("[").removesuffix("]").strip()
+    if v == "":
+        return None
+
+    # project parsing
+    col_definitions = []
+    if " AS " in v:
+        parts = v.split(" AS ")
+        print(len(parts))
+        for i, part in enumerate(parts):
+            if i == 0:
+                col_definitions.append(part)
+                continue
+            split = part.split(", ")
+            col_definitions[-1] = f"{col_definitions[-1]} AS {split[0]}"
+            col_definitions.extend(split[1:])
+
+        return col_definitions
 
     v_list = v.removeprefix("[").removesuffix("]").split(",")
     return [item.strip() for item in v_list if item.strip()]
 
 
+class LocationType(StrEnum):
+    IN_MEMORY_FILE_INDEX = "InMemoryFileIndex"
+
+
+class ScanDetailLocation(BaseModel):
+    location_type: LocationType
+    location: list[str]
+
+
 class ScanDetail(BaseModel):
     output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
     batched: bool = Field(alias="Batched")
-    location: str = Field(alias="Location")
+    location: ScanDetailLocation = Field(alias="Location")
     read_schema: str = Field(alias="ReadSchema")
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def parse_scan_detail_location_str(cls, value: Any) -> ScanDetailLocation:
+        value_split = value.split(" [")
+        location_type = LocationType(value_split[0])
+        location = value_split[1].removesuffix("]").strip().split(",")
+
+        return ScanDetailLocation(location_type=location_type, location=location)
 
 
 class ColumnarToRowDetail(BaseModel):
-    input: Annotated[list[str], Field("Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
 class ProjectDetail(BaseModel):
-    input: Annotated[list[str], Field("Input"), BeforeValidator(str_to_list)]
-    output: Annotated[list[str], Field("Output"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+
+
+class Function(BaseModel):
+    function: str
+    col: str
 
 
 class HashAggregateDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    keys: Annotated[list[str], Field(alias="Keys"), BeforeValidator(str_to_list)]
-    functions: Annotated[
-        list[str], Field(alias="Functions"), BeforeValidator(str_to_list)
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
+    keys: Annotated[list[str] | None, Field(alias="Keys"), BeforeValidator(str_to_list)]
+    functions: list[Function] | None = Field(alias="Functions")
     aggregate_attributes: Annotated[
-        list[str], Field(alias="Aggregate Attributes"), BeforeValidator(str_to_list)
+        list[str] | None,
+        Field(alias="Aggregate Attributes"),
+        BeforeValidator(str_to_list),
     ]
     results: Annotated[list[str], Field(alias="Results"), BeforeValidator(str_to_list)]
+
+    @field_validator("functions", mode="before")
+    @classmethod
+    def parse_hash_aggregate_function_str(cls, value: Any) -> list[Function] | None:
+        if value.strip() == "[]":
+            return None
+
+        functions_split = value.removeprefix("[").removesuffix("]").split(", ")
+        functions = []
+        for f in functions_split:
+            f_split = f.split("(")
+            function = f_split[0]
+            col = f_split[1].removesuffix(")")
+            functions.append(Function(function=function, col=col))
+        return functions
 
 
 class ExchangeType(StrEnum):
@@ -215,8 +273,6 @@ class SortDetail(BaseModel):
     def parse_sort_argument_str(cls, value: Any) -> SortArgument:
         cols = []
 
-        print("---")
-        print(value)
         col_section = value.split("]")[0].removesuffix("[").strip().split(",")
         for i in col_section:
             col_raw = i.strip().split(" ")
@@ -234,6 +290,16 @@ class SortDetail(BaseModel):
         )
 
 
+class JoinType(StrEnum):
+    LEFT_OUTER = "LeftOuter"
+    LEFT_SEMI = "LeftSemi"
+    LEFT_ANTI = "LeftAnti"
+    RIGHT_OUTER = "RightOuter"
+    FULL_OUTER = "FullOuter"
+    INNER = "Inner"
+    CROSS = "Cross"
+
+
 class SortMergeJoinDetail(BaseModel):
     left_keys: Annotated[
         list[str], Field(alias="Left keys"), BeforeValidator(str_to_list)
@@ -241,40 +307,190 @@ class SortMergeJoinDetail(BaseModel):
     right_keys: Annotated[
         list[str], Field(alias="Right keys"), BeforeValidator(str_to_list)
     ]
-    join_type: Annotated[
-        list[str], Field(alias="Join type"), BeforeValidator(str_to_list)
-    ]
-    join_condition: Annotated[
-        list[str], Field(alias="Join condition"), BeforeValidator(str_to_list)
-    ]
+    join_type: JoinType = Field(alias="Join type")
+    join_condition: str | None = Field(alias="Join condition", default=None)
+
+    @field_validator("join_condition", mode="before")
+    def parse_join_condition_str(cls, value: Any) -> str | None:
+        if value.strip() == "None":
+            return None
+        return value
+
+
+class WindowSpecification(BaseModel):
+    partition_cols: list[str]
+    order_cols: list[SortArgumentCol]
+    window_frame: str
+
+
+class WindowDetailArgument(BaseModel):
+    window_function: Function
+    window_specification: WindowSpecification
 
 
 class WindowDetail(BaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    arguments: Annotated[
-        list[str], Field(alias="Arguments"), BeforeValidator(str_to_list)
-    ]
+    arguments: WindowDetailArgument = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_window_detail_argument_str(cls, value: Any) -> WindowDetailArgument:
+        function_section = value.split(") ")[0].removeprefix("[").strip() + ")"
+
+        window_function = Function(
+            function=function_section.split("(")[0],
+            col=function_section.split("(")[1].removesuffix(")"),
+        )
+
+        window_specification = value.split("windowspecdefinition(")[1].split(") ")[0]
+        pre_frame_section = window_specification.split(", specifiedwindowframe")[0]
+        partition_cols = [
+            i
+            for i in pre_frame_section.split(", ")
+            if "DESC" not in i or "ASC" not in i
+        ]
+        order_cols = [
+            i for i in pre_frame_section.split(", ") if "DESC" in i or "ASC" in i
+        ]
+
+        order_cols_parsed = []
+        for col in order_cols:
+            order_cols_parsed.append(
+                SortArgumentCol(
+                    name=col.split(" ")[0],
+                    asc=True if col.split(" ")[1] == "ASC" else False,
+                    nulls_first=True if col.split(" ")[2] == "NULLS FIRST" else False,
+                )
+            )
+
+        window_frame = window_specification.split("specifiedwindowframe(")[1].split(
+            "], "
+        )[0]
+
+        return WindowDetailArgument(
+            window_function=window_function,
+            window_specification=WindowSpecification(
+                partition_cols=partition_cols,
+                order_cols=order_cols_parsed,
+                window_frame=window_frame,
+            ),
+        )
+
+
+class ProcessingStage(StrEnum):
+    FINAL = "Final"
+    PARTIAL = "Partial"
+
+
+class WindowGroupLimitArgument(BaseModel):
+    partition_cols: list[str]
+    order_cols: list[SortArgumentCol]
+    window_function: Function
+    limit: int
+    processing_stage: ProcessingStage
 
 
 class WindowGroupLimitDetail(BaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    arguments: Annotated[
-        list[str], Field(alias="Arguments"), BeforeValidator(str_to_list)
-    ]
+    arguments: WindowGroupLimitArgument = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_window_group_limit_argument_str(
+        cls, value: Any
+    ) -> WindowGroupLimitArgument:
+        partition_cols = value.split("], ")[0].removeprefix("[").strip().split(",")
+        order_section = value.split("], ")[1].removeprefix("[").strip().split(", ")
+
+        order_cols = []
+        for col in order_section:
+            col_split = col.split(" ")
+            order_cols.append(
+                SortArgumentCol(
+                    name=col_split[0],
+                    asc=True if col_split[1] == "ASC" else False,
+                    nulls_first=True if col_split[2] == "NULLS FIRST" else False,
+                )
+            )
+
+        function_section = value.split("], ")[2].removeprefix("[").strip()
+
+        window_function = Function(
+            function=function_section.split("(")[0],
+            col=function_section.split("(")[1].removesuffix(")"),
+        )
+
+        limit = int(value.split(", ")[-2].strip())
+
+        processing_stage = ProcessingStage(value.split(", ")[-1])
+
+        return WindowGroupLimitArgument(
+            partition_cols=partition_cols,
+            order_cols=order_cols,
+            window_function=window_function,
+            limit=int(limit),
+            processing_stage=ProcessingStage(processing_stage),
+        )
+
+
+class Operator(StrEnum):
+    ge = ">="
+    le = "<="
+    eq = "=="
+    ne = "!="
+    gt = ">"
+    lt = "<"
+    in_ = "in"
+    not_in = "not in"
+    like = "like"
+
+
+class Condition(StrEnum):
+    and_ = "AND"
+    or_ = "OR"
+
+
+class FilterDetailCondition(BaseModel):
+    condition: Condition
+    col: str
+    operator: Operator
+    value: str | int
 
 
 class FilterDetail(BaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    condition: Annotated[
-        list[str], Field(alias="Condition"), BeforeValidator(str_to_list)
-    ]
+    condition: Annotated[list[FilterDetailCondition], Field(alias="Condition")]
+
+    @field_validator("condition", mode="before")
+    @classmethod
+    def parse_filter_condition_str(cls, value: Any) -> list[FilterDetailCondition]:
+        filter_split = value.split(") ")
+        filter_conditions = []
+        for i, filter_str in enumerate(filter_split):
+            if filter_str == "":
+                continue
+            if i == 0:
+                condition = Condition("AND")
+            else:
+                condition = Condition(filter_str.split(" ")[0].strip())
+
+            col = filter_str.split(" ")[0].removesuffix("(")
+            operator = Operator(filter_str.split(" ")[1])
+            value = filter_str.split(" ")[2].removesuffix(")")
+            filter_conditions.append(
+                FilterDetailCondition(
+                    condition=condition, col=col, operator=operator, value=value
+                )
+            )
+
+        return filter_conditions
 
 
 class CoalesceDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    arguments: Annotated[
-        list[str], Field(alias="Arguments"), BeforeValidator(str_to_list)
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
+    n_partitions: int = Field(alias="Arguments")
 
 
 class InsertIntoHadoopFsRelationCommandDetail(BaseModel):
