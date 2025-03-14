@@ -97,6 +97,7 @@ def parse_task(line_dict: dict) -> Task:
     )
 
 
+@timeit
 def get_plan_details(
     plan_lines: list[str],
     tree_end: int,
@@ -125,7 +126,6 @@ def get_plan_details(
         if detail_model is None:
             raise ValueError(f"Could not find detail model for node type: {node_type}")
 
-        print(detail)
         detail_dict = {}
         detail_lines = detail.split("\n")
         for i, detail_line in enumerate(detail_lines):

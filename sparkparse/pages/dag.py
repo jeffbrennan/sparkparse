@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import polars as pl
-from dash import Input, Output, State, callback, dcc, html
+from dash import Input, Output, callback, dcc, html
 
 from sparkparse.common import timeit
 from sparkparse.parse import get_parsed_metrics

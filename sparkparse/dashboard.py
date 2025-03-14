@@ -35,8 +35,6 @@ def update_link_color(pathname: str, dark_mode: bool, selected_log: str | None):
 
     hidden_page_style = {"display": "none"}
 
-    print("-------")
-    print(selected_log)
     if selected_log is None:
         return highlighted_page_style, hidden_page_style, hidden_page_style, "", ""
 
@@ -45,8 +43,6 @@ def update_link_color(pathname: str, dark_mode: bool, selected_log: str | None):
         f"{selected_log}/summary",
         f"{selected_log}/dag",
     ]
-    print(pages)
-    print("-----------")
     output_styles = [{"color": color} for _ in range(len(pages))]
     current_page = pathname.removeprefix("/")
 
