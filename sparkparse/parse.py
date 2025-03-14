@@ -330,9 +330,12 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
         for i in parsed_plan.details.details
         if i.node_type in [NodeType.InsertIntoHadoopFsRelationCommand]
     ]
+    sources = []
+    for source in source_models:
+        locations = source.location.location
+        sources.extend(locations)
 
-    sources = [i.location for i in source_models]
-    targets = [i.arguments[0] for i in target_models]
+    targets = [i.arguments.file_path for i in target_models]
 
     parsed_paths = []
     if len(targets) > 0:

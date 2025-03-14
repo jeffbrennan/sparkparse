@@ -14,12 +14,10 @@ def test_plan_parses_correctly():
 
     result = parse_physical_plan(input_data)
 
-    result_json = result.model_dump()
-
     with expected_path.open("r") as f:
         expected_json = json.load(f)
 
-    assert result_json == expected_json
+    assert json.loads(result.model_dump_json()) == expected_json
 
 
 def test_tree_parses_correctly():
@@ -54,8 +52,7 @@ def test_tree_parses_correctly():
                                                          +- * ColumnarToRow (10)
                                                             +- Scan parquet  (9)
 """
-    result = parse_spark_ui_tree(spark_ui_tree)
-
+    results = parse_spark_ui_tree(spark_ui_tree)
     expected_result = {
         29: PhysicalPlanNode(
             node_id=29,
@@ -113,7 +110,7 @@ def test_tree_parses_correctly():
         ),
         20: PhysicalPlanNode(
             node_id=20,
-            node_type=NodeType.BuildRight,
+            node_type=NodeType.BroadcastHashJoin,
             child_nodes=[21],
             whole_stage_codegen_id=None,
         ),
@@ -232,7 +229,9 @@ def test_tree_parses_correctly():
             whole_stage_codegen_id=None,
         ),
     }
-    for node_id, node in result.items():
+    for node_id, node in results.items():
+        node.accumulators = None
+
         assert node == expected_result[node_id], print(
             f"{node}\n!=\n{expected_result[node_id]}"
         )

@@ -25,7 +25,9 @@ def test_accumulator_totals_parse_correctly():
 
     result_json = result.to_dicts()
 
-    print()
+    # with expected_path.open("w") as f:
+    #     json.dump(result_json, f, indent=4)
+
     with expected_path.open("r") as f:
         expected_json = json.load(f)
 
