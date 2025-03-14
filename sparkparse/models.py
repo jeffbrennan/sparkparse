@@ -117,6 +117,9 @@ def str_to_list(v: Any) -> list[str] | None:
     # project parsing
     col_definitions = []
     if " AS " in v:
+        if v.count(" AS ") == v.count(", "):
+            return v.split(", ")
+
         parts = v.split(" AS ")
         print(len(parts))
         for i, part in enumerate(parts):
@@ -171,7 +174,7 @@ class ProjectDetail(BaseModel):
 
 class Function(BaseModel):
     function: str
-    col: str
+    col: str | None
 
 
 class HashAggregateDetail(BaseModel):
@@ -222,7 +225,7 @@ class ExchangeDetail(BaseModel):
     @classmethod
     def parse_exchange_argument_str(cls, value: Any) -> ExchangeArgument:
         hash_partition_section = (
-            value.split("), ")[0].removeprefix("hashpartitioning(").split(",")
+            value.split("), ")[0].removeprefix("hashpartitioning(").split(", ")
         )
         cols = [i for i in hash_partition_section if "#" in i]
         n_partitions = hash_partition_section[-1].strip()
@@ -276,9 +279,9 @@ class SortDetail(BaseModel):
         col_section = value.split("]")[0].removesuffix("[").strip().split(",")
         for i in col_section:
             col_raw = i.strip().split(" ")
-            name = col_raw[0]
+            name = col_raw[0].removeprefix("[")
             asc = True if col_raw[1] == "ASC" else False
-            nulls_first = True if col_raw[2] == "NULLS FIRST" else False
+            nulls_first = True if col_raw[3] == "FIRST" else False
             cols.append(SortArgumentCol(name=name, asc=asc, nulls_first=nulls_first))
 
         global_sort = value.split("]")[1].strip() == "true"
@@ -337,17 +340,16 @@ class WindowDetail(BaseModel):
     def parse_window_detail_argument_str(cls, value: Any) -> WindowDetailArgument:
         function_section = value.split(") ")[0].removeprefix("[").strip() + ")"
 
+        window_function_col = function_section.split("(")[1].removesuffix(")")
+        window_function_col = None if window_function_col == "" else window_function_col
         window_function = Function(
-            function=function_section.split("(")[0],
-            col=function_section.split("(")[1].removesuffix(")"),
+            function=function_section.split("(")[0], col=window_function_col
         )
 
-        window_specification = value.split("windowspecdefinition(")[1].split(") ")[0]
+        window_specification = value.split("windowspecdefinition(")[1].split("], ")[0]
         pre_frame_section = window_specification.split(", specifiedwindowframe")[0]
         partition_cols = [
-            i
-            for i in pre_frame_section.split(", ")
-            if "DESC" not in i or "ASC" not in i
+            i for i in pre_frame_section.split(", ") if not ("DESC" in i or "ASC" in i)
         ]
         order_cols = [
             i for i in pre_frame_section.split(", ") if "DESC" in i or "ASC" in i
@@ -366,6 +368,8 @@ class WindowDetail(BaseModel):
         window_frame = window_specification.split("specifiedwindowframe(")[1].split(
             "], "
         )[0]
+
+        window_frame = "specifiedwindowframe(" + window_frame.replace(")))", "))")
 
         return WindowDetailArgument(
             window_function=window_function,
@@ -399,7 +403,7 @@ class WindowGroupLimitDetail(BaseModel):
     def parse_window_group_limit_argument_str(
         cls, value: Any
     ) -> WindowGroupLimitArgument:
-        partition_cols = value.split("], ")[0].removeprefix("[").strip().split(",")
+        partition_cols = value.split("], ")[0].removeprefix("[").strip().split(", ")
         order_section = value.split("], ")[1].removeprefix("[").strip().split(", ")
 
         order_cols = []
@@ -413,7 +417,9 @@ class WindowGroupLimitDetail(BaseModel):
                 )
             )
 
-        function_section = value.split("], ")[2].removeprefix("[").strip()
+        function_section = ", ".join(
+            value.split("], ")[2].removeprefix("[").strip().split(", ")[0:-2]
+        )
 
         window_function = Function(
             function=function_section.split("(")[0],
@@ -474,7 +480,7 @@ class FilterDetail(BaseModel):
             else:
                 condition = Condition(filter_str.split(" ")[0].strip())
 
-            col = filter_str.split(" ")[0].removesuffix("(")
+            col = filter_str.split(" ")[0].removeprefix("(")
             operator = Operator(filter_str.split(" ")[1])
             value = filter_str.split(" ")[2].removesuffix(")")
             filter_conditions.append(
