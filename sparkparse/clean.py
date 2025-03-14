@@ -267,10 +267,125 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
     return readable_metrics
 
 
-@timeit
-def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
+def get_node_metrics(
+    readable_metrics: pl.DataFrame, dag_long: pl.DataFrame, dag_base_cols: list[str]
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    average_metrics = (
+        readable_metrics.select("accumulators")
+        .unnest("accumulators")
+        .filter(pl.col("metric_type") == "average")
+        .group_by("accumulator_id")
+        .agg(pl.median("value").alias("median_of_average_value"))
+    )
+
+    # structured accumulator totals per query, node, accumulator
+    readable_metrics_total = (
+        parse_accumulator_metrics(dag_long, "total")
+        .join(average_metrics, on="accumulator_id", how="left")
+        .with_columns(
+            pl.col("accumulator_totals").struct.with_fields(
+                value=pl.when(pl.field("metric_type").eq("average"))
+                .then(pl.col("median_of_average_value"))
+                .otherwise(pl.field("value")),
+                readable_value=pl.when(pl.field("metric_type").eq("average"))
+                .then(pl.col("median_of_average_value"))
+                .otherwise(
+                    pl.field("readable_value"),
+                ),
+            )
+        )
+    )
+
+    node_durations = (
+        readable_metrics_total.with_columns(
+            pl.when(
+                pl.col("accumulator_totals").struct.field("metric_type").eq("timing")
+            )
+            .then(pl.col("accumulator_totals").struct.field("value").mul(1 / 60_000))
+            .otherwise(pl.lit(0))
+            .alias("node_duration_minutes")
+        )
+        .group_by("query_id", "node_id")
+        .agg(pl.sum("node_duration_minutes").alias("node_duration_minutes"))
+    )
+    metric_type_order = {
+        "timing": 0,
+        "size": 1,
+        "sum": 2,
+        "average": 3,
+    }
+
+    dag_metrics = (
+        dag_long.join(
+            readable_metrics,
+            on=["query_id", "node_id", "accumulator_id", "task_id"],
+            how="inner",
+        )
+        .with_columns(
+            pl.col("accumulators")
+            .struct.field("metric_type")
+            .replace_strict(metric_type_order)
+            .alias("metric_order")
+        )
+        .sort("metric_order", "metric_name")
+        .drop("metric_order")
+        .group_by(*dag_base_cols)
+        .agg(pl.col("accumulators"))
+        .with_columns(pl.col("accumulators").list.len().alias("n_accumulators"))
+        .with_columns(pl.coalesce("n_accumulators", pl.lit(0)).alias("n_accumulators"))
+    )
+
+    dag_metrics_totals = (
+        dag_long.select("query_id", "node_id", "metric_name")
+        .unique()
+        .join(
+            readable_metrics_total,
+            on=["query_id", "node_id", "metric_name"],
+            how="inner",
+        )
+        .with_columns(
+            pl.col("accumulator_totals")
+            .struct.field("metric_type")
+            .replace_strict(metric_type_order)
+            .alias("metric_order")
+        )
+        .sort("metric_order", "metric_name")
+        .drop("metric_order")
+        .group_by("query_id", "node_id")
+        .agg(pl.col("accumulator_totals"))
+        .with_columns(
+            pl.col("accumulator_totals").list.len().alias("n_accumulator_totals")
+        )
+        .with_columns(
+            pl.coalesce("n_accumulator_totals", pl.lit(0)).alias("n_accumulator_totals")
+        )
+    )
+
+    dag_metrics_combined = (
+        dag_metrics_totals.select(
+            "query_id", "node_id", "accumulator_totals", "n_accumulator_totals"
+        )
+        .join(
+            dag_metrics,
+            on=["query_id", "node_id"],
+            how="left",
+        )
+        .select(
+            "query_id",
+            "node_id",
+            "accumulators",
+            "accumulator_totals",
+            "n_accumulators",
+            "n_accumulator_totals",
+        )
+        .sort("query_id", "node_id")
+    )
+
+    return node_durations, dag_metrics_combined
+
+
+def get_dag_long(result: ParsedLog, plan: pl.DataFrame) -> pl.DataFrame:
     tasks = clean_tasks(result.tasks)
-    plan = clean_plan(result.query_times, result.queries)
 
     driver_accumulators = (
         pl.DataFrame(result.driver_accum_updates)
@@ -348,50 +463,11 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         .with_columns(pl.coalesce("update", "driver_update").alias("update"))
         .drop("driver_value", "driver_update")
     )
+    return dag_long
 
-    # structured accumulators update values per query, node, accumulator, task
-    readable_metrics = parse_accumulator_metrics(dag_long, "task")
 
-    # metrics collected as averages are not summed in spark ui - reported as min, med, max
-    average_metrics = (
-        readable_metrics.select("accumulators")
-        .unnest("accumulators")
-        .filter(pl.col("metric_type") == "average")
-        .group_by("accumulator_id")
-        .agg(pl.median("value").alias("median_of_average_value"))
-    )
-
-    # structured accumulator totals per query, node, accumulator
-    readable_metrics_total = (
-        parse_accumulator_metrics(dag_long, "total")
-        .join(average_metrics, on="accumulator_id", how="left")
-        .with_columns(
-            pl.col("accumulator_totals").struct.with_fields(
-                value=pl.when(pl.field("metric_type").eq("average"))
-                .then(pl.col("median_of_average_value"))
-                .otherwise(pl.field("value")),
-                readable_value=pl.when(pl.field("metric_type").eq("average"))
-                .then(pl.col("median_of_average_value"))
-                .otherwise(
-                    pl.field("readable_value"),
-                ),
-            )
-        )
-    )
-
-    node_durations = (
-        readable_metrics_total.with_columns(
-            pl.when(
-                pl.col("accumulator_totals").struct.field("metric_type").eq("timing")
-            )
-            .then(pl.col("accumulator_totals").struct.field("value").mul(1 / 60_000))
-            .otherwise(pl.lit(0))
-            .alias("node_duration_minutes")
-        )
-        .group_by("query_id", "node_id")
-        .agg(pl.sum("node_duration_minutes").alias("node_duration_minutes"))
-    )
-
+@timeit
+def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
     dag_base_cols = [
         "query_id",
         "query_start_timestamp",
@@ -403,77 +479,12 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         "child_nodes",
     ]
 
-    metric_type_order = {
-        "timing": 0,
-        "size": 1,
-        "sum": 2,
-        "average": 3,
-    }
+    plan = clean_plan(result.query_times, result.queries)
+    dag_long = get_dag_long(result, plan)
 
-    dag_metrics = (
-        dag_long.join(
-            readable_metrics,
-            on=["query_id", "node_id", "accumulator_id", "task_id"],
-            how="inner",
-        )
-        .with_columns(
-            pl.col("accumulators")
-            .struct.field("metric_type")
-            .replace_strict(metric_type_order)
-            .alias("metric_order")
-        )
-        .sort("metric_order", "metric_name")
-        .drop("metric_order")
-        .group_by(*dag_base_cols)
-        .agg(pl.col("accumulators"))
-        .with_columns(pl.col("accumulators").list.len().alias("n_accumulators"))
-        .with_columns(pl.coalesce("n_accumulators", pl.lit(0)).alias("n_accumulators"))
-    )
-
-    dag_metrics_totals = (
-        dag_long.select("query_id", "node_id", "metric_name")
-        .unique()
-        .join(
-            readable_metrics_total,
-            on=["query_id", "node_id", "metric_name"],
-            how="inner",
-        )
-        .with_columns(
-            pl.col("accumulator_totals")
-            .struct.field("metric_type")
-            .replace_strict(metric_type_order)
-            .alias("metric_order")
-        )
-        .sort("metric_order", "metric_name")
-        .drop("metric_order")
-        .group_by("query_id", "node_id")
-        .agg(pl.col("accumulator_totals"))
-        .with_columns(
-            pl.col("accumulator_totals").list.len().alias("n_accumulator_totals")
-        )
-        .with_columns(
-            pl.coalesce("n_accumulator_totals", pl.lit(0)).alias("n_accumulator_totals")
-        )
-    )
-
-    dag_metrics_combined = (
-        dag_metrics_totals.select(
-            "query_id", "node_id", "accumulator_totals", "n_accumulator_totals"
-        )
-        .join(
-            dag_metrics,
-            on=["query_id", "node_id"],
-            how="left",
-        )
-        .select(
-            "query_id",
-            "node_id",
-            "accumulators",
-            "accumulator_totals",
-            "n_accumulators",
-            "n_accumulator_totals",
-        )
-        .sort("query_id", "node_id")
+    readable_metrics = parse_accumulator_metrics(dag_long, "task")
+    node_durations, dag_metrics_combined = get_node_metrics(
+        readable_metrics, dag_long, dag_base_cols
     )
 
     dag_final = (
