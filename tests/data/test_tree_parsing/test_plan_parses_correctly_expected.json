@@ -16,7 +16,7 @@
           "location": {
             "location_type": "InMemoryFileIndex",
             "location": [
-              "file:sparkparse/data/raw/G1_1e9_1e9_100_0.parquet"
+              "sparkparse/data/raw/G1_1e9_1e9_100_0.parquet"
             ]
           },
           "read_schema": "struct<id1:string,id2:string,id3:string,v3:double>"
@@ -165,7 +165,7 @@
           "location": {
             "location_type": "InMemoryFileIndex",
             "location": [
-              "file:sparkparse/data/raw/G1_1e9_1e9_100_0.parquet"
+              "sparkparse/data/raw/G1_1e9_1e9_100_0.parquet"
             ]
           },
           "read_schema": "struct<id1:string,id2:string,id3:string>"
