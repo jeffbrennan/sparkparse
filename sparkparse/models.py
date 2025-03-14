@@ -51,7 +51,6 @@ class NodeType(StrEnum):
     AQEShuffleRead = auto()
     ShuffleQueryStage = auto()
     HashAggregate = auto()
-    BuildRight = auto()
     BroadcastQueryStage = auto()
     BroadcastExchange = auto()
     Filter = auto()
@@ -156,9 +155,10 @@ class ScanDetail(BaseModel):
     def parse_scan_detail_location_str(cls, value: Any) -> ScanDetailLocation:
         value_split = value.split(" [")
         location_type = LocationType(value_split[0])
-        location = value_split[1].removesuffix("]").strip().split(",")
+        locations_raw = value_split[1].removesuffix("]").strip().split(",")
 
-        return ScanDetailLocation(location_type=location_type, location=location)
+        locations = [i.removeprefix("file:") for i in locations_raw]
+        return ScanDetailLocation(location_type=location_type, location=locations)
 
 
 class ColumnarToRowDetail(BaseModel):
@@ -499,11 +499,96 @@ class CoalesceDetail(BaseModel):
     n_partitions: int = Field(alias="Arguments")
 
 
+class Option(BaseModel):
+    key: str
+    value: str
+
+
+class WriteMode(StrEnum):
+    OVERWRITE = "Overwrite"
+    APPEND = "Append"
+    ERROR_IF_EXISTS = "ErrorIfExists"
+    IGNORE = "Ignore"
+
+
+class InsertIntoHadoopFsRelationCommandDetailArguments(BaseModel):
+    # Arguments: file:/sparkparse/data/clean/complex, false, CSV, [header=true, path=/sparkparse/data/clean/complex], Overwrite, [id1_2_3, v5, v4, v3_mean, v3_count, id1, id2, id3, rank, rn, current_date]
+    file_path: str
+    error_if_exists: bool
+    format: str
+    options: list[Option]
+    mode: WriteMode
+    output: list[str] | None
+
+
 class InsertIntoHadoopFsRelationCommandDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    arguments: Annotated[
-        list[str], Field(alias="Arguments"), BeforeValidator(str_to_list)
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
+    arguments: InsertIntoHadoopFsRelationCommandDetailArguments = Field(
+        alias="Arguments"
+    )
+
+    # Arguments: file:/sparkparse/data/clean/complex, false, CSV, [header=true, path=/sparkparse/data/clean/complex], Overwrite, [id1_2_3, v5, v4, v3_mean, v3_count, id1, id2, id3, rank, rn, current_date]
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_insert_into_hadoop_fs_relation_command_detail_arguments_str(
+        cls, value: Any
+    ) -> InsertIntoHadoopFsRelationCommandDetailArguments:
+        value_split = value.split(", ")
+        file_path = value_split[0].removeprefix("file:")
+        error_if_exists = value_split[1].strip() == "true"
+        output_format = value_split[2].strip()
+
+        options_parsed = []
+        options_raw = value.split(", [")[1].split("]")[0].split(", ")
+        for option in options_raw:
+            options_parsed.append(
+                Option(
+                    key=option.split("=")[0],
+                    value=option.split("=")[1].removesuffix("]").strip(),
+                )
+            )
+
+        mode = WriteMode(value.split("], ")[1].split(", [")[0])
+
+        output_raw = "[" + value.split(", [")[-1]
+        output = str_to_list(output_raw)
+
+        return InsertIntoHadoopFsRelationCommandDetailArguments(
+            file_path=file_path,
+            error_if_exists=error_if_exists,
+            format=output_format,
+            options=options_parsed,
+            mode=mode,
+            output=output,
+        )
+
+
+class LocalTableScanArguments(BaseModel):
+    contents: str
+    input: list[str] | None
+
+
+class LocalTableScanDetail(BaseModel):
+    output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
+    arguments: LocalTableScanArguments = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_local_table_scan_arguments_str(
+        cls, value: Any
+    ) -> LocalTableScanArguments:
+        contents = value.split(", [")[0]
+        input_col_section = "[" + value.split(", [")[1]
+        input_cols = str_to_list(input_col_section)
+        return LocalTableScanArguments(contents=contents, input=input_cols)
+
+
+class WriteFilesDetail(BaseModel):
+    # (2) WriteFiles
+    # Input [11]: [id1_2_3#18, v5#68, v4#70, v3_mean#72, v3_count#74L, id1#84, id2#85, id3#121, rank#105, rn#132, current_date#143]
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
 class PhysicalPlanDetail(BaseModel):
@@ -524,6 +609,8 @@ class PhysicalPlanDetail(BaseModel):
         | FilterDetail
         | CoalesceDetail
         | InsertIntoHadoopFsRelationCommandDetail
+        | LocalTableScanDetail
+        | WriteFilesDetail
     )
 
 
@@ -690,4 +777,6 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.Filter: FilterDetail,
     NodeType.Coalesce: CoalesceDetail,
     NodeType.InsertIntoHadoopFsRelationCommand: InsertIntoHadoopFsRelationCommandDetail,
+    NodeType.LocalTableScan: LocalTableScanDetail,
+    NodeType.WriteFiles: WriteFilesDetail,
 }
