@@ -225,7 +225,7 @@ class ExchangeType(StrEnum):
 
 
 class ExchangeArgument(BaseModel):
-    partition_cols: list[str]
+    partition_cols: list[str] | None
     n_partitions: int
     exchange_type: ExchangeType
     plan_identifier: int
@@ -238,6 +238,14 @@ class ExchangeDetail(BaseModel):
     @field_validator("arguments", mode="before")
     @classmethod
     def parse_exchange_argument_str(cls, value: Any) -> ExchangeArgument:
+        if "SinglePartition" in value:
+            return ExchangeArgument(
+                partition_cols=None,
+                n_partitions=1,
+                exchange_type=ExchangeType.ENSURE_REQUIREMENTS,
+                plan_identifier=int(value.split("plan_id=")[1].removesuffix("]")),
+            )
+
         hash_partition_section = (
             value.split("), ")[0].removeprefix("hashpartitioning(").split(", ")
         )
@@ -262,6 +270,7 @@ class ShuffleQueryStageDetail(BaseModel):
 
 class AQEShuffleReadArgument(StrEnum):
     COALESCED = auto()
+    LOCAL = auto()
 
 
 class AQEShuffleReadDetail(BaseModel):
@@ -474,7 +483,7 @@ class FilterDetailCondition(BaseModel):
     condition: Condition
     col: str
     operator: Operator
-    value: str | int
+    value: str | int | None
 
 
 class FilterDetail(BaseModel):
@@ -493,6 +502,19 @@ class FilterDetail(BaseModel):
                 condition = Condition("AND")
             else:
                 condition = Condition(filter_str.split(" ")[0].strip())
+
+            if "isnotnull" or "isnull" in filter_str:
+                col = filter_str.split("(")[1].removesuffix(")")
+                operator = "!=" if "isnot" in filter_str else "=="
+                filter_conditions.append(
+                    FilterDetailCondition(
+                        condition=condition,
+                        col=col,
+                        operator=Operator(operator),
+                        value=None,
+                    )
+                )
+                continue
 
             col = filter_str.split(" ")[0].removeprefix("(")
             operator = Operator(filter_str.split(" ")[1])
@@ -577,6 +599,18 @@ class InsertIntoHadoopFsRelationCommandDetail(BaseModel):
         )
 
 
+def deserialize_insert_into_hadoop_fs_relation_command_detail(
+    s: str,
+) -> InsertIntoHadoopFsRelationCommandDetail:
+    data = json.loads(s)["detail"]
+    data["arguments"] = (
+        InsertIntoHadoopFsRelationCommandDetailArguments.model_construct(
+            **data["arguments"]
+        )
+    )
+    return InsertIntoHadoopFsRelationCommandDetail.model_construct(**data)
+
+
 class LocalTableScanArguments(BaseModel):
     contents: str
     input: list[str] | None
@@ -601,6 +635,94 @@ class WriteFilesDetail(BaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
+class LocalLimitDetail(BaseModel):
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    limit: int = Field(alias="Arguments")
+
+
+class GlobalLimitArguments(BaseModel):
+    limit: int
+    offset: int
+
+
+class GlobalLimitDetail(BaseModel):
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    arguments: GlobalLimitArguments = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_global_limit_arguments_str(cls, value: Any) -> GlobalLimitArguments:
+        value_split = value.split(", ")
+        limit = int(value_split[0])
+        offset = int(value_split[1])
+        return GlobalLimitArguments(limit=limit, offset=offset)
+
+
+class BroadcastExchangeMode(StrEnum):
+    HASHED_RELATION_BROADCAST_MODE = "HashedRelationBroadcastMode"
+
+
+class BroadcastExchangeArguments(BaseModel):
+    mode: BroadcastExchangeMode
+    join_cols: str
+    nullable: bool
+    plan_identifier: int
+
+
+class BroadcastExchangeDetail(BaseModel):
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    arguments: BroadcastExchangeArguments = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_broadcast_exchange_arguments_str(
+        cls, value: Any
+    ) -> BroadcastExchangeArguments:
+        value_split = value.split(", ")
+        mode = BroadcastExchangeMode(value_split[0].split("(")[0])
+        nullable = value.split("), [plan")[0].split(", ")[-1].strip() == "true"
+
+        cols = (
+            value.split("Mode(")[1]
+            .split("), [")[0]
+            .removesuffix("),false)")
+            .removesuffix("),true)")
+        )
+
+        plan_identifier = int(
+            value.split("), [")[1].split("=")[1].removeprefix("#").removesuffix("]")
+        )
+
+        return BroadcastExchangeArguments(
+            mode=mode,
+            join_cols=cols,
+            nullable=nullable,
+            plan_identifier=plan_identifier,
+        )
+
+
+class BroadcastQueryStageDetail(BaseModel):
+    output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
+    stage_order: int = Field(alias="Arguments")
+
+
+class BroadcastHashJoinDetail(BaseModel):
+    left_keys: Annotated[
+        list[str], Field(alias="Left keys"), BeforeValidator(str_to_list)
+    ]
+    right_keys: Annotated[
+        list[str], Field(alias="Right keys"), BeforeValidator(str_to_list)
+    ]
+    join_type: JoinType = Field(alias="Join type")
+    join_condition: str | None = Field(alias="Join condition", default=None)
+
+    @field_validator("join_condition", mode="before")
+    def parse_join_condition_str(cls, value: Any) -> str | None:
+        if value.strip() == "None":
+            return None
+        return value
+
+
 class PhysicalPlanDetail(BaseModel):
     node_id: int
     node_type: NodeType
@@ -621,6 +743,11 @@ class PhysicalPlanDetail(BaseModel):
         | InsertIntoHadoopFsRelationCommandDetail
         | LocalTableScanDetail
         | WriteFilesDetail
+        | LocalLimitDetail
+        | GlobalLimitDetail
+        | BroadcastExchangeDetail
+        | BroadcastQueryStageDetail
+        | BroadcastHashJoinDetail
     )
 
 
@@ -789,4 +916,9 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.InsertIntoHadoopFsRelationCommand: InsertIntoHadoopFsRelationCommandDetail,
     NodeType.LocalTableScan: LocalTableScanDetail,
     NodeType.WriteFiles: WriteFilesDetail,
+    NodeType.LocalLimit: LocalLimitDetail,
+    NodeType.GlobalLimit: GlobalLimitDetail,
+    NodeType.BroadcastExchange: BroadcastExchangeDetail,
+    NodeType.BroadcastQueryStage: BroadcastQueryStageDetail,
+    NodeType.BroadcastHashJoin: BroadcastHashJoinDetail,
 }
