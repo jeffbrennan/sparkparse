@@ -503,7 +503,7 @@ class FilterDetail(BaseModel):
             else:
                 condition = Condition(filter_str.split(" ")[0].strip())
 
-            if "isnotnull" or "isnull" in filter_str:
+            if "isnotnull" in filter_str or "isnull" in filter_str:
                 col = filter_str.split("(")[1].removesuffix(")")
                 operator = "!=" if "isnot" in filter_str else "=="
                 filter_conditions.append(
