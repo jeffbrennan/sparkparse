@@ -84,7 +84,10 @@ def get_codegen_elements(
     for row in codegen_details:
         tooltip = row["inner_node_name"]
         codegen_label = f"cgen\n#{row['whole_stage_codegen_id']}\n"
-        duration_str = f"duration: {row['readable_value']} {row['readable_unit']}"
+        if row["readable_value"] is None:
+            duration_str = "duration: 0s"
+        else:
+            duration_str = f"duration: {row['readable_value']} {row['readable_unit']}"
         tooltip_str = (
             codegen_label.replace("\n", " ").replace("cgen", "WholeStageCodegen")
             + "\n"
@@ -130,7 +133,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     min_duration = min(durations)
     max_duration = max(durations)
 
-    header_length = 50
+    header_length = 30
 
     for row in df_data:
         # skip wholestagecodegen nodes
@@ -409,6 +412,6 @@ def update_tooltip(mouseover_data, dark_mode: bool):
             "zIndex": 100,
             "left": "7%",
             "top": "15vh",
-            "fontSize": "1em",
+            "fontSize": "12px",
         },
     )
