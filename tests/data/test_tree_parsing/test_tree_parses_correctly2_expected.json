@@ -1,0 +1,740 @@
+{
+  "74": {
+    "node_id": 74,
+    "node_type": "InsertIntoHadoopFsRelationCommand",
+    "child_nodes": [],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "73": {
+    "node_id": 73,
+    "node_type": "WriteFiles",
+    "child_nodes": [
+      74
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "72": {
+    "node_id": 72,
+    "node_type": "Filter",
+    "child_nodes": [
+      73
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "71": {
+    "node_id": 71,
+    "node_type": "Window",
+    "child_nodes": [
+      72
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "70": {
+    "node_id": 70,
+    "node_type": "WindowGroupLimit",
+    "child_nodes": [
+      71
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "69": {
+    "node_id": 69,
+    "node_type": "Sort",
+    "child_nodes": [
+      70
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "68": {
+    "node_id": 68,
+    "node_type": "Project",
+    "child_nodes": [
+      69
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "67": {
+    "node_id": 67,
+    "node_type": "BroadcastHashJoin",
+    "child_nodes": [
+      68
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "43": {
+    "node_id": 43,
+    "node_type": "Project",
+    "child_nodes": [
+      67
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "42": {
+    "node_id": 42,
+    "node_type": "BroadcastHashJoin",
+    "child_nodes": [
+      43
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "18": {
+    "node_id": 18,
+    "node_type": "Project",
+    "child_nodes": [
+      42
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "17": {
+    "node_id": 17,
+    "node_type": "BroadcastHashJoin",
+    "child_nodes": [
+      18
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "7": {
+    "node_id": 7,
+    "node_type": "HashAggregate",
+    "child_nodes": [
+      17
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "6": {
+    "node_id": 6,
+    "node_type": "AQEShuffleRead",
+    "child_nodes": [
+      7
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "5": {
+    "node_id": 5,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      6
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "4": {
+    "node_id": 4,
+    "node_type": "Exchange",
+    "child_nodes": [
+      5
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "3": {
+    "node_id": 3,
+    "node_type": "HashAggregate",
+    "child_nodes": [
+      4
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "2": {
+    "node_id": 2,
+    "node_type": "ColumnarToRow",
+    "child_nodes": [
+      3
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "1": {
+    "node_id": 1,
+    "node_type": "Scan",
+    "child_nodes": [
+      2
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "16": {
+    "node_id": 16,
+    "node_type": "BroadcastQueryStage",
+    "child_nodes": [
+      17
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "15": {
+    "node_id": 15,
+    "node_type": "BroadcastExchange",
+    "child_nodes": [
+      16
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "14": {
+    "node_id": 14,
+    "node_type": "Filter",
+    "child_nodes": [
+      15
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "13": {
+    "node_id": 13,
+    "node_type": "GlobalLimit",
+    "child_nodes": [
+      14
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "12": {
+    "node_id": 12,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      13
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "11": {
+    "node_id": 11,
+    "node_type": "Exchange",
+    "child_nodes": [
+      12
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "10": {
+    "node_id": 10,
+    "node_type": "LocalLimit",
+    "child_nodes": [
+      11
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "9": {
+    "node_id": 9,
+    "node_type": "ColumnarToRow",
+    "child_nodes": [
+      10
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "8": {
+    "node_id": 8,
+    "node_type": "Scan",
+    "child_nodes": [
+      9
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "41": {
+    "node_id": 41,
+    "node_type": "BroadcastQueryStage",
+    "child_nodes": [
+      42
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "40": {
+    "node_id": 40,
+    "node_type": "BroadcastExchange",
+    "child_nodes": [
+      41
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "39": {
+    "node_id": 39,
+    "node_type": "AQEShuffleRead",
+    "child_nodes": [
+      40
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "38": {
+    "node_id": 38,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      39
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "37": {
+    "node_id": 37,
+    "node_type": "Exchange",
+    "child_nodes": [
+      38
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "36": {
+    "node_id": 36,
+    "node_type": "Project",
+    "child_nodes": [
+      37
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "35": {
+    "node_id": 35,
+    "node_type": "BroadcastHashJoin",
+    "child_nodes": [
+      36
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "25": {
+    "node_id": 25,
+    "node_type": "HashAggregate",
+    "child_nodes": [
+      35
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "24": {
+    "node_id": 24,
+    "node_type": "AQEShuffleRead",
+    "child_nodes": [
+      25
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "23": {
+    "node_id": 23,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      24
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "22": {
+    "node_id": 22,
+    "node_type": "Exchange",
+    "child_nodes": [
+      23
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "21": {
+    "node_id": 21,
+    "node_type": "HashAggregate",
+    "child_nodes": [
+      22
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "20": {
+    "node_id": 20,
+    "node_type": "ColumnarToRow",
+    "child_nodes": [
+      21
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "19": {
+    "node_id": 19,
+    "node_type": "Scan",
+    "child_nodes": [
+      20
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "34": {
+    "node_id": 34,
+    "node_type": "BroadcastQueryStage",
+    "child_nodes": [
+      35
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "33": {
+    "node_id": 33,
+    "node_type": "BroadcastExchange",
+    "child_nodes": [
+      34
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "32": {
+    "node_id": 32,
+    "node_type": "Filter",
+    "child_nodes": [
+      33
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "31": {
+    "node_id": 31,
+    "node_type": "GlobalLimit",
+    "child_nodes": [
+      32
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "30": {
+    "node_id": 30,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      31
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "29": {
+    "node_id": 29,
+    "node_type": "Exchange",
+    "child_nodes": [
+      30
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "28": {
+    "node_id": 28,
+    "node_type": "LocalLimit",
+    "child_nodes": [
+      29
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "27": {
+    "node_id": 27,
+    "node_type": "ColumnarToRow",
+    "child_nodes": [
+      28
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "26": {
+    "node_id": 26,
+    "node_type": "Scan",
+    "child_nodes": [
+      27
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "66": {
+    "node_id": 66,
+    "node_type": "BroadcastQueryStage",
+    "child_nodes": [
+      67
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "65": {
+    "node_id": 65,
+    "node_type": "BroadcastExchange",
+    "child_nodes": [
+      66
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "64": {
+    "node_id": 64,
+    "node_type": "AQEShuffleRead",
+    "child_nodes": [
+      65
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "63": {
+    "node_id": 63,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      64
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "62": {
+    "node_id": 62,
+    "node_type": "Exchange",
+    "child_nodes": [
+      63
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "61": {
+    "node_id": 61,
+    "node_type": "Project",
+    "child_nodes": [
+      62
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "60": {
+    "node_id": 60,
+    "node_type": "BroadcastHashJoin",
+    "child_nodes": [
+      61
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "50": {
+    "node_id": 50,
+    "node_type": "HashAggregate",
+    "child_nodes": [
+      60
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "49": {
+    "node_id": 49,
+    "node_type": "AQEShuffleRead",
+    "child_nodes": [
+      50
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "48": {
+    "node_id": 48,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      49
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "47": {
+    "node_id": 47,
+    "node_type": "Exchange",
+    "child_nodes": [
+      48
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "46": {
+    "node_id": 46,
+    "node_type": "HashAggregate",
+    "child_nodes": [
+      47
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "45": {
+    "node_id": 45,
+    "node_type": "ColumnarToRow",
+    "child_nodes": [
+      46
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "44": {
+    "node_id": 44,
+    "node_type": "Scan",
+    "child_nodes": [
+      45
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "59": {
+    "node_id": 59,
+    "node_type": "BroadcastQueryStage",
+    "child_nodes": [
+      60
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "58": {
+    "node_id": 58,
+    "node_type": "BroadcastExchange",
+    "child_nodes": [
+      59
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "57": {
+    "node_id": 57,
+    "node_type": "Filter",
+    "child_nodes": [
+      58
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "56": {
+    "node_id": 56,
+    "node_type": "GlobalLimit",
+    "child_nodes": [
+      57
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "55": {
+    "node_id": 55,
+    "node_type": "ShuffleQueryStage",
+    "child_nodes": [
+      56
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "54": {
+    "node_id": 54,
+    "node_type": "Exchange",
+    "child_nodes": [
+      55
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "53": {
+    "node_id": 53,
+    "node_type": "LocalLimit",
+    "child_nodes": [
+      54
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "52": {
+    "node_id": 52,
+    "node_type": "ColumnarToRow",
+    "child_nodes": [
+      53
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  },
+  "51": {
+    "node_id": 51,
+    "node_type": "Scan",
+    "child_nodes": [
+      52
+    ],
+    "whole_stage_codegen_id": null,
+    "accumulators": null,
+    "details": null
+  }
+}
