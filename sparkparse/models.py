@@ -1,3 +1,4 @@
+import json
 from enum import StrEnum, auto
 from typing import Annotated, Any, Type
 
@@ -97,6 +98,7 @@ class PhysicalPlanNode(BaseModel):
     child_nodes: list[int] | None = None
     whole_stage_codegen_id: int | None = None
     accumulators: list[PlanAccumulator] | None = None
+    details: str | None = None  # based on PhysicalPlanDetail
 
 
 class QueryEvent(BaseModel):
@@ -159,6 +161,12 @@ class ScanDetail(BaseModel):
 
         locations = [i.removeprefix("file:") for i in locations_raw]
         return ScanDetailLocation(location_type=location_type, location=locations)
+
+
+def deserialize_scan_detail(s: str) -> ScanDetail:
+    data = json.loads(s)["detail"]
+    data["location"] = ScanDetailLocation.model_construct(**data["location"])
+    return ScanDetail.model_construct(**data)
 
 
 class ColumnarToRowDetail(BaseModel):
@@ -512,7 +520,6 @@ class WriteMode(StrEnum):
 
 
 class InsertIntoHadoopFsRelationCommandDetailArguments(BaseModel):
-    # Arguments: file:/sparkparse/data/clean/complex, false, CSV, [header=true, path=/sparkparse/data/clean/complex], Overwrite, [id1_2_3, v5, v4, v3_mean, v3_count, id1, id2, id3, rank, rn, current_date]
     file_path: str
     error_if_exists: bool
     format: str
@@ -529,7 +536,6 @@ class InsertIntoHadoopFsRelationCommandDetail(BaseModel):
         alias="Arguments"
     )
 
-    # Arguments: file:/sparkparse/data/clean/complex, false, CSV, [header=true, path=/sparkparse/data/clean/complex], Overwrite, [id1_2_3, v5, v4, v3_mean, v3_count, id1, id2, id3, rank, rn, current_date]
     @field_validator("arguments", mode="before")
     @classmethod
     def parse_insert_into_hadoop_fs_relation_command_detail_arguments_str(
@@ -586,8 +592,6 @@ class LocalTableScanDetail(BaseModel):
 
 
 class WriteFilesDetail(BaseModel):
-    # (2) WriteFiles
-    # Input [11]: [id1_2_3#18, v5#68, v4#70, v3_mean#72, v3_count#74L, id1#84, id2#85, id3#121, rank#105, rn#132, current_date#143]
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
@@ -621,7 +625,6 @@ class PhysicalPlanDetails(BaseModel):
 
 class PhysicalPlan(BaseModel):
     query_id: int
-    details: PhysicalPlanDetails
     nodes: list[PhysicalPlanNode]
 
 

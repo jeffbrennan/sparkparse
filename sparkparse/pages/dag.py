@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List
 
 import dash_bootstrap_components as dbc
@@ -5,7 +6,7 @@ import dash_cytoscape as cyto
 import polars as pl
 from dash import Input, Output, callback, dcc, html
 
-from sparkparse.common import timeit
+from sparkparse.common import create_header, timeit
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
 
@@ -113,23 +114,44 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     min_duration = min(durations)
     max_duration = max(durations)
 
+    header_length = 50
+
     for row in df_data:
         # skip wholestagecodegen nodes
         if row["node_id"] >= 100_000:
             continue
 
-        hover_title = f"{row['node_name']}\n"
-        hover_info = hover_title
+        hover_info = row["node_name"] + "\n"
         if row["child_nodes"] is not None:
             hover_info += f"Child Nodes: {row['child_nodes']}\n"
 
         if row["accumulator_totals"] is not None:
+            hover_info += "\n"
             prev_metric_type = []
             for metric in row["accumulator_totals"]:
                 if metric["metric_type"] not in prev_metric_type:
-                    hover_info += f"\n{metric['metric_type'].title()}\n"
+                    hover_info += (
+                        create_header(
+                            header_length,
+                            metric["metric_type"].title(),
+                            center=True,
+                            spacer="-",
+                        )
+                        + "\n"
+                    )
+
                     prev_metric_type.append(metric["metric_type"])
                 hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
+
+        if row["details"] is not None:
+            hover_info += (
+                create_header(header_length, "Details", center=True, spacer="-") + "\n"
+            )
+            dict_to_display = json.loads(row["details"])["detail"]
+            hover_info += json.dumps(dict_to_display, indent=1)
+            hover_info += "\n" + create_header(
+                header_length, "", center=False, spacer="-"
+            )
 
         node_color = get_node_color(
             row["node_duration_minutes"], min_duration, max_duration, dark_mode

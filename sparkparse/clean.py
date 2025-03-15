@@ -78,6 +78,7 @@ def clean_plan(
                 ),
             ]
         )
+
     query_times_df = pl.DataFrame(query_times)
     query_times_pivoted = (
         query_times_df.pivot("event_type", index="query_id", values="query_time")
@@ -489,7 +490,7 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
 
     dag_final = (
         (
-            plan.select(*dag_base_cols)
+            plan.select(*dag_base_cols + ["details"])
             .join(dag_metrics_combined, on=["query_id", "node_id"], how="left")
             .join(node_durations, on=["query_id", "node_id"], how="left")
             .with_columns(

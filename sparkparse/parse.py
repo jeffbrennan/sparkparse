@@ -36,6 +36,7 @@ from sparkparse.models import (
     Stage,
     Task,
     TaskMetrics,
+    deserialize_scan_detail,
 )
 
 logger = logging.getLogger(__name__)
@@ -307,9 +308,12 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
             else:
                 node_map[k].accumulators = v if v else None
 
+    detail_list = details.details
+    for detail in detail_list:
+        node_map[detail.node_id].details = detail.model_dump_json()
+
     return PhysicalPlan(
         query_id=query_id,
-        details=details,
         nodes=list(node_map.values()),
     )
 
@@ -319,23 +323,27 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
     today = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     if out_name is not None:
         return out_name[:name_len_limit]
-    source_models = [
-        cast(ScanDetail, i.detail)
-        for i in parsed_plan.details.details
-        if i.node_type in [NodeType.Scan]
-    ]
 
-    target_models = [
-        cast(InsertIntoHadoopFsRelationCommandDetail, i.detail)
-        for i in parsed_plan.details.details
-        if i.node_type in [NodeType.InsertIntoHadoopFsRelationCommand]
-    ]
+    source_model_strings = []
+    target_model_strings = []
+
+    for node in parsed_plan.nodes:
+        if node.node_type == NodeType.Scan:
+            source_model_strings.append(node.details)
+        elif node.node_type == NodeType.InsertIntoHadoopFsRelationCommand:
+            target_model_strings.append(node.details)
+
     sources = []
-    for source in source_models:
-        locations = source.location.location
+    for source in source_model_strings:
+        locations = deserialize_scan_detail(source).location.location
         sources.extend(locations)
 
-    targets = [i.arguments.file_path for i in target_models]
+    targets = []
+    for target in target_model_strings:
+        path = InsertIntoHadoopFsRelationCommandDetail.model_construct(
+            **json.loads(target.model_dump_json())
+        ).arguments.file_path
+        targets.append(path)
 
     parsed_paths = []
     if len(targets) > 0:

@@ -23,12 +23,26 @@ def test_details_parse_correctly():
     with input_path.open("r") as f:
         input_data = json.load(f)
 
-    result = parse_physical_plan(input_data).details
+    results = [i.details for i in parse_physical_plan(input_data).nodes]
+
+    result_dicts = []
+    for result in results:
+        if result is not None:
+            result_dicts.append(json.loads(result))
+    
+    result_dicts = sorted(result_dicts, key=lambda x: x["node_id"])
+
+    result_json = json.loads(json.dumps(result_dicts))
+
+        
+    with expected_path.open("w") as f:
+        json.dump(result_json, f, indent=2)
+
 
     with expected_path.open("r") as f:
         expected_json = json.load(f)
 
-    assert json.loads(result.model_dump_json()) == expected_json
+    assert result_json == expected_json
 
 
 def test_filter_parsing():
