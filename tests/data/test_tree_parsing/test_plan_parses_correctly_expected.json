@@ -1,5 +1,6 @@
 {
   "query_id": 0,
+  "query_function": null,
   "nodes": [
     {
       "node_id": 40,

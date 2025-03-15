@@ -3,7 +3,6 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import cast
 
 from sparkparse.clean import log_to_combined_df, log_to_dag_df, write_parsed_log
 from sparkparse.common import timeit
@@ -30,7 +29,7 @@ from sparkparse.models import (
     PhysicalPlanNode,
     PlanAccumulator,
     QueryEvent,
-    ScanDetail,
+    QueryFunction,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
@@ -430,6 +429,9 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
             query_times.append(
                 QueryEvent(
                     query_id=line_dict["executionId"],
+                    query_function=QueryFunction(
+                        line_dict["description"].split(" ")[0]
+                    ),
                     query_time=line_dict["time"],
                     event_type=EventType.start,
                 )

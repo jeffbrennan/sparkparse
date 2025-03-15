@@ -81,14 +81,40 @@ def clean_plan(
 
     query_times_df = pl.DataFrame(query_times)
     query_times_pivoted = (
-        query_times_df.pivot("event_type", index="query_id", values="query_time")
-        .rename({"start": "query_start_timestamp", "end": "query_end_timestamp"})
+        (
+            query_times_df.pivot("event_type", index="query_id", values="query_time")
+            .rename({"start": "query_start_timestamp", "end": "query_end_timestamp"})
+            .with_columns(
+                (pl.col("query_end_timestamp") - pl.col("query_start_timestamp"))
+                .mul(1 / 1_000)
+                .round(2)
+                .alias("query_duration_seconds")
+            )
+        )
+        .join(
+            query_times_df.filter(pl.col("event_type") == "start").select(
+                "query_id", "query_function"
+            ),
+            on="query_id",
+            how="left",
+        )
         .with_columns(
-            (pl.col("query_end_timestamp") - pl.col("query_start_timestamp"))
-            .mul(1 / 1_000)
-            .alias("query_duration_seconds")
+            pl.concat_str(
+                [
+                    pl.col("query_id"),
+                    pl.lit(" - "),
+                    pl.col("query_function"),
+                    pl.lit(" ["),
+                    pl.col("query_duration_seconds")
+                    .mul(1 / 60)
+                    .round(2)
+                    .cast(pl.String),
+                    pl.lit(" min]"),
+                ]
+            ).alias("query_header")
         )
     )
+
     plan_final = plan.with_columns(
         pl.col("child_nodes")
         .cast(pl.List(pl.String))
@@ -385,6 +411,7 @@ def get_node_metrics(
     return node_durations, dag_metrics_combined
 
 
+@timeit
 def get_dag_long(result: ParsedLog, plan: pl.DataFrame) -> pl.DataFrame:
     tasks = clean_tasks(result.tasks)
 
@@ -480,6 +507,8 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         "child_nodes",
     ]
 
+    extra_cols = ["details", "query_header"]
+
     plan = clean_plan(result.query_times, result.queries)
     dag_long = get_dag_long(result, plan)
 
@@ -490,7 +519,7 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
 
     dag_final = (
         (
-            plan.select(*dag_base_cols + ["details"])
+            plan.select(*dag_base_cols + extra_cols)
             .join(dag_metrics_combined, on=["query_id", "node_id"], how="left")
             .join(node_durations, on=["query_id", "node_id"], how="left")
             .with_columns(

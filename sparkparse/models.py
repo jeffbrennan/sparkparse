@@ -101,10 +101,16 @@ class PhysicalPlanNode(BaseModel):
     details: str | None = None  # based on PhysicalPlanDetail
 
 
+class QueryFunction(StrEnum):
+    COUNT = "count"
+    SAVE = "save"
+
+
 class QueryEvent(BaseModel):
     query_id: int
     event_type: EventType
     query_time: int
+    query_function: QueryFunction | None = None
 
 
 def str_to_list(v: Any) -> list[str] | None:
@@ -625,6 +631,7 @@ class PhysicalPlanDetails(BaseModel):
 
 class PhysicalPlan(BaseModel):
     query_id: int
+    query_function: QueryFunction | None = None
     nodes: list[PhysicalPlanNode]
 
 

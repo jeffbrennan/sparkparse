@@ -87,7 +87,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         codegen_label = f"cgen\n#{row['whole_stage_codegen_id']}\n"
         duration_str = f"duration: {row['readable_value']} {row['readable_unit']}"
         tooltip_str = (
-            codegen_label.replace("\n", " ")
+            codegen_label.replace("\n", " ").replace("cgen", "WholeStageCodegen")
             + "\n"
             + duration_str
             + "\n\n"
@@ -272,9 +272,15 @@ def initialize_dropdown(log_name: str):
     df = get_parsed_metrics(
         log_file=log_name, out_dir=None, out_format=None
     ).dag.filter(pl.col("node_type").is_not_null())
-    query_ids = sorted(df.select("query_id").unique().get_column("query_id").to_list())
-    options = [{"label": f"Query {i}", "value": i} for i in query_ids]
-    return query_ids[0], options
+
+    query_id_dict = df.select("query_id", "query_header").unique().to_dicts()
+    query_id_dict.sort(key=lambda x: x["query_id"])
+
+    options = [
+        {"label": f"Query {i['query_header']}", "value": i["query_id"]}
+        for i in query_id_dict
+    ]
+    return query_id_dict[0]["query_id"], options
 
 
 @callback(
@@ -319,18 +325,18 @@ def layout(log_name: str, **kwargs) -> html.Div:
             dbc.Row(
                 [
                     dbc.Col(
-                        width=1,
+                        width=9,
+                        children=[html.Div(id="dag-title")],
+                    ),
+                    dbc.Col(
+                        width=3,
                         children=[
                             dcc.Dropdown(
                                 id="query-id-dropdown",
                                 clearable=False,
-                                style={"marginTop": "15px"},
+                                style={"marginTop": "15px", "width": "100%"},
                             )
                         ],
-                    ),
-                    dbc.Col(
-                        width=11,
-                        children=[html.Div(id="dag-title")],
                     ),
                 ]
             ),
