@@ -225,6 +225,8 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     node_map: dict[int, PhysicalPlanNode] = {}
     indentation_history = []
 
+    n_expected_roots = tree.count("Scan ")
+    all_child_nodes = []
     lines = tree.split("\n")
 
     for i, line in enumerate(lines):
@@ -233,7 +235,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
             continue
 
         # remove leading spaces and nested indentation after :
-        line_strip = line.lstrip().removeprefix(": ").lstrip()
+        line_strip = line.lstrip().replace(": ", "").lstrip()
         match = re.compile(NODE_ID_PATTERN).search(line)
         if not match:
             continue
@@ -267,13 +269,24 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         indentation_history.append((indentation_level, node_id))
         if prev_indentation[0] > indentation_level:
             child_nodes = [
-                i[1] for i in indentation_history if i[0] == indentation_level - step
+                [i[1] for i in indentation_history if i[0] == indentation_level - step][
+                    -1
+                ]
             ]
             if child_nodes:
+                assert all(i > node_id for i in child_nodes)
                 node_map[node_id].child_nodes = child_nodes
+                all_child_nodes.extend(child_nodes)
             continue
 
-        node_map[node_id].child_nodes = [prev_indentation[1]]
+        child_nodes = [prev_indentation[1]]
+        assert all(i > node_id for i in child_nodes)
+        node_map[node_id].child_nodes = child_nodes
+        all_child_nodes.extend(child_nodes)
+
+    roots = [node_id for node_id in node_map.keys() if node_id not in all_child_nodes]
+    n_roots = len(roots)
+    assert n_roots == n_expected_roots
     return node_map
 
 
