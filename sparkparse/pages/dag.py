@@ -41,22 +41,17 @@ def get_node_color(
     return f"rgb({r},{g},{b})"
 
 
-@callback(
-    Output("dag-graph", "elements"),
-    [
-        Input("metrics-df", "data"),
-        Input("color-mode-switch", "value"),
-    ],
-)
-@timeit
-def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
-    elements = []
-
+def get_codegen_elements(
+    df_data: list[dict[str, Any]], dark_mode: bool
+) -> None | list[dict[str, Any]]:
     df = pl.DataFrame(df_data, strict=False)
 
+    codegen_base = df.filter(pl.col("node_id").ge(100_000))
+    if codegen_base.shape[0] == 0:
+        return None
+
     codegen_details = (
-        df.filter(pl.col("node_id").ge(100_000))
-        .select(
+        codegen_base.select(
             pl.col("node_id_adj").alias("whole_stage_codegen_id"),
             "accumulator_totals",
         )
@@ -82,6 +77,8 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     codegen_durations = [i["value"] for i in codegen_details]
     min_codegen_duration = min(codegen_durations)
     max_codegen_duration = max(codegen_durations)
+
+    codegen_elements = []
     for row in codegen_details:
         tooltip = row["inner_node_name"]
         codegen_label = f"cgen\n#{row['whole_stage_codegen_id']}\n"
@@ -97,8 +94,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         container_color = get_node_color(
             row["value"], min_codegen_duration, max_codegen_duration, dark_mode
         )
-
-        elements.append(
+        codegen_elements.append(
             {
                 "data": {
                     "id": f"codegen_{row['whole_stage_codegen_id']}",
@@ -109,6 +105,24 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
                 "classes": "codegen-container",
             }
         )
+
+    return codegen_elements
+
+
+@callback(
+    Output("dag-graph", "elements"),
+    [
+        Input("metrics-df", "data"),
+        Input("color-mode-switch", "value"),
+    ],
+)
+@timeit
+def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
+    elements = []
+
+    codegen_elements = get_codegen_elements(df_data, dark_mode)
+    if codegen_elements is not None:
+        elements.extend(codegen_elements)
 
     durations = [row["node_duration_minutes"] for row in df_data]
     min_duration = min(durations)
@@ -273,14 +287,15 @@ def initialize_dropdown(log_name: str):
         log_file=log_name, out_dir=None, out_format=None
     ).dag.filter(pl.col("node_type").is_not_null())
 
-    query_id_dict = df.select("query_id", "query_header").unique().to_dicts()
-    query_id_dict.sort(key=lambda x: x["query_id"])
+    query_records = (
+        df.select("query_id", "query_header").unique().sort("query_id").to_dicts()
+    )
 
     options = [
         {"label": f"Query {i['query_header']}", "value": i["query_id"]}
-        for i in query_id_dict
+        for i in query_records
     ]
-    return query_id_dict[0]["query_id"], options
+    return query_records[0]["query_id"], options
 
 
 @callback(
