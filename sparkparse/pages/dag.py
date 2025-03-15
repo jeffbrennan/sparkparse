@@ -12,9 +12,11 @@ from sparkparse.styling import get_site_colors
 
 
 def get_node_color(
-    node_value: float, min_value: float, max_value: float, dark_mode: bool
+    node_value: float | None, min_value: float, max_value: float, dark_mode: bool
 ) -> str:
     """Generate a color between gray and red based on duration."""
+    if node_value is None:
+        node_value = min_value
     if min_value == max_value:
         normalized = 0
     else:
@@ -74,7 +76,7 @@ def get_codegen_elements(
         .to_dicts()
     )
 
-    codegen_durations = [i["value"] for i in codegen_details]
+    codegen_durations = [i["value"] for i in codegen_details if i["value"] is not None]
     min_codegen_duration = min(codegen_durations)
     max_codegen_duration = max(codegen_durations)
 
