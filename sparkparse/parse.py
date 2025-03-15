@@ -4,6 +4,8 @@ import logging
 import re
 from pathlib import Path
 
+import polars as pl
+
 from sparkparse.clean import log_to_combined_df, log_to_dag_df, write_parsed_log
 from sparkparse.common import timeit
 from sparkparse.models import (
@@ -15,7 +17,6 @@ from sparkparse.models import (
     EventType,
     ExecutorMetrics,
     InputMetrics,
-    InsertIntoHadoopFsRelationCommandDetail,
     Job,
     Metrics,
     NodeType,
@@ -35,6 +36,7 @@ from sparkparse.models import (
     Stage,
     Task,
     TaskMetrics,
+    deserialize_insert_into_hadoop_fs_relation_command_detail,
     deserialize_scan_detail,
 )
 
@@ -339,11 +341,10 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
 
     targets = []
     for target in target_model_strings:
-        path = InsertIntoHadoopFsRelationCommandDetail.model_construct(
-            **json.loads(target.model_dump_json())
+        path = deserialize_insert_into_hadoop_fs_relation_command_detail(
+            target
         ).arguments.file_path
         targets.append(path)
-
     parsed_paths = []
     if len(targets) > 0:
         paths_to_use = targets
@@ -514,6 +515,24 @@ def get_parsed_metrics(
         parsed_name=result.name,
         suffix="_combined",
     )
+
+    if out_format == OutputFormat.csv:
+        dag_df = (
+            dag_df.explode("accumulators")
+            .with_columns(
+                pl.col("accumulators")
+                .name.map_fields(lambda x: "accumulators_" + x)
+                .alias("accumulators")
+            )
+            .unnest("accumulators")
+            .explode("accumulator_totals")
+            .with_columns(
+                pl.col("accumulator_totals")
+                .name.map_fields(lambda x: "accumulator_totals_" + x)
+                .alias("accumulator_totals")
+            )
+            .unnest("accumulator_totals")
+        )
 
     write_parsed_log(
         df=dag_df,

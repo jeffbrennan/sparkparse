@@ -1,8 +1,7 @@
-import polars as pl
 import typer
 
 from sparkparse.dashboard import init_dashboard, run_app
-from sparkparse.models import OutputFormat
+from sparkparse.models import OutputFormat, ParsedLogDataFrames
 from sparkparse.parse import get_parsed_metrics
 
 app = typer.Typer(pretty_exceptions_enable=False)
@@ -23,7 +22,7 @@ def get(
     out_name: str | None = None,
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
-) -> pl.DataFrame:
+) -> ParsedLogDataFrames:
     return get_parsed_metrics(
         base_dir=base_dir,
         log_dir=log_dir,
