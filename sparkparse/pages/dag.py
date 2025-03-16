@@ -395,50 +395,68 @@ def layout(log_name: str, **kwargs) -> html.Div:
                 className="dash-cytoscape",
             ),
             html.Div(id="detail-tooltip"),
-            html.Div(id="histogram-tooltip"),
+            html.Div(id="box-tooltip"),
         ],
     )
 
 
 @timeit
-def get_node_histogram(
+def get_node_box(
     df_data: list[dict[str, Any]], node_id: int, dark_mode: bool
 ) -> Figure | None:
     df = (
         pl.DataFrame(df_data, strict=False)
         .filter(pl.col("node_id").eq(node_id))
         .filter(pl.col("n_accumulators").gt(1))
-        .select("node_id", "accumulators")
+        .select("node_id", "node_name", "accumulators")
         .explode("accumulators")
         .unnest("accumulators")
+        .with_columns(
+            pl.when(pl.col("readable_unit").ne(""))
+            .then(
+                pl.concat_str("metric_name", pl.lit(" ["), "readable_unit", pl.lit("]"))
+            )
+            .otherwise(pl.col("metric_name"))
+            .alias("metric_name_viz")
+        )
+        .with_columns(pl.col("readable_value").round(1).alias("readable_value"))
     )
     if df.shape[0] == 0:
         return None
 
-    n_metrics = df.select("metric_name").unique().shape[0]
+    font_color, bg_color = get_site_colors(dark_mode, True)
+    n_metrics = df.select("metric_name_viz").unique().shape[0]
+    facet_row_spacing = 1 / (n_metrics - 1) * 0.6
 
-    facet_row_spacing = 1 / (n_metrics - 1) * 0.25
+    node_name = df.select("node_name").limit(1).to_series()[0]
 
-    print(df.head())
-
-    fig = px.histogram(
+    fig = px.box(
         df.to_pandas(),
-        facet_col="metric_name",
-        x="value",
+        x="readable_value",
+        title=f"<b>{node_name} Accumulators</b>",
+        facet_col="metric_name_viz",
         facet_col_wrap=1,
+        orientation="h",
         facet_row_spacing=facet_row_spacing,
-        height=150 * n_metrics,
+        height=100 * n_metrics,
         width=400,
-        nbins=20,
     )
-
     fig.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        boxmode="overlay",
+        title_font=dict(color=font_color, size=14),
+        margin=dict(l=0, r=0, t=50, b=0),
     )
 
-    font_color, _ = get_site_colors(dark_mode, True)
+    fig.update_traces(marker=dict(color=font_color, line=dict(color=bg_color, width=1)))
+
     fig.for_each_annotation(
-        lambda a: a.update(text=a.text.split("=")[-1], font={"color": font_color})
+        lambda a: a.update(
+            text="<b>" + a.text.split("=")[-1] + "</b>",
+            font=dict(color=font_color),
+        )
     )
 
     fig.for_each_yaxis(
@@ -447,6 +465,7 @@ def get_node_histogram(
             title="",
             showline=True,
             showgrid=False,
+            zeroline=False,
             linewidth=2,
             linecolor=font_color,
             color=font_color,
@@ -459,6 +478,8 @@ def get_node_histogram(
             matches=None,
             title="",
             showline=True,
+            showgrid=False,
+            zeroline=False,
             linewidth=2,
             linecolor=font_color,
             color=font_color,
@@ -475,8 +496,8 @@ def get_node_histogram(
     [
         Output("detail-tooltip", "children"),
         Output("detail-tooltip", "style"),
-        Output("histogram-tooltip", "children"),
-        Output("histogram-tooltip", "style"),
+        Output("box-tooltip", "children"),
+        Output("box-tooltip", "style"),
     ],
     [
         Input("dag-graph", "mouseoverNodeData"),
@@ -484,7 +505,7 @@ def get_node_histogram(
         Input("color-mode-switch", "value"),
         Input("clear-tooltip", "n_clicks"),
     ],
-    [State("histogram-tooltip", "children")],
+    [State("box-tooltip", "children")],
 )
 def update_tooltip(
     mouseover_data: dict,
@@ -525,7 +546,7 @@ def update_tooltip(
         return detail_tooltip, detail_style, current_graph, {}
 
     node_id = int(mouseover_data["label"].split("]")[0].removeprefix("["))
-    fig = get_node_histogram(df_data, node_id, dark_mode)
+    fig = get_node_box(df_data, node_id, dark_mode)
     if fig is None:
         return detail_tooltip, detail_style, current_graph, {}
 
