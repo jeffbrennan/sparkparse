@@ -5,7 +5,7 @@ import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import plotly.express as px
 import polars as pl
-from dash import Input, Output, State, callback, callback_context, dcc, html, no_update
+from dash import Input, Output, State, callback, callback_context, dcc, html
 from plotly.graph_objs import Figure
 
 from sparkparse.common import create_header, timeit
@@ -420,44 +420,85 @@ def get_node_box(
             .alias("metric_name_viz")
         )
         .with_columns(pl.col("readable_value").round(1).alias("readable_value"))
+        .with_columns(pl.mean("readable_value").over("metric_name_viz").alias("mean"))
+        .with_columns(
+            pl.median("readable_value").over("metric_name_viz").alias("median")
+        )
+        .with_columns(pl.col("task_id").len().over("metric_name_viz").alias("n"))
+        .select(
+            "metric_name_viz",
+            "node_name",
+            "task_id",
+            "readable_value",
+            "readable_unit",
+            "n",
+            "mean",
+            "median",
+        )
     )
-    if df.shape[0] == 0:
-        return None
-
-    font_color, bg_color = get_site_colors(dark_mode, True)
     n_metrics = df.select("metric_name_viz").unique().shape[0]
-    facet_row_spacing = 1 / (n_metrics - 1) * 0.6
+    if n_metrics == 0:
+        return None
+    font_color, bg_color = get_site_colors(dark_mode, True)
 
-    node_name = df.select("node_name").limit(1).to_series()[0]
+    if n_metrics == 1:
+        subplot_height = 150
+        facet_row_spacing = 0.6
+    else:
+        facet_row_spacing = (1 / (n_metrics - 1)) * 0.6
+        if n_metrics < 3:
+            subplot_height = 140
+        else:
+            subplot_height = 110
 
+    df_pandas = df.to_pandas()
+    node_name = df_pandas["node_name"].iloc[0]
     fig = px.box(
-        df.to_pandas(),
+        df_pandas,
         x="readable_value",
         title=f"<b>{node_name} Accumulators</b>",
         facet_col="metric_name_viz",
         facet_col_wrap=1,
         orientation="h",
         facet_row_spacing=facet_row_spacing,
-        height=100 * n_metrics,
+        height=subplot_height * n_metrics,
         width=400,
+        custom_data=["task_id", "readable_unit"],
     )
+
+    fig.update_traces(
+        hoveron="points",
+        hovertemplate=(
+            "Task #%{customdata[0]}<br>%{x} %{customdata[1]}<br><extra></extra>"
+        ),
+        selector=dict(type="box"),
+    )
+
     fig.update_layout(
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
         boxmode="overlay",
         title_font=dict(color=font_color, size=14),
-        margin=dict(l=0, r=0, t=50, b=0),
+        margin=dict(l=0, r=0, t=100, b=0),
     )
 
     fig.update_traces(marker=dict(color=font_color, line=dict(color=bg_color, width=1)))
 
-    fig.for_each_annotation(
-        lambda a: a.update(
-            text="<b>" + a.text.split("=")[-1] + "</b>",
-            font=dict(color=font_color),
+    for annotation in fig.layout.annotations:  # type: ignore
+        annotation.font.color = font_color
+        metric_name = annotation.text.split("=")[-1].strip()
+        metrics = (
+            df.filter(pl.col("metric_name_viz") == metric_name)
+            .select(["n", "mean", "median"])
+            .unique()
+            .to_dicts()[0]
         )
-    )
+        n_str = f"{metrics['n']:,}"
+        mean_str = format(metrics["mean"], ",.2f").rstrip("0").rstrip(".")
+        median_str = format(metrics["median"], ",.2f").rstrip("0").rstrip(".")
+
+        annotation.text = f"<b>{metric_name}</b><br>n={n_str} | avg={mean_str} | med={median_str}"
 
     fig.for_each_yaxis(
         lambda y: y.update(
@@ -536,7 +577,7 @@ def update_tooltip(
         "border": f"1px solid {text_color}",
         "borderRadius": "5px",
         "zIndex": 100,
-        "left": "7%",
+        "left": "6%",
         "top": "15vh",
         "fontSize": "14px",
     }
@@ -555,8 +596,8 @@ def update_tooltip(
         config={"displayModeBar": False},
         style={
             "position": "fixed",
-            "top": "15vh",
-            "right": "7%",
+            "top": "13vh",
+            "right": "6%",
             "display": "block",
         },
     )
