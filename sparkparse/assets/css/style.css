@@ -45,7 +45,8 @@ body,
 .Select-value-label,
 .form-check-input,
 #sparkparse-page,
-.dash-table-container {
+.dash-table-container,
+#clear-tooltip {
     font-family: "JetBrains Mono", serif !important;
     font-weight: 600 !important;
 }
@@ -647,4 +648,28 @@ td.dash-cell.cell--selected.focused {
 .ag-theme-alpine .ag-filter-toolpanel-search input:focus,
 .ag-theme-alpine-dark .ag-filter-toolpanel-search input:focus {
     box-shadow: none !important;
+}
+
+#clear-tooltip {
+    margin-top: 15px;
+    background-color: rgb(33, 33, 33) !important;
+    color: rgb(242, 240, 227) !important;
+    border: 2px solid rgb(33, 33, 33) !important;
+    border-radius: 10px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.light-mode #clear-tooltip {
+    background-color: rgb(33, 33, 33) !important;
+    color: rgb(242, 240, 227) !important;
+    border: 2px solid rgb(33, 33, 33) !important;
+}
+
+.dark-mode #clear-tooltip {
+    background-color: rgb(242, 240, 227) !important;
+    color: rgb(33, 33, 33) !important;
+    border: 2px solid rgb(242, 240, 227) !important;
 }

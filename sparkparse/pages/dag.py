@@ -5,7 +5,7 @@ import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import plotly.express as px
 import polars as pl
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback, callback_context, dcc, html
 from plotly.graph_objs import Figure
 
 from sparkparse.common import create_header, timeit
@@ -349,8 +349,17 @@ def layout(log_name: str, **kwargs) -> html.Div:
             dbc.Row(
                 [
                     dbc.Col(
-                        width=9,
+                        width=8,
                         children=[html.Div(id="dag-title")],
+                    ),
+                    dbc.Col(
+                        width=1,
+                        children=[
+                            dbc.Button(
+                                "clear",
+                                id="clear-tooltip",
+                            )
+                        ],
                     ),
                     dbc.Col(
                         width=3,
@@ -365,6 +374,7 @@ def layout(log_name: str, **kwargs) -> html.Div:
                 ]
             ),
             html.Br(),
+            # Add Clear button for tooltips
             cyto.Cytoscape(
                 id="dag-graph",
                 layout={
@@ -418,6 +428,7 @@ def get_node_histogram(
         facet_col_wrap=1,
         facet_row_spacing=facet_row_spacing,
         height=200 * n_metrics,
+        width=400,
     )
 
     fig.for_each_xaxis(lambda x: x.update(matches=None))
@@ -469,9 +480,21 @@ def get_node_histogram(
         Input("dag-graph", "mouseoverNodeData"),
         Input("metrics-df", "data"),
         Input("color-mode-switch", "value"),
+        Input("clear-tooltip", "n_clicks"),
     ],
 )
-def update_tooltip(mouseover_data: dict, df_data: list, dark_mode: bool):
+def update_tooltip(
+    mouseover_data: dict, df_data: list, dark_mode: bool, clear_clicks: int
+):
+    # Check which input triggered the callback
+    trigger = (
+        callback_context.triggered[0]["prop_id"].split(".")[0]
+        if callback_context.triggered
+        else ""
+    )
+    if trigger == "clear-tooltip":
+        return "", {"display": "none"}, "", {"display": "none"}
+
     bg_color, text_color = get_site_colors(dark_mode, contrast=True)
     if not mouseover_data:
         return "", {"display": "none"}, "", {"display": "none"}
