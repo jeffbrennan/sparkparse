@@ -417,7 +417,7 @@ def get_node_histogram(
 
     n_metrics = df.select("metric_name").unique().shape[0]
 
-    facet_row_spacing = 1 / (n_metrics - 1) * 0.3
+    facet_row_spacing = 1 / (n_metrics - 1) * 0.25
 
     print(df.head())
 
@@ -427,13 +427,14 @@ def get_node_histogram(
         x="value",
         facet_col_wrap=1,
         facet_row_spacing=facet_row_spacing,
-        height=200 * n_metrics,
+        height=150 * n_metrics,
         width=400,
+        nbins=20,
     )
 
     fig.for_each_xaxis(lambda x: x.update(matches=None))
+    fig.for_each_yaxis(lambda y: y.update(matches=None))
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    fig.update_xaxes(matches=None)
 
     fig.update_layout(
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False
@@ -465,6 +466,9 @@ def get_node_histogram(
             tickfont_size=tick_font_size,
         )
     )
+
+    # TODO: fix blue annotation, remove horizontal lines
+    # TODO: investigate no variation in histogram
 
     return fig
 
