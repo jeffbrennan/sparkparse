@@ -12,8 +12,8 @@ identify spark bottlenecks without breaking your neck
 
 ## TODOs
 
-- [ ] structured node details like project columns and scan sources
-- [ ] task histograms on node click
+- [x] structured node details like project columns and scan sources
+- [x] task box plots on hover
 - [ ] hotspot highlighting by metrics other than duration (spill, records, etc.)
 - [ ] metric capture via context manager / decorator
 - [ ] reading from cloud storage

@@ -3,8 +3,10 @@ from typing import Any, Dict, List
 
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
+import plotly.express as px
 import polars as pl
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, State, callback, callback_context, dcc, html
+from plotly.graph_objs import Figure
 
 from sparkparse.common import create_header, timeit
 from sparkparse.parse import get_parsed_metrics
@@ -163,7 +165,6 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
                 hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
 
         if row["details"] is not None:
-            print(row["details"])
             dict_to_display = json.loads(row["details"])["detail"]
             if dict_to_display is not None:
                 hover_info += (
@@ -348,8 +349,17 @@ def layout(log_name: str, **kwargs) -> html.Div:
             dbc.Row(
                 [
                     dbc.Col(
-                        width=9,
+                        width=8,
                         children=[html.Div(id="dag-title")],
+                    ),
+                    dbc.Col(
+                        width=1,
+                        children=[
+                            dbc.Button(
+                                "clear",
+                                id="clear-tooltip",
+                            )
+                        ],
                     ),
                     dbc.Col(
                         width=3,
@@ -364,6 +374,7 @@ def layout(log_name: str, **kwargs) -> html.Div:
                 ]
             ),
             html.Br(),
+            # Add Clear button for tooltips
             cyto.Cytoscape(
                 id="dag-graph",
                 layout={
@@ -383,38 +394,211 @@ def layout(log_name: str, **kwargs) -> html.Div:
                 zoomingEnabled=True,
                 className="dash-cytoscape",
             ),
-            html.Div(id="tooltip"),
+            html.Div(id="detail-tooltip"),
+            html.Div(id="box-tooltip"),
         ],
     )
 
 
+@timeit
+def get_node_box(
+    df_data: list[dict[str, Any]], node_id: int, dark_mode: bool
+) -> Figure | None:
+    df = (
+        pl.DataFrame(df_data, strict=False)
+        .filter(pl.col("node_id").eq(node_id))
+        .filter(pl.col("n_accumulators").gt(1))
+        .select("node_id", "node_name", "accumulators")
+        .explode("accumulators")
+        .unnest("accumulators")
+        .with_columns(
+            pl.when(pl.col("readable_unit").ne(""))
+            .then(
+                pl.concat_str("metric_name", pl.lit(" ["), "readable_unit", pl.lit("]"))
+            )
+            .otherwise(pl.col("metric_name"))
+            .alias("metric_name_viz")
+        )
+        .with_columns(pl.col("readable_value").round(1).alias("readable_value"))
+        .with_columns(pl.mean("readable_value").over("metric_name_viz").alias("mean"))
+        .with_columns(
+            pl.median("readable_value").over("metric_name_viz").alias("median")
+        )
+        .with_columns(pl.col("task_id").len().over("metric_name_viz").alias("n"))
+        .select(
+            "metric_name_viz",
+            "node_name",
+            "task_id",
+            "readable_value",
+            "readable_unit",
+            "n",
+            "mean",
+            "median",
+        )
+    )
+    n_metrics = df.select("metric_name_viz").unique().shape[0]
+    if n_metrics == 0:
+        return None
+    font_color, bg_color = get_site_colors(dark_mode, True)
+
+    if n_metrics == 1:
+        subplot_height = 150
+        facet_row_spacing = 0.6
+    else:
+        facet_row_spacing = (1 / (n_metrics - 1)) * 0.6
+        if n_metrics < 3:
+            subplot_height = 140
+        else:
+            subplot_height = 110
+
+    df_pandas = df.to_pandas()
+    node_name = df_pandas["node_name"].iloc[0]
+    fig = px.box(
+        df_pandas,
+        x="readable_value",
+        title=f"<b>{node_name} Accumulators</b>",
+        facet_col="metric_name_viz",
+        facet_col_wrap=1,
+        orientation="h",
+        facet_row_spacing=facet_row_spacing,
+        height=subplot_height * n_metrics,
+        width=400,
+        custom_data=["task_id", "readable_unit"],
+    )
+
+    fig.update_traces(
+        hoveron="points",
+        hovertemplate=(
+            "Task #%{customdata[0]}<br>%{x} %{customdata[1]}<br><extra></extra>"
+        ),
+        selector=dict(type="box"),
+    )
+
+    fig.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        boxmode="overlay",
+        title_font=dict(color=font_color, size=14),
+        margin=dict(l=0, r=0, t=100, b=0),
+    )
+
+    fig.update_traces(marker=dict(color=font_color, line=dict(color=bg_color, width=1)))
+
+    for annotation in fig.layout.annotations:  # type: ignore
+        annotation.font.color = font_color
+        metric_name = annotation.text.split("=")[-1].strip()
+        metrics = (
+            df.filter(pl.col("metric_name_viz") == metric_name)
+            .select(["n", "mean", "median"])
+            .unique()
+            .to_dicts()[0]
+        )
+        n_str = f"{metrics['n']:,}"
+        mean_str = format(metrics["mean"], ",.2f").rstrip("0").rstrip(".")
+        median_str = format(metrics["median"], ",.2f").rstrip("0").rstrip(".")
+
+        annotation.text = f"<b>{metric_name}</b><br>n={n_str} | avg={mean_str} | med={median_str}"
+
+    fig.for_each_yaxis(
+        lambda y: y.update(
+            matches=None,
+            title="",
+            showline=True,
+            showgrid=False,
+            zeroline=False,
+            linewidth=2,
+            linecolor=font_color,
+            color=font_color,
+            mirror=True,
+            tickfont_size=10,
+        )
+    )
+    fig.for_each_xaxis(
+        lambda x: x.update(
+            matches=None,
+            title="",
+            showline=True,
+            showgrid=False,
+            zeroline=False,
+            linewidth=2,
+            linecolor=font_color,
+            color=font_color,
+            mirror=True,
+            showticklabels=True,
+            tickfont_size=10,
+        )
+    )
+
+    return fig
+
+
 @callback(
     [
-        Output("tooltip", "children"),
-        Output("tooltip", "style"),
+        Output("detail-tooltip", "children"),
+        Output("detail-tooltip", "style"),
+        Output("box-tooltip", "children"),
+        Output("box-tooltip", "style"),
     ],
     [
         Input("dag-graph", "mouseoverNodeData"),
+        Input("metrics-df", "data"),
         Input("color-mode-switch", "value"),
+        Input("clear-tooltip", "n_clicks"),
     ],
+    [State("box-tooltip", "children")],
 )
-def update_tooltip(mouseover_data, dark_mode: bool):
+def update_tooltip(
+    mouseover_data: dict,
+    df_data: list,
+    dark_mode: bool,
+    _: int,
+    current_graph: dcc.Graph,
+):
+    trigger = (
+        callback_context.triggered[0]["prop_id"].split(".")[0]
+        if callback_context.triggered
+        else ""
+    )
+    if trigger == "clear-tooltip":
+        return "", {"display": "none"}, "", {"display": "none"}
+
     bg_color, text_color = get_site_colors(dark_mode, contrast=True)
     if not mouseover_data:
-        return "", {"display": "none"}
-    return (
-        html.Pre(mouseover_data["tooltip"]),
-        {
-            "display": "block",
+        return "", {"display": "none"}, "", {"display": "none"}
+
+    detail_tooltip = html.Pre(mouseover_data["tooltip"])
+    detail_style = {
+        "display": "block",
+        "position": "fixed",
+        "backgroundColor": bg_color,
+        "color": text_color,
+        "padding": "10px",
+        "border": f"1px solid {text_color}",
+        "borderRadius": "5px",
+        "zIndex": 100,
+        "left": "6%",
+        "top": "15vh",
+        "fontSize": "14px",
+    }
+
+    node_label = mouseover_data["label"]
+    if "cgen" in node_label:
+        return detail_tooltip, detail_style, current_graph, {}
+
+    node_id = int(mouseover_data["label"].split("]")[0].removeprefix("["))
+    fig = get_node_box(df_data, node_id, dark_mode)
+    if fig is None:
+        return detail_tooltip, detail_style, current_graph, {}
+
+    graph = dcc.Graph(
+        figure=fig,
+        config={"displayModeBar": False},
+        style={
             "position": "fixed",
-            "backgroundColor": bg_color,
-            "color": text_color,
-            "padding": "10px",
-            "border": f"1px solid {text_color}",
-            "borderRadius": "5px",
-            "zIndex": 100,
-            "left": "7%",
-            "top": "15vh",
-            "fontSize": "12px",
+            "top": "13vh",
+            "right": "6%",
+            "display": "block",
         },
     )
+    return detail_tooltip, detail_style, graph, {}
