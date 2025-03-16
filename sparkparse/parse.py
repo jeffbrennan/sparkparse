@@ -116,6 +116,8 @@ def get_plan_details(
     assert len(plan_details_split) == len(node_map)
 
     details_parsed = []
+    null_detail_types = [NodeType.Union]
+
     for detail in plan_details_split:
         node_id = re.compile(NODE_ID_PATTERN).search(detail)
         if not node_id:
@@ -124,10 +126,19 @@ def get_plan_details(
         node_id = int(node_id.group(1))
         node_type = node_map[node_id].node_type
 
-        detail_model = NODE_TYPE_DETAIL_MAP.get(node_type)
-        if detail_model is None:
+        if node_type in null_detail_types:
+            details_parsed.append(
+                PhysicalPlanDetail(
+                    node_id=node_id,
+                    node_type=node_type,
+                    detail=None,
+                )
+            )
+            continue
+        if node_type not in NODE_TYPE_DETAIL_MAP:
             raise ValueError(f"Could not find detail model for node type: {node_type}")
 
+        detail_model = NODE_TYPE_DETAIL_MAP[node_type]
         detail_dict = {}
         detail_lines = detail.split("\n")
         for i, detail_line in enumerate(detail_lines):

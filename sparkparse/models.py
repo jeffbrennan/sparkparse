@@ -153,7 +153,9 @@ class ScanDetailLocation(BaseModel):
 
 
 class ScanDetail(BaseModel):
-    output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
     batched: bool = Field(alias="Batched")
     location: ScanDetailLocation = Field(alias="Location")
     read_schema: str = Field(alias="ReadSchema")
@@ -176,7 +178,9 @@ def deserialize_scan_detail(s: str) -> ScanDetail:
 
 
 class ColumnarToRowDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
 
 
 class ProjectDetail(BaseModel):
@@ -290,6 +294,18 @@ class SortArgument(BaseModel):
     sort_order: int
 
 
+def parse_sort_argument_col_str(col_section: str) -> list[SortArgumentCol]:
+    col_split = col_section.split(", ")
+    sort_args = []
+    for i in col_split:
+        col_raw = i.strip().split(" ")
+        name = col_raw[0].removeprefix("[")
+        asc = True if col_raw[1] == "ASC" else False
+        nulls_first = True if col_raw[3] == "FIRST" else False
+        sort_args.append(SortArgumentCol(name=name, asc=asc, nulls_first=nulls_first))
+    return sort_args
+
+
 class SortDetail(BaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: SortArgument = Field(alias="Arguments")
@@ -297,18 +313,10 @@ class SortDetail(BaseModel):
     @field_validator("arguments", mode="before")
     @classmethod
     def parse_sort_argument_str(cls, value: Any) -> SortArgument:
-        cols = []
-
-        col_section = value.split("]")[0].removesuffix("[").strip().split(",")
-        for i in col_section:
-            col_raw = i.strip().split(" ")
-            name = col_raw[0].removeprefix("[")
-            asc = True if col_raw[1] == "ASC" else False
-            nulls_first = True if col_raw[3] == "FIRST" else False
-            cols.append(SortArgumentCol(name=name, asc=asc, nulls_first=nulls_first))
+        col_section = value.split("]")[0].removesuffix("[").strip()
+        cols = parse_sort_argument_col_str(col_section)
 
         global_sort = value.split("]")[1].strip() == "true"
-
         sort_order = value.split(",")[-1].strip()
 
         return SortArgument(
@@ -723,6 +731,31 @@ class BroadcastHashJoinDetail(BaseModel):
         return value
 
 
+class TakeOrderedAndProjectDetailArguments(BaseModel):
+    limit: int
+    cols: list[SortArgumentCol]
+    output: list[str] | None
+
+
+class TakeOrderedAndProjectDetail(BaseModel):
+    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    arguments: TakeOrderedAndProjectDetailArguments = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_take_ordered_and_project_arguments_str(
+        cls, value: Any
+    ) -> TakeOrderedAndProjectDetailArguments:
+        limit = int(value.split(", [")[0].strip())
+        cols_raw = value.split(", [")[1].split("]")[0]
+        cols = parse_sort_argument_col_str(cols_raw)
+        output = str_to_list(value.split("], [")[-1])
+
+        return TakeOrderedAndProjectDetailArguments(
+            limit=limit, cols=cols, output=output
+        )
+
+
 class PhysicalPlanDetail(BaseModel):
     node_id: int
     node_type: NodeType
@@ -748,6 +781,8 @@ class PhysicalPlanDetail(BaseModel):
         | BroadcastExchangeDetail
         | BroadcastQueryStageDetail
         | BroadcastHashJoinDetail
+        | TakeOrderedAndProjectDetail
+        | None
     )
 
 
@@ -921,4 +956,5 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.BroadcastExchange: BroadcastExchangeDetail,
     NodeType.BroadcastQueryStage: BroadcastQueryStageDetail,
     NodeType.BroadcastHashJoin: BroadcastHashJoinDetail,
+    NodeType.TakeOrderedAndProject: TakeOrderedAndProjectDetail,
 }

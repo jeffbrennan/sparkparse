@@ -8,6 +8,7 @@ from sparkparse.models import (
     FilterDetail,
     HashAggregateDetail,
     SortDetail,
+    TakeOrderedAndProjectDetail,
     WindowDetail,
     WindowGroupLimitDetail,
     str_to_list,
@@ -29,15 +30,13 @@ def test_details_parse_correctly():
     for result in results:
         if result is not None:
             result_dicts.append(json.loads(result))
-    
+
     result_dicts = sorted(result_dicts, key=lambda x: x["node_id"])
 
     result_json = json.loads(json.dumps(result_dicts))
 
-        
     with expected_path.open("w") as f:
         json.dump(result_json, f, indent=2)
-
 
     with expected_path.open("r") as f:
         expected_json = json.load(f)
@@ -180,6 +179,25 @@ def test_hash_aggregate_parsing():
     }
 
     parsed = HashAggregateDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_take_ordered_and_project_parsing():
+    input_dict = {
+        "Input": "[id1#0, v3#99]",
+        "Arguments": "10, [v3#99 ASC NULLS FIRST], [id1#0, v3#99]",
+    }
+
+    expected = {
+        "input": ["id1#0", "v3#99"],
+        "arguments": {
+            "limit": 10,
+            "cols": [{"name": "v3#99", "asc": True, "nulls_first": True}],
+            "output": ["id1#0", "v3#99"],
+        },
+    }
+
+    parsed = TakeOrderedAndProjectDetail.model_validate(input_dict)
     assert json.loads(parsed.model_dump_json()) == expected
 
 

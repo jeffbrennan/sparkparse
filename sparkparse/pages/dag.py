@@ -163,14 +163,17 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
                 hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
 
         if row["details"] is not None:
-            hover_info += (
-                create_header(header_length, "Details", center=True, spacer="-") + "\n"
-            )
+            print(row["details"])
             dict_to_display = json.loads(row["details"])["detail"]
-            hover_info += json.dumps(dict_to_display, indent=1)
-            hover_info += "\n" + create_header(
-                header_length, "", center=False, spacer="-"
-            )
+            if dict_to_display is not None:
+                hover_info += (
+                    create_header(header_length, "Details", center=True, spacer="-")
+                    + "\n"
+                )
+                hover_info += json.dumps(dict_to_display, indent=1)
+                hover_info += "\n" + create_header(
+                    header_length, "", center=False, spacer="-"
+                )
 
         node_color = get_node_color(
             row["node_duration_minutes"], min_duration, max_duration, dark_mode
