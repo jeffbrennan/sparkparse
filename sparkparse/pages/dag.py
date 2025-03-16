@@ -5,7 +5,7 @@ import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import plotly.express as px
 import polars as pl
-from dash import Input, Output, callback, callback_context, dcc, html
+from dash import Input, Output, State, callback, callback_context, dcc, html, no_update
 from plotly.graph_objs import Figure
 
 from sparkparse.common import create_header, timeit
@@ -432,30 +432,31 @@ def get_node_histogram(
         nbins=20,
     )
 
-    fig.for_each_xaxis(lambda x: x.update(matches=None))
-    fig.for_each_yaxis(lambda y: y.update(matches=None))
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-
     fig.update_layout(
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False
     )
 
-    tick_font_size = 10
+    font_color, _ = get_site_colors(dark_mode, True)
+    fig.for_each_annotation(
+        lambda a: a.update(text=a.text.split("=")[-1], font={"color": font_color})
+    )
 
-    font_color, bg_color = get_site_colors(dark_mode, True)
     fig.for_each_yaxis(
         lambda y: y.update(
+            matches=None,
             title="",
             showline=True,
+            showgrid=False,
             linewidth=2,
             linecolor=font_color,
             color=font_color,
             mirror=True,
-            tickfont_size=tick_font_size,
+            tickfont_size=10,
         )
     )
     fig.for_each_xaxis(
         lambda x: x.update(
+            matches=None,
             title="",
             showline=True,
             linewidth=2,
@@ -463,12 +464,9 @@ def get_node_histogram(
             color=font_color,
             mirror=True,
             showticklabels=True,
-            tickfont_size=tick_font_size,
+            tickfont_size=10,
         )
     )
-
-    # TODO: fix blue annotation, remove horizontal lines
-    # TODO: investigate no variation in histogram
 
     return fig
 
@@ -486,11 +484,15 @@ def get_node_histogram(
         Input("color-mode-switch", "value"),
         Input("clear-tooltip", "n_clicks"),
     ],
+    [State("histogram-tooltip", "children")],
 )
 def update_tooltip(
-    mouseover_data: dict, df_data: list, dark_mode: bool, clear_clicks: int
+    mouseover_data: dict,
+    df_data: list,
+    dark_mode: bool,
+    _: int,
+    current_graph: dcc.Graph,
 ):
-    # Check which input triggered the callback
     trigger = (
         callback_context.triggered[0]["prop_id"].split(".")[0]
         if callback_context.triggered
@@ -520,10 +522,13 @@ def update_tooltip(
 
     node_label = mouseover_data["label"]
     if "cgen" in node_label:
-        return detail_tooltip, detail_style, "", {"display": "none"}
+        return detail_tooltip, detail_style, current_graph, {}
 
     node_id = int(mouseover_data["label"].split("]")[0].removeprefix("["))
     fig = get_node_histogram(df_data, node_id, dark_mode)
+    if fig is None:
+        return detail_tooltip, detail_style, current_graph, {}
+
     graph = dcc.Graph(
         figure=fig,
         config={"displayModeBar": False},
