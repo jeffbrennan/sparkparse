@@ -39,7 +39,6 @@ def get_site_colors(dark_mode: bool, contrast: bool) -> tuple[str, str]:
 
 @dataclass
 class DTStyle:
-    sort_action: str
     sort_mode: str
     page_action: str
     virtualization: bool
@@ -63,7 +62,6 @@ def get_dt_style(dark_mode: bool = False) -> dict:
     background, color = get_site_colors(dark_mode, contrast=False)
     dt_style = asdict(
         DTStyle(
-            sort_action="native",
             sort_mode="multi",
             column_selectable="single",
             row_selectable=False,

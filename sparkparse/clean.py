@@ -507,7 +507,7 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         "child_nodes",
     ]
 
-    extra_cols = ["details", "query_header"]
+    extra_cols = ["details", "query_function", "query_header"]
 
     plan = clean_plan(result.query_times, result.queries)
     dag_long = get_dag_long(result, plan)
@@ -564,13 +564,40 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
 
 
 @timeit
-def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
-    tasks_final = clean_tasks(result.tasks)
+def log_to_combined_df(
+    result: ParsedLog, dag: pl.DataFrame, log_name: str
+) -> pl.DataFrame:
     stages_final = clean_stages(result.stages)
     jobs_final = clean_jobs(result.jobs)
 
+    tasks = clean_tasks(result.tasks)
+    query_task_lookup = (
+        dag.filter(pl.col("node_id").le(100_000))
+        .explode("accumulators")
+        .with_columns(
+            [
+                pl.col("accumulators").struct.field("task_id").alias("task_id"),
+                pl.col("accumulators").struct.field("stage_id").alias("stage_id"),
+            ]
+        )
+        .filter(pl.col("task_id").is_not_null())
+        .filter(pl.col("stage_id").is_not_null())
+        .unique()
+        .sort("query_id", "stage_id", "task_id", "node_id")
+        .group_by(
+            "query_id",
+            "query_function",
+            "query_start_timestamp",
+            "query_end_timestamp",
+            "query_duration_seconds",
+            "stage_id",
+            "task_id",
+        )
+        .agg(pl.col("node_name").alias("nodes"))
+    )
+
     combined = (
-        tasks_final.join(stages_final, on="stage_id", how="left")
+        tasks.join(stages_final, on="stage_id", how="left")
         .join(jobs_final, on="stage_id", how="left")
         .sort("job_id", "stage_id", "task_id")
         .unnest("metrics")
@@ -586,11 +613,15 @@ def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
     )
 
     timestamp_cols = [col for col in combined.columns if "timestamp" in col]
-
     final_cols = [
         # system identifiers / run info
         "log_name",
         "parsed_log_name",
+        "query_id",
+        "query_function",
+        "query_start_timestamp",
+        "query_end_timestamp",
+        "query_duration_seconds",
         "job_id",
         "stage_id",
         "job_start_timestamp",
@@ -604,6 +635,7 @@ def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         "task_start_timestamp",
         "task_end_timestamp",
         "task_duration_seconds",
+        "nodes",
         # task metrics
         # general
         "executor_run_time_seconds",
@@ -631,6 +663,7 @@ def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         "shuffle_local_bytes_read",
         "shuffle_records_read",
         "shuffle_remote_requests_duration",
+        "shuffle_bytes_read",
         # shuffle write
         "shuffle_bytes_written",
         "shuffle_write_time_seconds",
@@ -656,7 +689,7 @@ def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
         "task_type",
     ]
 
-    final = (
+    combined_clean = (
         combined.with_columns(
             [
                 pl.col(col)
@@ -666,6 +699,17 @@ def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
                 .alias(col)
                 for col in timestamp_cols
             ]
+        )
+        .rename(
+            {
+                "result_size": "result_size_bytes",
+                "peak_execution_memory": "peak_execution_memory_bytes",
+            }
+        )
+        .with_columns(
+            (
+                pl.col("shuffle_remote_bytes_read") + pl.col("shuffle_local_bytes_read")
+            ).alias("shuffle_bytes_read")
         )
         .with_columns(
             [
@@ -693,15 +737,10 @@ def log_to_combined_df(result: ParsedLog, log_name: str) -> pl.DataFrame:
                 .alias("shuffle_fetch_wait_time_seconds"),
             ]
         )
-        .rename(
-            {
-                "result_size": "result_size_bytes",
-                "peak_execution_memory": "peak_execution_memory_bytes",
-            }
-        )
-        .select(final_cols)
+        .join(query_task_lookup, on=["stage_id", "task_id"], how="left")
     )
 
+    final = combined_clean.select(final_cols)
     return final
 
 

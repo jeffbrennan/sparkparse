@@ -522,23 +522,14 @@ def get_parsed_metrics(
     logging.info(f"Reading log file: {log_to_parse}")
 
     result = parse_log(log_to_parse, out_name)
-    combined_df = log_to_combined_df(result, log_to_parse.stem)
     dag_df = log_to_dag_df(result)
+    combined_df = log_to_combined_df(result, dag_df, log_to_parse.stem)
 
     output = ParsedLogDataFrames(combined=combined_df, dag=dag_df)
 
     if out_dir is None or out_format is None:
         logging.info("Skipping writing parsed log")
         return output
-
-    write_parsed_log(
-        df=combined_df,
-        base_dir_path=base_dir_path,
-        out_dir=out_dir,
-        out_format=out_format,
-        parsed_name=result.name,
-        suffix="_combined",
-    )
 
     if out_format == OutputFormat.csv:
         dag_df = (
@@ -558,6 +549,34 @@ def get_parsed_metrics(
             .unnest("accumulator_totals")
         )
 
+        combined_df = (
+            combined_df.with_columns(pl.col("nodes").list.join(", ").alias("nodes"))
+            .with_columns(
+                pl.col("input")
+                .name.map_fields(lambda x: "input_size_" + x)
+                .alias("input")
+            )
+            .unnest("input")
+            .with_columns(
+                pl.col("output")
+                .name.map_fields(lambda x: "output_size_" + x)
+                .alias("output")
+            )
+            .unnest("output")
+            .with_columns(
+                pl.col("shuffle_write")
+                .name.map_fields(lambda x: "shuffle_write" + x)
+                .alias("shuffle_write")
+            )
+            .unnest("shuffle_write")
+            .with_columns(
+                pl.col("shuffle_read")
+                .name.map_fields(lambda x: "shuffle_read" + x)
+                .alias("shuffle_read")
+            )
+            .unnest("shuffle_read")
+        )
+
     write_parsed_log(
         df=dag_df,
         base_dir_path=base_dir_path,
@@ -566,4 +585,14 @@ def get_parsed_metrics(
         parsed_name=result.name,
         suffix="_dag",
     )
+
+    write_parsed_log(
+        df=combined_df,
+        base_dir_path=base_dir_path,
+        out_dir=out_dir,
+        out_format=out_format,
+        parsed_name=result.name,
+        suffix="_combined",
+    )
+
     return output

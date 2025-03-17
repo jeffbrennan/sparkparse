@@ -4,7 +4,7 @@ from sparkparse.styling import get_site_colors
 
 
 def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
-    _, font_color = get_site_colors(dark_mode, contrast=False)
+    bg_color, font_color = get_site_colors(dark_mode, contrast=False)
 
     legend_font_size = 16
     tick_font_size = 16
@@ -15,13 +15,17 @@ def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
             font=dict(size=legend_font_size, color=font_color),
         )
     )
-
-    fig.update_traces(marker={"size": 15})
+    font_color_transparent = f"rgba{font_color[3:-1]},0.1)"
+    fig.update_traces(
+        marker=dict(size=8, line=dict(width=1, color=font_color_transparent))
+    )
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     fig.for_each_yaxis(
         lambda y: y.update(
             title="",
             showline=True,
+            showgrid=False,
+            zeroline=False,
             linewidth=2,
             linecolor=font_color,
             color=font_color,
@@ -33,6 +37,8 @@ def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
         lambda x: x.update(
             title="",
             showline=True,
+            showgrid=False,
+            zeroline=False,
             linewidth=2,
             linecolor=font_color,
             color=font_color,
