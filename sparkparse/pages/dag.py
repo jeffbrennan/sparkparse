@@ -289,7 +289,7 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
         Output("query-id-dropdown", "value"),
         Output("query-id-dropdown", "options"),
     ],
-    Input("log-name", "data"),  # This triggers when the component is mounted
+    Input("log-name", "data"),
 )
 def initialize_dropdown(log_name: str):
     df = get_parsed_metrics(
@@ -374,20 +374,19 @@ def layout(log_name: str, **kwargs) -> html.Div:
                 ]
             ),
             html.Br(),
-            # Add Clear button for tooltips
             cyto.Cytoscape(
                 id="dag-graph",
                 layout={
                     "name": "dagre",
                     "rankDir": "TD",
                     "ranker": "tight-tree",
-                    "spacingFactor": 1.2,
+                    "spacingFactor": 0.95,
                     "animate": True,
                     "animationDuration": 200,
                     "fit": False,
                 },
                 zoom=1.5,
-                pan={"x": 800, "y": 500},
+                pan={"x": 800, "y": 50},
                 style={"width": "100%", "height": "100%", "zIndex": 999},
                 userZoomingEnabled=True,
                 userPanningEnabled=True,
@@ -439,7 +438,7 @@ def get_node_box(
     n_metrics = df.select("metric_name_viz").unique().shape[0]
     if n_metrics == 0:
         return None
-    font_color, bg_color = get_site_colors(dark_mode, True)
+    bg_color, font_color = get_site_colors(dark_mode, False)
 
     if n_metrics == 1:
         subplot_height = 150
@@ -498,7 +497,9 @@ def get_node_box(
         mean_str = format(metrics["mean"], ",.2f").rstrip("0").rstrip(".")
         median_str = format(metrics["median"], ",.2f").rstrip("0").rstrip(".")
 
-        annotation.text = f"<b>{metric_name}</b><br>n={n_str} | avg={mean_str} | med={median_str}"
+        annotation.text = (
+            f"<b>{metric_name}</b><br>n={n_str} | avg={mean_str} | med={median_str}"
+        )
 
     fig.for_each_yaxis(
         lambda y: y.update(
