@@ -207,6 +207,28 @@ def get_readable_timing(value_col: pl.Expr) -> pl.Expr:
     )
 
 
+def get_readable_col(
+    value_col: pl.Expr, value_type: str, round_decimals: int = 2
+) -> pl.Expr:
+    value_type_map = {
+        "timing": get_readable_timing,
+        "size": get_readable_size,
+    }
+
+    calc = value_type_map[value_type](value_col)
+
+    calc_final = calc.struct.with_fields(
+        readable_str=pl.concat_str(
+            [
+                calc.struct.field("readable_value").round(round_decimals),
+                pl.lit(" "),
+                calc.struct.field("readable_unit"),
+            ]
+        )
+    )
+    return calc_final
+
+
 @timeit
 def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFrame:
     if df_type == "task":
@@ -237,6 +259,7 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
         "unit",
         "readable_value",
         "readable_unit",
+        "readable_str",
     ]
 
     base = dag_long.select(*id_cols, "metric_type", value_col).filter(
@@ -271,14 +294,15 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
         .with_columns(pl.col("metric_type").replace_strict(units).alias("unit"))
         .with_columns(
             pl.when(pl.col("metric_type") == "size")
-            .then(get_readable_size(pl.col("value")))
+            .then(get_readable_col(pl.col("value"), "size"))
             .when(pl.col("metric_type") == "timing")
-            .then(get_readable_timing(pl.col("value")))
+            .then(get_readable_col(pl.col("value"), "timing"))
             .otherwise(
                 pl.struct(
                     [
                         pl.col("value").alias("readable_value"),
                         pl.col("unit").alias("readable_unit"),
+                        pl.col("value").round(2).cast(pl.String).alias("readable_str"),
                     ]
                 )
             )

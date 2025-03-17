@@ -5,7 +5,7 @@ import polars as pl
 from dash import Input, Output, callback, dash_table, dcc, html
 from plotly.graph_objs import Figure
 
-from sparkparse.clean import get_readable_size, get_readable_timing
+from sparkparse.clean import get_readable_col
 from sparkparse.common import timeit
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_dt_style, get_site_colors
@@ -73,40 +73,9 @@ def get_metrics_viz(
     return fig, {}, True
 
 
-@callback(
-    [
-        Output("metrics-table", "children"),
-        Output("metrics-table", "style"),
-    ],
-    [
-        Input("summary-metrics-df", "data"),
-        Input("color-mode-switch", "value"),
-    ],
-)
-@timeit
-def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
-    metrics_style = get_dt_style(dark_mode)
-    metrics_style["style_table"]["height"] = "60vh"
-    tbl_cols = []
-    int_style = {"type": "numeric", "format": {"specifier": ",d"}}
-
-    df = (
-        pl.DataFrame(df_data)
-        .select(
-            "query_id",
-            "query_function",
-            "job_id",
-            "stage_id",
-            "stage_start_timestamp",
-            "stage_end_timestamp",
-            "stage_duration_seconds",
-            "task_id",
-            "task_duration_seconds",
-            "bytes_read",
-            "bytes_written",
-            "shuffle_bytes_read",
-            "shuffle_bytes_written",
-        )
+def get_styled_metrics_df(data: list[dict]) -> pd.DataFrame:
+    df_summary = (
+        pl.DataFrame(data)
         .group_by(
             "query_id",
             "query_function",
@@ -126,97 +95,68 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
                 pl.col("shuffle_bytes_written").sum().alias("shuffle_bytes_written"),
             ]
         )
-        .with_columns(
-            get_readable_timing(pl.col("stage_duration_seconds").mul(1000)).alias(
-                "stage_duration_struct"
-            )
+    )
+
+    struct_cols = {
+        "stage_duration_seconds": "stage_duration",
+        "task_duration_seconds": "task_duration",
+        "bytes_read": "input",
+        "bytes_written": "output",
+        "shuffle_bytes_read": "shuffle_read",
+        "shuffle_bytes_written": "shuffle_write",
+    }
+
+    timing_conversions = [
+        get_readable_col(pl.col(col).mul(1000), "timing").alias(
+            f"{struct_cols[col]}_struct"
         )
-        .with_columns(
-            get_readable_timing(pl.col("task_duration_seconds").mul(1000)).alias(
-                "task_duration_struct"
-            )
-        )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("stage_duration_struct")
-                    .struct.field("readable_value")
-                    .round(2),
-                    pl.lit(" "),
-                    pl.col("stage_duration_struct").struct.field("readable_unit"),
-                ]
-            ).alias("stage_duration")
-        )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("task_duration_struct")
-                    .struct.field("readable_value")
-                    .round(2),
-                    pl.lit(" "),
-                    pl.col("task_duration_struct").struct.field("readable_unit"),
-                ]
-            ).alias("task_duration")
-        )
+        for col in struct_cols.keys()
+        if "duration" in col
+    ]
+
+    size_conversions = [
+        get_readable_col(pl.col(col), "size").alias(f"{struct_cols[col]}_struct")
+        for col in struct_cols.keys()
+        if "duration" not in col
+    ]
+
+    df_final = (
+        df_summary.filter(pl.col("query_id").is_not_null())
+        .rename({"stage_start_timestamp": "submitted", "query_function": "query_func"})
+        .with_columns(timing_conversions + size_conversions)
         .with_columns(
             [
-                get_readable_size(pl.col("bytes_read")).alias("input_struct"),
-                get_readable_size(pl.col("bytes_written")).alias("output_struct"),
-                get_readable_size(pl.col("shuffle_bytes_read")).alias(
-                    "shuffle_read_struct"
-                ),
-                get_readable_size(pl.col("shuffle_bytes_written")).alias(
-                    "shuffle_write_struct"
-                ),
+                pl.col(f"{col}_struct").struct.field("readable_str").alias(col)
+                for col in struct_cols.values()
             ]
         )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("input_struct").struct.field("readable_value").round(2),
-                    pl.lit(" "),
-                    pl.col("input_struct").struct.field("readable_unit"),
-                ]
-            ).alias("input")
-        )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("output_struct").struct.field("readable_value").round(2),
-                    pl.lit(" "),
-                    pl.col("output_struct").struct.field("readable_unit"),
-                ]
-            ).alias("output")
-        )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("shuffle_read_struct")
-                    .struct.field("readable_value")
-                    .round(2),
-                    pl.lit(" "),
-                    pl.col("shuffle_read_struct").struct.field("readable_unit"),
-                ]
-            ).alias("shuffle_read")
-        )
-        .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("shuffle_write_struct")
-                    .struct.field("readable_value")
-                    .round(2),
-                    pl.lit(" "),
-                    pl.col("shuffle_write_struct").struct.field("readable_unit"),
-                ]
-            ).alias("shuffle_write")
-        )
-        .filter(pl.col("query_id").is_not_null())
-        .rename({"stage_start_timestamp": "submitted", "query_function": "query_func"})
         .with_columns(pl.col("submitted").str.replace("T", " ").alias("submitted"))
         .sort("query_id", "job_id", "stage_id")
         .to_pandas()
     )
 
+    return df_final
+
+
+@callback(
+    [
+        Output("metrics-table", "children"),
+        Output("metrics-table", "style"),
+    ],
+    [
+        Input("summary-metrics-df", "data"),
+        Input("color-mode-switch", "value"),
+    ],
+)
+@timeit
+def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
+    metrics_style = get_dt_style(dark_mode)
+    metrics_style["style_table"]["height"] = "60vh"
+
+    df = get_styled_metrics_df(df_data)
+
+    numeric_cols = ["query_id", "job_id", "stage_id", "tasks"]
+    small_cols = numeric_cols + ["query_func"]
     core_cols = [
         "query_id",
         "query_func",
@@ -232,7 +172,6 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
         "shuffle_write",
     ]
     hidden_cols = [
-        # hidden cols
         "task_duration_seconds",
         "bytes_read",
         "bytes_written",
@@ -240,16 +179,6 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
         "shuffle_bytes_written",
     ]
 
-    numeric_cols = ["query_id", "job_id", "stage_id", "tasks"]
-
-    col_mapping = {}
-    for col in core_cols:
-        if col in numeric_cols:
-            col_mapping[col] = {**int_style, "id": col, "name": col.replace("_", " ")}
-        else:
-            col_mapping[col] = {"name": col.replace("_", " "), "id": col}
-
-    small_cols = numeric_cols + ["query_func"]
     width_mapping = {col: 150 if col not in small_cols else 80 for col in core_cols}
     width_adjustment = [
         {
@@ -260,14 +189,29 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
         for i in width_mapping
     ]
     metrics_style["style_cell_conditional"].extend(width_adjustment)
+
+    tbl_cols = []
+    col_mapping = {}
+
+    for col in core_cols:
+        if col in numeric_cols:
+            col_mapping[col] = {
+                "type": "numeric",
+                "format": {"specifier": ",d"},
+                "id": col,
+                "name": col.replace("_", " "),
+            }
+        else:
+            col_mapping[col] = {"name": col.replace("_", " "), "id": col}
+
     core_df = df[core_cols + hidden_cols]
+    core_records = core_df.to_dict("records")
+
     for col in core_df.columns:
         if col not in hidden_cols:
             tbl_cols.append(
                 {**col_mapping[col], "id": col, "name": col.replace("_", " ")}
             )
-
-    core_records = core_df.to_dict("records")
 
     tbl = dash_table.DataTable(
         data=core_records,
@@ -304,7 +248,6 @@ def update_summary_table(data: list, sort_by: list):
 
     df_sorted = df
     for col in sort_by:
-        print(col)
         if col["column_id"] in col_mapping:
             df_sorted = df_sorted.sort_values(
                 col_mapping[col["column_id"]],

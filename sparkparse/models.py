@@ -128,7 +128,6 @@ def str_to_list(v: Any) -> list[str] | None:
             return v.split(", ")
 
         parts = v.split(" AS ")
-        print(len(parts))
         for i, part in enumerate(parts):
             if i == 0:
                 col_definitions.append(part)
