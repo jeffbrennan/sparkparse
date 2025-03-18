@@ -379,6 +379,14 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         .to_pandas()
         .iloc[0, 0]
     )
+
+    stage_rank = (
+        df_raw.select("stage_id")
+        .unique()
+        .sort("stage_id")
+        .with_columns(pl.col("stage_id").rank().alias("stage_rank"))
+    )
+
     df = (
         df_raw.select(
             "log_name",
@@ -392,13 +400,16 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         .with_columns(
             pl.concat_str(
                 [
+                    pl.lit("stage #"),
                     pl.col("stage_id"),
-                    pl.lit(" "),
-                    pl.col("stage_duration_seconds"),
+                    pl.lit(" ["),
+                    pl.col("stage_duration_seconds").round(2),
                     pl.lit(" sec"),
+                    pl.lit("]"),
                 ]
             ).alias("stage_label")
         )
+        .join(stage_rank, on="stage_id")
         .to_pandas()
     )
 
@@ -411,7 +422,7 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         data_frame=df,
         x_start="stage_start_timestamp",
         x_end="stage_end_timestamp",
-        y="stage_id",
+        y="stage_rank",
         color="job_id",
         title=title,
         text="stage_label",

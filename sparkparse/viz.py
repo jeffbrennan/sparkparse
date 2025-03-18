@@ -27,7 +27,7 @@ def style_fig(fig: Figure, dark_mode: bool) -> Figure:
             linecolor=font_color,
             color=font_color,
             mirror=True,
-            tickfont_size=tick_font_size,
+            showticklabels=False,
         )
     )
     fig.for_each_xaxis(
@@ -44,7 +44,9 @@ def style_fig(fig: Figure, dark_mode: bool) -> Figure:
             tickfont_size=tick_font_size,
         )
     )
-    fig.update_yaxes(matches=None, showticklabels=True, showgrid=False, fixedrange=True)
+    fig.update_yaxes(matches=None, showticklabels=False, showgrid=False, fixedrange=True)
+
+
 
     fig.update_layout(
         title={
