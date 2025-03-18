@@ -673,3 +673,11 @@ td.dash-cell.cell--selected.focused {
     color: rgb(33, 33, 33) !important;
     border: 2px solid rgb(242, 240, 227) !important;
 }
+
+.light-mode .table-title {
+    color: rgb(33, 33, 33) !important;
+}
+
+.dark-mode .table-title {
+    color: rgb(242, 240, 227) !important;
+}

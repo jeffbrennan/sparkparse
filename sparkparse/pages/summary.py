@@ -69,7 +69,6 @@ def get_metrics_viz(
         custom_data=["job_id", "stage_id", "task_duration_minutes"],
     )
     fig.update_traces(
-        # hoveron="points",
         hovertemplate=(
             "Job #%{customdata[0]}<br>Stage #%{customdata[1]}<br>Task #%{x}<br><br>Task runtime: %{customdata[2]} min<br>Cumulative runtime: %{y} min<extra></extra>"
         ),
@@ -195,7 +194,6 @@ def get_table_df(data: list[dict], grouping_cols: list[str]) -> pd.DataFrame:
 
 def apply_table_style(cols: SummaryCols, dark_mode: bool):
     metrics_style = get_dt_style(dark_mode)
-    metrics_style["style_table"]["height"] = "60vh"
     width_mapping = {col: 150 if col not in cols.small else 80 for col in cols.core}
     width_adjustment = [
         {
@@ -286,18 +284,23 @@ def get_styled_metrics_table(df_data: list[dict], dark_mode: bool):
 
     df = get_table_df(df_data, cols.grouping)
     metrics_style = apply_table_style(cols, dark_mode)
+    metrics_style["style_table"]["maxHeight"] = "50vh"
+    del metrics_style["style_table"]["height"]
+
     core_records, tbl_cols = get_table_cols(df, cols)
 
-    tbl = dash_table.DataTable(
-        data=core_records,
-        id="summary-table",
-        columns=tbl_cols,
-        sort_by=[],
-        sort_action="custom",
-        **metrics_style,
-    )
-
-    return tbl, {}
+    children = [
+        html.H5(children="Summary Metrics", className="table-title"),
+        dash_table.DataTable(
+            data=core_records,
+            id="summary-table",
+            columns=tbl_cols,
+            sort_by=[],
+            sort_action="custom",
+            **metrics_style,
+        ),
+    ]
+    return children, {}
 
 
 @callback(
@@ -390,20 +393,24 @@ def get_styled_executor_table(df_data: list[dict], dark_mode: bool):
 
     df = get_executor_table_df(df_data, grouping_cols=["executor_id", "host"])
     metrics_style = apply_table_style(cols, dark_mode)
+
+    metrics_style["style_table"]["maxHeight"] = "25vh"
+    del metrics_style["style_table"]["height"]
+
     core_records, tbl_cols = get_table_cols(df, cols)
 
-    print(df.head())
-
-    tbl = dash_table.DataTable(
-        data=core_records,
-        id="executor-table",
-        columns=tbl_cols,
-        sort_by=[],
-        sort_action="custom",
-        **metrics_style,
-    )
-
-    return tbl, {}
+    children = [
+        html.H5(children="Executors", className="table-title"),
+        dash_table.DataTable(
+            data=core_records,
+            id="executor-table",
+            columns=tbl_cols,
+            sort_by=[],
+            sort_action="custom",
+            **metrics_style,
+        ),
+    ]
+    return children, {}
 
 
 @callback(
@@ -427,8 +434,9 @@ def layout(log_name: str, **kwargs):
                     style={"visibility": "hidden"},
                     config={"displayModeBar": False},
                 ),
-                html.Div(id="metrics-table", style={"visibility": "hidden"}),
                 html.Div(id="executor-table", style={"visibility": "hidden"}),
+                html.Br(),
+                html.Div(id="metrics-table", style={"visibility": "hidden"}),
             ],
             style={"transition": "opacity 200ms ease-in", "minHeight": "100vh"},
             is_in=False,
