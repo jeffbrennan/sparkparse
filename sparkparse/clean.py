@@ -703,6 +703,7 @@ def log_to_combined_df(
         "merged_local_bytes_read",
         "merged_remote_requests_duration",
         # extra task metadata
+        "executor_id",
         "host",
         "index",
         "attempt",
@@ -762,6 +763,7 @@ def log_to_combined_df(
             ]
         )
         .join(query_task_lookup, on=["stage_id", "task_id"], how="left")
+        .filter(pl.col("query_id").is_not_null())
     )
 
     final = combined_clean.select(final_cols)
