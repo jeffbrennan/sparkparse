@@ -3,7 +3,7 @@ from plotly.graph_objs import Figure
 from sparkparse.styling import get_site_colors
 
 
-def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
+def style_fig(fig: Figure, dark_mode: bool) -> Figure:
     bg_color, font_color = get_site_colors(dark_mode, contrast=False)
 
     legend_font_size = 16
@@ -15,10 +15,7 @@ def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
             font=dict(size=legend_font_size, color=font_color),
         )
     )
-    font_color_transparent = f"rgba{font_color[3:-1]},0.1)"
-    fig.update_traces(
-        marker=dict(size=8, line=dict(width=1, color=font_color_transparent))
-    )
+
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     fig.for_each_yaxis(
         lambda y: y.update(
@@ -48,16 +45,6 @@ def style_fig(fig: Figure, dark_mode: bool, x_min: int, x_max: int) -> Figure:
         )
     )
     fig.update_yaxes(matches=None, showticklabels=True, showgrid=False, fixedrange=True)
-
-    x_padding = (x_max - x_min) * 0.01
-    fig.update_xaxes(
-        showgrid=False,
-        fixedrange=True,
-        range=[
-            x_min - x_padding,
-            x_max + x_padding,
-        ],
-    )
 
     fig.update_layout(
         title={

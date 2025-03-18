@@ -21,66 +21,6 @@ class SummaryCols(BaseModel):
     grouping: list[str]
 
 
-@callback(
-    [
-        Output("metrics", "figure"),
-        Output("metrics", "style"),
-        Output("metrics-graph-fade", "is_in"),
-    ],
-    [
-        Input("summary-metrics-df", "data"),
-        Input("color-mode-switch", "value"),
-    ],
-)
-@timeit
-def get_metrics_viz(
-    df_data: list[dict],
-    dark_mode: bool,
-) -> tuple[Figure, dict, bool]:
-    bg_color, font_color = get_site_colors(dark_mode, False)
-    if dark_mode:
-        template = "plotly_dark"
-    else:
-        template = "plotly"
-
-    cols = [
-        "log_name",
-        "parsed_log_name",
-        "job_id",
-        "stage_id",
-        "task_id",
-        "task_duration_seconds",
-    ]
-    df = pd.DataFrame(df_data)[cols].sort_values("task_id")
-    df["task_duration_minutes"] = (df["task_duration_seconds"] / 60).round(3)
-    df["cumulative_runtime"] = df["task_duration_minutes"].cumsum()
-
-    raw_log_subtitle = f"<br><sup>raw log: {df['log_name'].iloc[0]}"
-    parsed_log_subtitle = f"| parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
-    title = f"<b>Cumulative Task Runtime (minutes)</b>{raw_log_subtitle}{parsed_log_subtitle}"
-
-    fig = px.scatter(
-        df,
-        x="task_id",
-        y="cumulative_runtime",
-        color="job_id",
-        title=title,
-        template=template,
-        custom_data=["job_id", "stage_id", "task_duration_minutes"],
-    )
-    fig.update_traces(
-        hovertemplate=(
-            "Job #%{customdata[0]}<br>Stage #%{customdata[1]}<br>Task #%{x}<br><br>Task runtime: %{customdata[2]} min<br>Cumulative runtime: %{y} min<extra></extra>"
-        ),
-    )
-
-    x_min = df["task_id"].min()
-    x_max = df["task_id"].max()
-
-    fig = style_fig(fig, dark_mode, x_min, x_max)
-    return fig, {}, True
-
-
 def get_executor_table_df(data: list[dict], grouping_cols: list[str]) -> pd.DataFrame:
     df_summary = (
         pl.DataFrame(data)
@@ -237,8 +177,8 @@ def get_table_cols(df: pd.DataFrame, cols: SummaryCols):
 
 @callback(
     [
-        Output("metrics-table", "children"),
-        Output("metrics-table", "style"),
+        Output("summary-table", "children"),
+        Output("summary-table", "style"),
     ],
     [
         Input("summary-metrics-df", "data"),
@@ -414,6 +354,75 @@ def get_styled_executor_table(df_data: list[dict], dark_mode: bool):
 
 
 @callback(
+    [
+        Output("stage-timeline", "figure"),
+        Output("stage-timeline", "style"),
+        Output("metrics-graph-fade", "is_in"),
+    ],
+    [
+        Input("summary-metrics-df", "data"),
+        Input("color-mode-switch", "value"),
+    ],
+)
+def get_stage_timeline(df_data: list[dict], dark_mode: bool):
+    df_raw = pl.DataFrame(df_data)
+    elapsed_time = (
+        df_raw.select("job_id", "job_duration_seconds")
+        .unique()
+        .select(pl.sum("job_duration_seconds").alias("elapsed_time_seconds"))
+        .with_columns(
+            get_readable_col(pl.col("elapsed_time_seconds").mul(1000), "timing").alias(
+                "elapsed_time_struct"
+            )
+        )
+        .select(pl.col("elapsed_time_struct").struct.field("readable_str"))
+        .to_pandas()
+        .iloc[0, 0]
+    )
+    df = (
+        df_raw.select(
+            "log_name",
+            "parsed_log_name",
+            "job_id",
+            "stage_id",
+            "stage_start_timestamp",
+            "stage_end_timestamp",
+            "stage_duration_seconds",
+        )
+        .with_columns(
+            pl.concat_str(
+                [
+                    pl.col("stage_id"),
+                    pl.lit(" "),
+                    pl.col("stage_duration_seconds"),
+                    pl.lit(" sec"),
+                ]
+            ).alias("stage_label")
+        )
+        .to_pandas()
+    )
+
+    log_title = f"<b>{df['log_name'].iloc[0]}</b> {elapsed_time}"
+    parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
+
+    title = f"{log_title}<br>{parsed_log_subtitle}"
+
+    fig = px.timeline(
+        data_frame=df,
+        x_start="stage_start_timestamp",
+        x_end="stage_end_timestamp",
+        y="stage_id",
+        color="job_id",
+        title=title,
+        text="stage_label",
+    )
+
+    fig = style_fig(fig, dark_mode)
+
+    return fig, {}, True
+
+
+@callback(
     Output("summary-metrics-df", "data"),
     Input("log-name", "data"),
 )
@@ -430,13 +439,13 @@ def layout(log_name: str, **kwargs):
             id="metrics-graph-fade",
             children=[
                 dcc.Graph(
-                    "metrics",
+                    "stage-timeline",
                     style={"visibility": "hidden"},
                     config={"displayModeBar": False},
                 ),
                 html.Div(id="executor-table", style={"visibility": "hidden"}),
                 html.Br(),
-                html.Div(id="metrics-table", style={"visibility": "hidden"}),
+                html.Div(id="summary-table", style={"visibility": "hidden"}),
             ],
             style={"transition": "opacity 200ms ease-in", "minHeight": "100vh"},
             is_in=False,
