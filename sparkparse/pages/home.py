@@ -3,19 +3,22 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback, dcc, html, get_app
 from pydantic import BaseModel
 
 import dash_ag_grid as dag
+
+from sparkparse.common import resolve_dir
 
 
 @callback(
     Output("available-logs", "data"),
     Input("available-logs", "id"),
 )
-def get_available_logs(_, base_dir="data", log_dir="logs/raw"):
-    base_path = Path(__file__).parents[2] / base_dir / log_dir
-    log_files = list(base_path.glob("*"))
+def get_available_logs(_):
+    log_path = resolve_dir(get_app().server.config["LOG_DIR"])
+
+    log_files = list(log_path.glob("*"))
     log_files = [log.as_posix() for log in log_files if log.name != ".DS_Store"]
     return sorted(log_files)
 

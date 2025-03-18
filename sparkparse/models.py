@@ -116,7 +116,7 @@ class QueryEvent(BaseModel):
 def str_to_list(v: Any) -> list[str] | None:
     if not isinstance(v, str):
         raise TypeError(f"Expected a string, got {type(v)}")
-
+    print(v)
     v = v.removeprefix("[").removesuffix("]").strip()
     if v == "":
         return None
@@ -205,7 +205,7 @@ class HashAggregateDetail(BaseModel):
         Field(alias="Aggregate Attributes"),
         BeforeValidator(str_to_list),
     ]
-    results: Annotated[list[str], Field(alias="Results"), BeforeValidator(str_to_list)]
+    results: Annotated[list[str] | None, Field(alias="Results"), BeforeValidator(str_to_list)]
 
     @field_validator("functions", mode="before")
     @classmethod
@@ -235,7 +235,7 @@ class ExchangeArgument(BaseModel):
 
 
 class ExchangeDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: ExchangeArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -267,7 +267,7 @@ class ExchangeDetail(BaseModel):
 
 
 class ShuffleQueryStageDetail(BaseModel):
-    output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     stage_order: int = Field(alias="Arguments")
 
 
@@ -277,7 +277,7 @@ class AQEShuffleReadArgument(StrEnum):
 
 
 class AQEShuffleReadDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: AQEShuffleReadArgument = Field(alias="Arguments")
 
 
@@ -306,7 +306,7 @@ def parse_sort_argument_col_str(col_section: str) -> list[SortArgumentCol]:
 
 
 class SortDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: SortArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -335,10 +335,10 @@ class JoinType(StrEnum):
 
 class SortMergeJoinDetail(BaseModel):
     left_keys: Annotated[
-        list[str], Field(alias="Left keys"), BeforeValidator(str_to_list)
+        list[str] | None, Field(alias="Left keys"), BeforeValidator(str_to_list)
     ]
     right_keys: Annotated[
-        list[str], Field(alias="Right keys"), BeforeValidator(str_to_list)
+        list[str] | None, Field(alias="Right keys"), BeforeValidator(str_to_list)
     ]
     join_type: JoinType = Field(alias="Join type")
     join_condition: str | None = Field(alias="Join condition", default=None)
@@ -362,7 +362,7 @@ class WindowDetailArgument(BaseModel):
 
 
 class WindowDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: WindowDetailArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -425,7 +425,7 @@ class WindowGroupLimitArgument(BaseModel):
 
 
 class WindowGroupLimitDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: WindowGroupLimitArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -494,7 +494,7 @@ class FilterDetailCondition(BaseModel):
 
 
 class FilterDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     condition: Annotated[list[FilterDetailCondition], Field(alias="Condition")]
 
     @field_validator("condition", mode="before")
@@ -624,7 +624,7 @@ class LocalTableScanArguments(BaseModel):
 
 
 class LocalTableScanDetail(BaseModel):
-    output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     arguments: LocalTableScanArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -639,11 +639,11 @@ class LocalTableScanDetail(BaseModel):
 
 
 class WriteFilesDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
 class LocalLimitDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     limit: int = Field(alias="Arguments")
 
 
@@ -653,7 +653,7 @@ class GlobalLimitArguments(BaseModel):
 
 
 class GlobalLimitDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: GlobalLimitArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -677,7 +677,7 @@ class BroadcastExchangeArguments(BaseModel):
 
 
 class BroadcastExchangeDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: BroadcastExchangeArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -709,7 +709,7 @@ class BroadcastExchangeDetail(BaseModel):
 
 
 class BroadcastQueryStageDetail(BaseModel):
-    output: Annotated[list[str], Field(alias="Output"), BeforeValidator(str_to_list)]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     stage_order: int = Field(alias="Arguments")
 
 
@@ -737,7 +737,7 @@ class TakeOrderedAndProjectDetailArguments(BaseModel):
 
 
 class TakeOrderedAndProjectDetail(BaseModel):
-    input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: TakeOrderedAndProjectDetailArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")

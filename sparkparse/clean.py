@@ -1,9 +1,8 @@
 import logging
-from pathlib import Path
 
 import polars as pl
 
-from sparkparse.common import timeit, write_dataframe
+from sparkparse.common import resolve_dir, timeit, write_dataframe
 from sparkparse.models import (
     Job,
     OutputFormat,
@@ -772,13 +771,12 @@ def log_to_combined_df(
 
 def write_parsed_log(
     df: pl.DataFrame,
-    base_dir_path: Path,
     out_dir: str,
     out_format: OutputFormat,
     parsed_name: str,
     suffix: str,
 ) -> None:
-    out_dir_path = base_dir_path / out_dir
+    out_dir_path = resolve_dir(out_dir, 1)
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
     out_path = out_dir_path / f"{parsed_name}_{suffix}"

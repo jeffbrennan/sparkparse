@@ -156,7 +156,7 @@ def layout():
     )
 
 
-def init_dashboard() -> dash.Dash:
+def init_dashboard(log_dir: str) -> dash.Dash:
     app = dash.Dash(
         __name__,
         use_pages=True,
@@ -195,6 +195,8 @@ def init_dashboard() -> dash.Dash:
 
     app.layout = layout()
     dash.register_page(home.__name__, name="home", path="/", layout=home.layout)
+
+    app.server.config["LOG_DIR"] = log_dir
 
     dash.register_page(
         summary.__name__,

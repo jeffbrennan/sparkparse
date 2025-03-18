@@ -72,3 +72,26 @@ def create_header(header_length: int, title: str, center: bool, spacer: str):
         output = spacer * header_length + "\n" + output
 
     return output
+
+
+def resolve_dir(incoming_dir: str | Path, default_nesting=2) -> Path:
+    # resolves path of incoming dir_str
+    # if provided path does not exist, will attempt to resolve relative to sparkparse root
+
+    if isinstance(incoming_dir, Path):
+        initial_path = incoming_dir
+    else:
+        initial_path = Path(incoming_dir)
+
+    if initial_path.exists():
+        return initial_path
+
+    path = Path(__file__).parents[default_nesting] / incoming_dir
+    if not path.exists():
+        if not path.parent.exists():
+            raise ValueError(
+                f"directory {path} does not exist and parent is also missing"
+            )
+        path.mkdir(exist_ok=True, parents=True)
+
+    return path

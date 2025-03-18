@@ -2,14 +2,13 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
 import polars as pl
-from dash import Input, Output, callback, dash_table, dcc, html
-from plotly.graph_objs import Figure
+from dash import Input, Output, callback, dash_table, dcc, get_app, html
 from pydantic import BaseModel
 
 from sparkparse.clean import get_readable_col
-from sparkparse.common import timeit
+from sparkparse.common import resolve_dir, timeit
 from sparkparse.parse import get_parsed_metrics
-from sparkparse.styling import get_dt_style, get_site_colors
+from sparkparse.styling import get_dt_style
 from sparkparse.viz import style_fig
 
 
@@ -438,7 +437,10 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
     Input("log-name", "data"),
 )
 def get_records(log_name: str, **kwargs):
-    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).combined
+    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
+    df = get_parsed_metrics(
+        log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
+    ).combined
     return df.to_pandas().to_dict("records")
 
 
