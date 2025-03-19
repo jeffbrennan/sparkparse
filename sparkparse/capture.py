@@ -58,18 +58,20 @@ class SparkLogCapture:
         if self.spark or SparkSession.getActiveSession():
             self._orig_spark = self.spark
             self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir")
+            orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
             self.spark.stop()
 
-        self.spark = (
-            SparkSession.builder.appName(f"sparkparse-{uuid.uuid4()}")  # type: ignore
-            .config("spark.eventLog.enabled", "true")
-            .config("spark.eventLog.dir", self._log_dir)
-            .config("spark.history.fs.logDirectory", self._log_dir)
-            .config("spark.master", "local[*]")
-            .config("spark.eventLog.logBlockUpdates.enabled", "true")
-            .config("spark.eventLog.async", "true")
-            .getOrCreate()
+        builder = SparkSession.builder().appName("sparkparse")  # type: ignore
+        if hasattr(self, "_orig_spark"):
+            for key, value in orig_conf.items():
+                if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
+                    builder = builder.config(key, value)
+
+        builder = builder.config("spark.eventLog.enabled", "true").config(
+            "spark.eventLog.dir", self._log_dir
         )
+
+        self.spark = builder.getOrCreate()
 
         print(f"Log directory: {self._log_dir}")
         print(f"Log enabled: {self.spark.conf.get('spark.eventLog.enabled')}")
