@@ -24,14 +24,14 @@ def _run_broadcast_join(spark: SparkSession, data_path):
 def test_basic_capture():
     spark, data_path, _ = config()
 
-    with sparkparse.capture(spark=spark) as cap:
+    with sparkparse.capture(spark=spark, headless=True) as cap:
         _run_broadcast_join(cap.spark, data_path)
 
 
 def test_capture_with_decorator():
     spark, data_path, _ = config()
 
-    @sparkparse.capture()
+    @sparkparse.capture(headless=True)
     def run_broadcast_join_with_decorator(spark, data_path):
         _run_broadcast_join(spark, data_path)
 

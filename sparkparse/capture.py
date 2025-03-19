@@ -19,6 +19,7 @@ class SparkLogCapture:
         action: str,
         temp_dir: Optional[str] = None,
         spark: Optional[SparkSession] = None,
+        headless: bool = False,
     ) -> None:
         self.action = action
         self.temp_dir = temp_dir
@@ -26,6 +27,7 @@ class SparkLogCapture:
         self._orig_log_dir = None
         self._log_dir = None
         self._should_cleanup = temp_dir is None
+        self._headless = headless
 
     def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
@@ -96,8 +98,9 @@ class SparkLogCapture:
             close_fds=True,
         )
 
-        time.sleep(2)
-        webbrowser.open("http://127.0.0.1:8050/")
+        if not self._headless:
+            time.sleep(2)
+            webbrowser.open("http://127.0.0.1:8050/")
 
     def __exit__(self, exc_type, *args):
         if self.spark is None:
@@ -143,6 +146,7 @@ def capture(
     action_or_func: str = "viz",
     temp_dir: Optional[str] = None,
     spark: Optional[SparkSession] = None,
+    headless: bool = False,
 ) -> SparkLogCapture: ...
 
 
@@ -150,10 +154,11 @@ def capture(
     action_or_func: Union[str, F] = "viz",
     temp_dir: Optional[str] = None,
     spark: Optional[SparkSession] = None,
+    headless: bool = False,
 ) -> Union[SparkLogCapture, Callable[[F], F]]:
     if callable(action_or_func):
         # Used as a bare decorator: @capture
-        return SparkLogCapture("viz", temp_dir, spark)(action_or_func)
+        return SparkLogCapture("viz", temp_dir, spark, headless)(action_or_func)
     else:
         # Used with arguments: @capture("viz")
-        return SparkLogCapture(action_or_func, temp_dir, spark)
+        return SparkLogCapture(action_or_func, temp_dir, spark, headless)
