@@ -11,7 +11,8 @@
         "value": 3.0,
         "unit": "ms",
         "readable_value": 3.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "3.0 ms"
     },
     {
         "query_id": 0,
@@ -25,7 +26,8 @@
         "value": 10999.0,
         "unit": "ms",
         "readable_value": 11.0,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "11.0 s"
     },
     {
         "query_id": 0,
@@ -39,7 +41,8 @@
         "value": 3051245555.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.84 GiB"
     },
     {
         "query_id": 0,
@@ -53,7 +56,8 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     },
     {
         "query_id": 0,
@@ -67,7 +71,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -81,7 +86,8 @@
         "value": 24420.0,
         "unit": "",
         "readable_value": 24420.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "24420.0"
     },
     {
         "query_id": 0,
@@ -95,7 +101,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -109,7 +116,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -123,7 +131,8 @@
         "value": 182250.0,
         "unit": "ms",
         "readable_value": 3.0,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "3.04 min"
     },
     {
         "query_id": 0,
@@ -137,7 +146,8 @@
         "value": 10938737600.0,
         "unit": "B",
         "readable_value": 10.2,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "10.19 GiB"
     },
     {
         "query_id": 0,
@@ -151,7 +161,8 @@
         "value": 3992974720.0,
         "unit": "B",
         "readable_value": 3.7,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "3.72 GiB"
     },
     {
         "query_id": 0,
@@ -165,7 +176,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -179,7 +191,8 @@
         "value": 7.0,
         "unit": "",
         "readable_value": 7.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "7.0"
     },
     {
         "query_id": 0,
@@ -193,7 +206,8 @@
         "value": 16.0,
         "unit": "",
         "readable_value": 16.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "370.0"
     },
     {
         "query_id": 0,
@@ -207,7 +221,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -221,7 +236,8 @@
         "value": 15973.498216,
         "unit": "ms",
         "readable_value": 16.0,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "15.97 s"
     },
     {
         "query_id": 0,
@@ -235,7 +251,8 @@
         "value": 5599197992.0,
         "unit": "B",
         "readable_value": 5.2,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "5.21 GiB"
     },
     {
         "query_id": 0,
@@ -249,7 +266,8 @@
         "value": 2834864028.0,
         "unit": "B",
         "readable_value": 2.6,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.64 GiB"
     },
     {
         "query_id": 0,
@@ -263,7 +281,8 @@
         "value": 2834864028.0,
         "unit": "B",
         "readable_value": 2.6,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.64 GiB"
     },
     {
         "query_id": 0,
@@ -277,7 +296,8 @@
         "value": 2300.0,
         "unit": "",
         "readable_value": 2300.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "2300.0"
     },
     {
         "query_id": 0,
@@ -291,7 +311,8 @@
         "value": 200.0,
         "unit": "",
         "readable_value": 200.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "200.0"
     },
     {
         "query_id": 0,
@@ -305,7 +326,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -319,7 +341,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -333,7 +356,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -347,7 +371,8 @@
         "value": 3005829626.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.8 GiB"
     },
     {
         "query_id": 0,
@@ -361,7 +386,8 @@
         "value": 100.0,
         "unit": "",
         "readable_value": 100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100.0"
     },
     {
         "query_id": 0,
@@ -375,7 +401,8 @@
         "value": 100.0,
         "unit": "",
         "readable_value": 100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100.0"
     },
     {
         "query_id": 0,
@@ -389,7 +416,8 @@
         "value": 45398.0,
         "unit": "ms",
         "readable_value": 45.4,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "45.4 s"
     },
     {
         "query_id": 0,
@@ -403,7 +431,8 @@
         "value": 11744043200.0,
         "unit": "B",
         "readable_value": 10.9,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "10.94 GiB"
     },
     {
         "query_id": 0,
@@ -417,7 +446,8 @@
         "value": 99999952.0,
         "unit": "",
         "readable_value": 99999952.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "99999952.0"
     },
     {
         "query_id": 0,
@@ -431,7 +461,8 @@
         "value": 16.0,
         "unit": "",
         "readable_value": 16.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1600.0"
     },
     {
         "query_id": 0,
@@ -445,7 +476,8 @@
         "value": 75133.0,
         "unit": "ms",
         "readable_value": 1.3,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "1.25 min"
     },
     {
         "query_id": 0,
@@ -459,7 +491,8 @@
         "value": 10066323200.0,
         "unit": "B",
         "readable_value": 9.4,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "9.37 GiB"
     },
     {
         "query_id": 0,
@@ -473,7 +506,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -487,7 +521,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -501,7 +536,8 @@
         "value": 3851.0,
         "unit": "ms",
         "readable_value": 3.9,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "3.85 s"
     },
     {
         "query_id": 0,
@@ -515,7 +551,8 @@
         "value": 3051245555.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.84 GiB"
     },
     {
         "query_id": 0,
@@ -529,7 +566,8 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     },
     {
         "query_id": 0,
@@ -543,7 +581,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -557,7 +596,8 @@
         "value": 24420.0,
         "unit": "",
         "readable_value": 24420.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "24420.0"
     },
     {
         "query_id": 0,
@@ -571,7 +611,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -585,7 +626,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -599,7 +641,8 @@
         "value": 283495.0,
         "unit": "ms",
         "readable_value": 4.7,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "4.72 min"
     },
     {
         "query_id": 0,
@@ -613,7 +656,8 @@
         "value": 11950120731.0,
         "unit": "B",
         "readable_value": 11.1,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "11.13 GiB"
     },
     {
         "query_id": 0,
@@ -627,7 +671,8 @@
         "value": 13560732171.0,
         "unit": "B",
         "readable_value": 12.6,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "12.63 GiB"
     },
     {
         "query_id": 0,
@@ -641,7 +686,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -655,7 +701,8 @@
         "value": 19.0,
         "unit": "",
         "readable_value": 19.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "19.0"
     },
     {
         "query_id": 0,
@@ -669,7 +716,8 @@
         "value": 16.0,
         "unit": "",
         "readable_value": 16.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "369.0"
     },
     {
         "query_id": 0,
@@ -683,7 +731,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -697,7 +746,8 @@
         "value": 20267.134215,
         "unit": "ms",
         "readable_value": 20.3,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "20.27 s"
     },
     {
         "query_id": 0,
@@ -711,7 +761,8 @@
         "value": 10399198728.0,
         "unit": "B",
         "readable_value": 9.7,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "9.69 GiB"
     },
     {
         "query_id": 0,
@@ -725,7 +776,8 @@
         "value": 2999395394.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.79 GiB"
     },
     {
         "query_id": 0,
@@ -739,7 +791,8 @@
         "value": 2999395394.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.79 GiB"
     },
     {
         "query_id": 0,
@@ -753,7 +806,8 @@
         "value": 1150.0,
         "unit": "",
         "readable_value": 1150.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1150.0"
     },
     {
         "query_id": 0,
@@ -767,7 +821,8 @@
         "value": 200.0,
         "unit": "",
         "readable_value": 200.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "200.0"
     },
     {
         "query_id": 0,
@@ -781,7 +836,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -795,7 +851,8 @@
         "value": 100000000.0,
         "unit": "",
         "readable_value": 100000000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100000000.0"
     },
     {
         "query_id": 0,
@@ -809,7 +866,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -823,7 +881,8 @@
         "value": 3170536526.0,
         "unit": "B",
         "readable_value": 3.0,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.95 GiB"
     },
     {
         "query_id": 0,
@@ -837,7 +896,8 @@
         "value": 50.0,
         "unit": "",
         "readable_value": 50.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "50.0"
     },
     {
         "query_id": 0,
@@ -851,7 +911,8 @@
         "value": 50.0,
         "unit": "",
         "readable_value": 50.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "50.0"
     },
     {
         "query_id": 0,
@@ -865,7 +926,8 @@
         "value": 98182.0,
         "unit": "ms",
         "readable_value": 1.6,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "1.64 min"
     },
     {
         "query_id": 0,
@@ -879,7 +941,8 @@
         "value": 15099483200.0,
         "unit": "B",
         "readable_value": 14.1,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "14.06 GiB"
     },
     {
         "query_id": 0,
@@ -893,7 +956,8 @@
         "value": 99999952.0,
         "unit": "",
         "readable_value": 99999952.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "99999952.0"
     },
     {
         "query_id": 0,
@@ -907,7 +971,8 @@
         "value": 16.0,
         "unit": "",
         "readable_value": 16.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "800.0"
     },
     {
         "query_id": 0,
@@ -921,7 +986,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -935,7 +1001,8 @@
         "value": 10205.973934,
         "unit": "ms",
         "readable_value": 10.2,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "10.21 s"
     },
     {
         "query_id": 0,
@@ -949,7 +1016,8 @@
         "value": 7999194888.0,
         "unit": "B",
         "readable_value": 7.4,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "7.45 GiB"
     },
     {
         "query_id": 0,
@@ -963,7 +1031,8 @@
         "value": 3018335803.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.81 GiB"
     },
     {
         "query_id": 0,
@@ -977,7 +1046,8 @@
         "value": 3018335803.0,
         "unit": "B",
         "readable_value": 2.8,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.81 GiB"
     },
     {
         "query_id": 0,
@@ -991,7 +1061,8 @@
         "value": 5000.0,
         "unit": "",
         "readable_value": 5000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "5000.0"
     },
     {
         "query_id": 0,
@@ -1005,7 +1076,8 @@
         "value": 200.0,
         "unit": "",
         "readable_value": 200.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "200.0"
     },
     {
         "query_id": 0,
@@ -1019,7 +1091,8 @@
         "value": 99999952.0,
         "unit": "",
         "readable_value": 99999952.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "99999952.0"
     },
     {
         "query_id": 0,
@@ -1033,7 +1106,8 @@
         "value": 99999952.0,
         "unit": "",
         "readable_value": 99999952.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "99999952.0"
     },
     {
         "query_id": 0,
@@ -1047,7 +1121,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1061,7 +1136,8 @@
         "value": 3200560000.0,
         "unit": "B",
         "readable_value": 3.0,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "2.98 GiB"
     },
     {
         "query_id": 0,
@@ -1075,7 +1151,8 @@
         "value": 100.0,
         "unit": "",
         "readable_value": 100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100.0"
     },
     {
         "query_id": 0,
@@ -1089,7 +1166,8 @@
         "value": 100.0,
         "unit": "",
         "readable_value": 100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "100.0"
     },
     {
         "query_id": 0,
@@ -1103,7 +1181,8 @@
         "value": 77196.0,
         "unit": "ms",
         "readable_value": 1.3,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "1.29 min"
     },
     {
         "query_id": 0,
@@ -1117,7 +1196,8 @@
         "value": 13287545600.0,
         "unit": "B",
         "readable_value": 12.4,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "12.37 GiB"
     },
     {
         "query_id": 0,
@@ -1131,7 +1211,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1145,7 +1226,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1159,7 +1241,8 @@
         "value": 99999952.0,
         "unit": "",
         "readable_value": 99999952.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "99999952.0"
     },
     {
         "query_id": 0,
@@ -1173,7 +1256,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1187,7 +1271,8 @@
         "value": 57841.0,
         "unit": "ms",
         "readable_value": 57.8,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "57.84 s"
     },
     {
         "query_id": 0,
@@ -1201,7 +1286,8 @@
         "value": 10066323200.0,
         "unit": "B",
         "readable_value": 9.4,
-        "readable_unit": "GiB"
+        "readable_unit": "GiB",
+        "readable_str": "9.37 GiB"
     },
     {
         "query_id": 0,
@@ -1215,7 +1301,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1229,7 +1316,8 @@
         "value": 420000.0,
         "unit": "",
         "readable_value": 420000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "420000.0"
     },
     {
         "query_id": 0,
@@ -1243,7 +1331,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -1257,7 +1346,8 @@
         "value": 1599.054563,
         "unit": "ms",
         "readable_value": 1.6,
-        "readable_unit": "s"
+        "readable_unit": "s",
+        "readable_str": "1.6 s"
     },
     {
         "query_id": 0,
@@ -1271,7 +1361,8 @@
         "value": 20160000.0,
         "unit": "B",
         "readable_value": 19.2,
-        "readable_unit": "MiB"
+        "readable_unit": "MiB",
+        "readable_str": "19.23 MiB"
     },
     {
         "query_id": 0,
@@ -1285,7 +1376,8 @@
         "value": 8366764.0,
         "unit": "B",
         "readable_value": 8.0,
-        "readable_unit": "MiB"
+        "readable_unit": "MiB",
+        "readable_str": "7.98 MiB"
     },
     {
         "query_id": 0,
@@ -1299,7 +1391,8 @@
         "value": 8366764.0,
         "unit": "B",
         "readable_value": 8.0,
-        "readable_unit": "MiB"
+        "readable_unit": "MiB",
+        "readable_str": "7.98 MiB"
     },
     {
         "query_id": 0,
@@ -1313,7 +1406,8 @@
         "value": 700.0,
         "unit": "",
         "readable_value": 700.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "700.0"
     },
     {
         "query_id": 0,
@@ -1327,7 +1421,8 @@
         "value": 200.0,
         "unit": "",
         "readable_value": 200.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "200.0"
     },
     {
         "query_id": 0,
@@ -1341,7 +1436,8 @@
         "value": 420000.0,
         "unit": "",
         "readable_value": 420000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "420000.0"
     },
     {
         "query_id": 0,
@@ -1355,7 +1451,8 @@
         "value": 420000.0,
         "unit": "",
         "readable_value": 420000.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "420000.0"
     },
     {
         "query_id": 0,
@@ -1369,7 +1466,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1383,7 +1481,8 @@
         "value": 8648298.0,
         "unit": "B",
         "readable_value": 8.2,
-        "readable_unit": "MiB"
+        "readable_unit": "MiB",
+        "readable_str": "8.25 MiB"
     },
     {
         "query_id": 0,
@@ -1397,7 +1496,8 @@
         "value": 7.0,
         "unit": "",
         "readable_value": 7.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "7.0"
     },
     {
         "query_id": 0,
@@ -1411,7 +1511,8 @@
         "value": 7.0,
         "unit": "",
         "readable_value": 7.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "7.0"
     },
     {
         "query_id": 0,
@@ -1425,7 +1526,8 @@
         "value": 123.0,
         "unit": "ms",
         "readable_value": 123.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "123.0 ms"
     },
     {
         "query_id": 0,
@@ -1439,7 +1541,8 @@
         "value": 132120464.0,
         "unit": "B",
         "readable_value": 126.0,
-        "readable_unit": "MiB"
+        "readable_unit": "MiB",
+        "readable_str": "126.0 MiB"
     },
     {
         "query_id": 0,
@@ -1453,7 +1556,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1467,7 +1571,8 @@
         "value": 4200.0,
         "unit": "",
         "readable_value": 4200.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "4200.0"
     },
     {
         "query_id": 0,
@@ -1481,7 +1586,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1495,7 +1601,8 @@
         "value": 4100.0,
         "unit": "",
         "readable_value": 4100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "4100.0"
     },
     {
         "query_id": 0,
@@ -1509,7 +1616,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1523,7 +1631,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -1537,7 +1646,8 @@
         "value": 390.364803,
         "unit": "ms",
         "readable_value": 390.4,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "390.36 ms"
     },
     {
         "query_id": 0,
@@ -1551,7 +1661,8 @@
         "value": 131200.0,
         "unit": "B",
         "readable_value": 128.1,
-        "readable_unit": "KiB"
+        "readable_unit": "KiB",
+        "readable_str": "128.13 KiB"
     },
     {
         "query_id": 0,
@@ -1565,7 +1676,8 @@
         "value": 148373.0,
         "unit": "B",
         "readable_value": 144.9,
-        "readable_unit": "KiB"
+        "readable_unit": "KiB",
+        "readable_str": "144.9 KiB"
     },
     {
         "query_id": 0,
@@ -1579,7 +1691,8 @@
         "value": 148373.0,
         "unit": "B",
         "readable_value": 144.9,
-        "readable_unit": "KiB"
+        "readable_unit": "KiB",
+        "readable_str": "144.9 KiB"
     },
     {
         "query_id": 0,
@@ -1593,7 +1706,8 @@
         "value": 7.0,
         "unit": "",
         "readable_value": 7.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "7.0"
     },
     {
         "query_id": 0,
@@ -1607,7 +1721,8 @@
         "value": 200.0,
         "unit": "",
         "readable_value": 200.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "200.0"
     },
     {
         "query_id": 0,
@@ -1621,7 +1736,8 @@
         "value": 4100.0,
         "unit": "",
         "readable_value": 4100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "4100.0"
     },
     {
         "query_id": 0,
@@ -1635,7 +1751,8 @@
         "value": 4100.0,
         "unit": "",
         "readable_value": 4100.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "4100.0"
     },
     {
         "query_id": 0,
@@ -1649,7 +1766,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1663,7 +1781,8 @@
         "value": 155615.0,
         "unit": "B",
         "readable_value": 152.0,
-        "readable_unit": "KiB"
+        "readable_unit": "KiB",
+        "readable_str": "151.97 KiB"
     },
     {
         "query_id": 0,
@@ -1677,7 +1796,8 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     },
     {
         "query_id": 0,
@@ -1691,7 +1811,8 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     },
     {
         "query_id": 0,
@@ -1705,7 +1826,8 @@
         "value": 0.0,
         "unit": "ms",
         "readable_value": 0.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "0.0 ms"
     },
     {
         "query_id": 0,
@@ -1719,7 +1841,8 @@
         "value": 16908272.0,
         "unit": "B",
         "readable_value": 16.1,
-        "readable_unit": "MiB"
+        "readable_unit": "MiB",
+        "readable_str": "16.12 MiB"
     },
     {
         "query_id": 0,
@@ -1733,7 +1856,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1747,7 +1871,8 @@
         "value": 0.0,
         "unit": "B",
         "readable_value": 0.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "0.0 B"
     },
     {
         "query_id": 0,
@@ -1761,7 +1886,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1775,7 +1901,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1789,7 +1916,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 0,
@@ -1803,7 +1931,8 @@
         "value": 23.0,
         "unit": "ms",
         "readable_value": 23.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "23.0 ms"
     },
     {
         "query_id": 0,
@@ -1817,7 +1946,8 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     },
     {
         "query_id": 0,
@@ -1831,7 +1961,8 @@
         "value": 23.0,
         "unit": "ms",
         "readable_value": 23.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "23.0 ms"
     },
     {
         "query_id": 0,
@@ -1845,7 +1976,8 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     },
     {
         "query_id": 0,
@@ -1859,7 +1991,8 @@
         "value": 231541.0,
         "unit": "ms",
         "readable_value": 3.9,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "3.86 min"
     },
     {
         "query_id": 0,
@@ -1873,7 +2006,8 @@
         "value": 355022.0,
         "unit": "ms",
         "readable_value": 5.9,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "5.92 min"
     },
     {
         "query_id": 0,
@@ -1887,7 +2021,8 @@
         "value": 140324.0,
         "unit": "ms",
         "readable_value": 2.3,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "2.34 min"
     },
     {
         "query_id": 0,
@@ -1901,7 +2036,8 @@
         "value": 278707.0,
         "unit": "ms",
         "readable_value": 4.6,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "4.65 min"
     },
     {
         "query_id": 0,
@@ -1915,7 +2051,8 @@
         "value": 278192.0,
         "unit": "ms",
         "readable_value": 4.6,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "4.64 min"
     },
     {
         "query_id": 0,
@@ -1929,7 +2066,8 @@
         "value": 344752.0,
         "unit": "ms",
         "readable_value": 5.7,
-        "readable_unit": "min"
+        "readable_unit": "min",
+        "readable_str": "5.75 min"
     },
     {
         "query_id": 0,
@@ -1943,7 +2081,8 @@
         "value": 948.0,
         "unit": "ms",
         "readable_value": 948.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "948.0 ms"
     },
     {
         "query_id": 0,
@@ -1957,7 +2096,8 @@
         "value": 352.0,
         "unit": "ms",
         "readable_value": 352.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "352.0 ms"
     },
     {
         "query_id": 0,
@@ -1971,7 +2111,8 @@
         "value": 18.0,
         "unit": "ms",
         "readable_value": 18.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "18.0 ms"
     },
     {
         "query_id": 0,
@@ -1985,7 +2126,8 @@
         "value": 2.0,
         "unit": "ms",
         "readable_value": 2.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "2.0 ms"
     },
     {
         "query_id": 0,
@@ -1999,7 +2141,8 @@
         "value": 23.0,
         "unit": "ms",
         "readable_value": 23.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "23.0 ms"
     },
     {
         "query_id": 1,
@@ -2013,7 +2156,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 1,
@@ -2027,7 +2171,8 @@
         "value": null,
         "unit": null,
         "readable_value": null,
-        "readable_unit": null
+        "readable_unit": null,
+        "readable_str": null
     },
     {
         "query_id": 1,
@@ -2041,7 +2186,8 @@
         "value": 11.0,
         "unit": "ms",
         "readable_value": 11.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "11.0 ms"
     },
     {
         "query_id": 1,
@@ -2055,7 +2201,8 @@
         "value": 3.0,
         "unit": "ms",
         "readable_value": 3.0,
-        "readable_unit": "ms"
+        "readable_unit": "ms",
+        "readable_str": "3.0 ms"
     },
     {
         "query_id": 1,
@@ -2069,7 +2216,8 @@
         "value": 64.0,
         "unit": "B",
         "readable_value": 64.0,
-        "readable_unit": "B"
+        "readable_unit": "B",
+        "readable_str": "64.0 B"
     },
     {
         "query_id": 1,
@@ -2083,7 +2231,8 @@
         "value": 0.0,
         "unit": "",
         "readable_value": 0.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "0.0"
     },
     {
         "query_id": 1,
@@ -2097,7 +2246,8 @@
         "value": 0.0,
         "unit": "",
         "readable_value": 0.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "0.0"
     },
     {
         "query_id": 1,
@@ -2111,6 +2261,7 @@
         "value": 1.0,
         "unit": "",
         "readable_value": 1.0,
-        "readable_unit": ""
+        "readable_unit": "",
+        "readable_str": "1.0"
     }
 ]
