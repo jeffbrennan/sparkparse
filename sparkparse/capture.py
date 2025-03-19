@@ -5,20 +5,21 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 import webbrowser
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar, Union, overload
+from typing import Any, Callable, Optional, TypeVar, overload
 
 from pyspark.sql import SparkSession
 
 
 class SparkLogCapture:
+    spark: SparkSession
+
     def __init__(
         self,
         action: str,
+        spark: SparkSession,
         temp_dir: Optional[str] = None,
-        spark: Optional[SparkSession] = None,
         headless: bool = False,
     ) -> None:
         self.action = action
@@ -42,12 +43,10 @@ class SparkLogCapture:
         return wrapper
 
     def __enter__(self):
-        if not self.spark:
-            self.spark = SparkSession.getActiveSession()
-            if not self.spark:
-                raise ValueError(
-                    "No active SparkSession found - please create one before using this context manager."
-                )
+        if not self.spark and not SparkSession.getActiveSession():
+            raise ValueError(
+                "No active SparkSession found - please create one before using this context manager."
+            )
 
         if self.temp_dir is None:
             self._log_dir = tempfile.mkdtemp(prefix="sparkparse_")
@@ -61,7 +60,7 @@ class SparkLogCapture:
             orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
             self.spark.stop()
 
-        builder = SparkSession.builder().appName("sparkparse")  # type: ignore
+        builder = SparkSession.builder.appName("sparkparse")  # type: ignore
         if hasattr(self, "_orig_spark"):
             for key, value in orig_conf.items():
                 if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
@@ -146,21 +145,29 @@ def capture(action_or_func: F) -> F: ...
 @overload
 def capture(
     action_or_func: str = "viz",
-    temp_dir: Optional[str] = None,
-    spark: Optional[SparkSession] = None,
+    temp_dir: str | None = None,
+    spark: SparkSession | None = None,
     headless: bool = False,
 ) -> SparkLogCapture: ...
 
 
 def capture(
-    action_or_func: Union[str, F] = "viz",
-    temp_dir: Optional[str] = None,
-    spark: Optional[SparkSession] = None,
+    action_or_func: str | F = "viz",
+    temp_dir: str | None = None,
+    spark: SparkSession | None = None,
     headless: bool = False,
-) -> Union[SparkLogCapture, Callable[[F], F]]:
+) -> SparkLogCapture | Callable[[F], F]:
+    if spark is None:
+        spark = SparkSession.builder.appName("temp").getOrCreate()  # type: ignore
+
+    if spark is None:
+        raise ValueError("No SparkSession found")
+
     if callable(action_or_func):
-        # Used as a bare decorator: @capture
-        return SparkLogCapture("viz", temp_dir, spark, headless)(action_or_func)
+        return SparkLogCapture(
+            "viz", spark=spark, temp_dir=temp_dir, headless=headless
+        )(action_or_func)
     else:
-        # Used with arguments: @capture("viz")
-        return SparkLogCapture(action_or_func, temp_dir, spark, headless)
+        return SparkLogCapture(
+            action_or_func, temp_dir=temp_dir, spark=spark, headless=headless
+        )
