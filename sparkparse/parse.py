@@ -395,6 +395,16 @@ def parse_driver_accum_update(line_dict: dict) -> list[DriverAccumUpdates]:
     return accum_updates
 
 
+def check_if_log_has_queries(log_path: Path) -> bool:
+    if ".DS_Store" in log_path.name:
+        return False
+
+    with log_path.open("r") as f:
+        all_contents = f.read()
+
+    return "SparkListenerSQLExecutionStart" in all_contents
+
+
 @timeit
 def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     logger.debug(f"Starting to parse log file: {log_path}")
