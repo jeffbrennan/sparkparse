@@ -7,13 +7,20 @@ import tempfile
 import time
 import webbrowser
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar, overload
+from typing import Any, Callable, Literal, Optional, TypeVar, cast, overload
 
 from pyspark.sql import SparkSession
+
+from sparkparse.app import get
+from sparkparse.models import ParsedLogDataFrames
+
+R = TypeVar("R")
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class SparkLogCapture:
     spark: SparkSession
+    parsed_logs: None | ParsedLogDataFrames
 
     def __init__(
         self,
@@ -29,18 +36,36 @@ class SparkLogCapture:
         self._log_dir = None
         self._should_cleanup = temp_dir is None
         self._headless = headless
+        self._parsed_logs = None
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            with self:
-                func_params = func.__code__.co_varnames
-                if "spark" in func_params:
-                    kwargs["spark"] = self.spark
+    def __call__(
+        self, func: Callable[..., R]
+    ) -> Callable[..., R] | Callable[..., tuple[R, "SparkLogCapture"]]:
+        if self.action == "get":
 
-                return func(*args, **kwargs)
+            @functools.wraps(func)
+            def get_wrapper(*args: Any, **kwargs: Any) -> tuple[R, "SparkLogCapture"]:
+                with self:
+                    func_params = func.__code__.co_varnames
+                    if "spark" in func_params:
+                        kwargs["spark"] = self.spark
 
-        return wrapper
+                    result = func(*args, **kwargs)
+                    return result, self
+
+            return get_wrapper
+        else:
+
+            @functools.wraps(func)
+            def wrapper(*args: Any, **kwargs: Any) -> R:
+                with self:
+                    func_params = func.__code__.co_varnames
+                    if "spark" in func_params:
+                        kwargs["spark"] = self.spark
+
+                    return func(*args, **kwargs)
+
+            return wrapper
 
     def __enter__(self):
         if not self.spark and not SparkSession.getActiveSession():
@@ -110,21 +135,30 @@ class SparkLogCapture:
         self.spark.stop()
         self.spark = self._orig_spark
 
-        if not exc_type:
-            if self._log_dir is None:
-                raise ValueError("log directory is not set")
+        if exc_type:
+            return
 
-            log_dir_contents = [i for i in Path(self._log_dir).glob("*")]
-            if not any(log_dir_contents):
-                raise ValueError("no logs found in log directory")
+        if self._log_dir is None:
+            raise ValueError("log directory is not set")
 
-            if self._orig_log_dir is not None:
-                for f in log_dir_contents:
-                    out_path = Path(self._orig_log_dir) / f.stem
-                    shutil.copy2(f.as_posix(), out_path)
+        log_dir_contents = [i for i in Path(self._log_dir).glob("*")]
+        if not any(log_dir_contents):
+            raise ValueError("no logs found in log directory")
+
+        if self._orig_log_dir is not None:
+            for f in log_dir_contents:
+                out_path = Path(self._orig_log_dir) / f.stem
+                shutil.copy2(f.as_posix(), out_path)
 
         if self.action == "viz":
             self._run_dashboard_in_background()
+            return
+
+        elif self.action == "get":
+            if self._log_dir is None:
+                raise ValueError("log directory is not set")
+            result = get(log_dir=self._log_dir)
+            self._parsed_logs = result
             return
 
         if (
@@ -133,9 +167,6 @@ class SparkLogCapture:
             and os.path.exists(self._log_dir)
         ):
             shutil.rmtree(self._log_dir)
-
-
-F = TypeVar("F", bound=Callable[..., Any])
 
 
 @overload
@@ -151,12 +182,26 @@ def capture(
 ) -> SparkLogCapture: ...
 
 
+@overload
+def capture(
+    action_or_func: Literal["get"],
+    temp_dir: str | None = None,
+    spark: SparkSession | None = None,
+    headless: bool = False,
+) -> Callable[[Callable[..., R]], Callable[..., tuple[R, SparkLogCapture]]]: ...
+
+
 def capture(
     action_or_func: str | F = "viz",
     temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
-) -> SparkLogCapture | Callable[[F], F]:
+) -> (
+    SparkLogCapture
+    | F
+    | Callable[[Callable[..., R]], Callable[..., R]]
+    | Callable[[Callable[..., R]], Callable[..., tuple[R, SparkLogCapture]]]
+):
     if spark is None:
         spark = SparkSession.builder.appName("temp").getOrCreate()  # type: ignore
 
@@ -164,10 +209,13 @@ def capture(
         raise ValueError("No SparkSession found")
 
     if callable(action_or_func):
-        return SparkLogCapture(
-            "viz", spark=spark, temp_dir=temp_dir, headless=headless
-        )(action_or_func)
+        # Decorator used directly without arguments: @sparkparse.capture
+        slc = SparkLogCapture("viz", spark=spark, temp_dir=temp_dir, headless=headless)
+        return cast(
+            F, slc(action_or_func)
+        )  # Type system should handle this correctly now
     else:
+        # Decorator used with arguments: @sparkparse.capture(action_or_func="get")
         return SparkLogCapture(
             action_or_func, temp_dir=temp_dir, spark=spark, headless=headless
         )

@@ -1,8 +1,10 @@
+from typing import Literal
 import uuid
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 
 import sparkparse
+from sparkparse.capture import SparkLogCapture
 from tests.test import config
 
 
@@ -26,7 +28,19 @@ def test_basic_capture():
     with sparkparse.capture(spark=spark, headless=True) as cap:
         _run_broadcast_join(cap.spark, data_path)
 
- 
+
+def test_basic_capture_get():
+    spark, data_path, _ = config()
+    with sparkparse.capture(action_or_func="get", spark=spark, headless=True) as cap:
+        _run_broadcast_join(cap.spark, data_path)
+
+    if cap._parsed_logs is None:
+        raise ValueError("No logs found")
+
+    print(cap._parsed_logs.combined.head())
+    assert cap._parsed_logs.combined.shape[0] > 0
+
+
 def test_capture_with_decorator(headless: bool = True):
     spark, data_path, _ = config()
 
@@ -35,6 +49,23 @@ def test_capture_with_decorator(headless: bool = True):
         _run_broadcast_join(spark, data_path)
 
     run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
+
+
+def test_capture_with_decorator_get():
+    spark, data_path, _ = config()
+
+    @sparkparse.capture(action_or_func="get")
+    def run_broadcast_join_with_decorator(spark, data_path) -> Literal["done"]:
+        _run_broadcast_join(spark, data_path)
+        return "done"
+
+    result, cap = run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
+    assert isinstance(cap, SparkLogCapture)
+    if cap._parsed_logs is None:
+        raise ValueError("No logs found")
+
+    print(cap._parsed_logs.combined.head())
+    assert cap._parsed_logs.combined.shape[0] > 0
 
 
 if __name__ == "__main__":
