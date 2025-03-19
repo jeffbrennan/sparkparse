@@ -1,3 +1,5 @@
+import subprocess
+import time
 import dash
 import dash_bootstrap_components as dbc
 import dash_cytoscape
@@ -213,5 +215,27 @@ def init_dashboard(log_dir: str) -> dash.Dash:
     return app
 
 
-def run_app(app):
-    app.run(host="127.0.0.1", debug=True)
+def run_app(app: dash.Dash, force_port: bool = False):
+    max_attempts = 3
+    attempts = 0
+    success = False
+
+    while attempts < max_attempts and not success:
+        try:
+            app.run(host="127.0.0.1", debug=True)
+            success = True
+        except KeyboardInterrupt:
+            break
+
+        except SystemExit:
+            attempts += 1
+            result = subprocess.run(["lsof", "-t", "-i", ":8050"], capture_output=True)
+            pids = result.stdout.decode().strip().split("\n")
+            print(pids)
+            if force_port:
+                print("force killing processes using port 8050...")
+                for pid in pids:
+                    subprocess.run(["sudo", "kill", "-9", pid])
+                    print(f"killed PID:{pid}")
+
+                time.sleep(1)

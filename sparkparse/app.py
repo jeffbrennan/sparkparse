@@ -8,9 +8,14 @@ app = typer.Typer(pretty_exceptions_enable=False)
 
 
 @app.command("viz")
-def viz_parsed_metrics(log_dir: str = "data/logs/raw") -> None:
+def viz_parsed_metrics(
+    log_dir: str = "data/logs/raw",
+    force_port: bool = typer.Option(
+        default=False, help="force kill processes using port 8050"
+    ),
+) -> None:
     app = init_dashboard(log_dir)
-    run_app(app)
+    run_app(app=app, force_port=force_port)
 
 
 @app.command("get")
