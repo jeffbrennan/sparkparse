@@ -9,8 +9,7 @@ def test_accumulator_totals_parse_correctly():
     expected_path = base_path / "test_accumulator_parsing" / "expected.json"
 
     dag = get_parsed_metrics(
-        base_dir="tests/data",
-        log_dir="full_logs",
+        log_dir="tests/data/full_logs",
         log_file="complex_transformation_medium",
         out_dir=None,
         out_format=None,

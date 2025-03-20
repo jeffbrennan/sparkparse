@@ -7,7 +7,7 @@ from pathlib import Path
 import polars as pl
 
 from sparkparse.clean import log_to_combined_df, log_to_dag_df, write_parsed_log
-from sparkparse.common import timeit
+from sparkparse.common import resolve_dir, timeit
 from sparkparse.models import (
     NODE_ID_PATTERN,
     NODE_TYPE_DETAIL_MAP,
@@ -395,6 +395,16 @@ def parse_driver_accum_update(line_dict: dict) -> list[DriverAccumUpdates]:
     return accum_updates
 
 
+def check_if_log_has_queries(log_path: Path) -> bool:
+    if ".DS_Store" in log_path.name:
+        return False
+
+    with log_path.open("r") as f:
+        all_contents = f.read()
+
+    return "SparkListenerSQLExecutionStart" in all_contents
+
+
 @timeit
 def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
     logger.debug(f"Starting to parse log file: {log_path}")
@@ -494,16 +504,14 @@ def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
 
 
 def get_parsed_metrics(
-    base_dir: str = "data",
-    log_dir: str = "logs/raw",
+    log_dir: str | Path = "data/logs/raw",
     log_file: str | None = None,
-    out_dir: str | None = "logs/parsed",
+    out_dir: str | None = "data/logs/parsed",
     out_name: str | None = None,
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
 ) -> ParsedLogDataFrames:
-    base_dir_path = Path(__file__).parents[1] / base_dir
-    log_dir_path = base_dir_path / log_dir
+    log_dir_path = resolve_dir(log_dir)
 
     if verbose:
         logging.basicConfig(
@@ -549,37 +557,12 @@ def get_parsed_metrics(
             .unnest("accumulator_totals")
         )
 
-        combined_df = (
-            combined_df.with_columns(pl.col("nodes").list.join(", ").alias("nodes"))
-            .with_columns(
-                pl.col("input")
-                .name.map_fields(lambda x: "input_size_" + x)
-                .alias("input")
-            )
-            .unnest("input")
-            .with_columns(
-                pl.col("output")
-                .name.map_fields(lambda x: "output_size_" + x)
-                .alias("output")
-            )
-            .unnest("output")
-            .with_columns(
-                pl.col("shuffle_write")
-                .name.map_fields(lambda x: "shuffle_write" + x)
-                .alias("shuffle_write")
-            )
-            .unnest("shuffle_write")
-            .with_columns(
-                pl.col("shuffle_read")
-                .name.map_fields(lambda x: "shuffle_read" + x)
-                .alias("shuffle_read")
-            )
-            .unnest("shuffle_read")
+        combined_df = combined_df.with_columns(
+            pl.col("nodes").list.join(", ").alias("nodes")
         )
 
     write_parsed_log(
         df=dag_df,
-        base_dir_path=base_dir_path,
         out_dir=out_dir,
         out_format=out_format,
         parsed_name=result.name,
@@ -588,7 +571,6 @@ def get_parsed_metrics(
 
     write_parsed_log(
         df=combined_df,
-        base_dir_path=base_dir_path,
         out_dir=out_dir,
         out_format=out_format,
         parsed_name=result.name,

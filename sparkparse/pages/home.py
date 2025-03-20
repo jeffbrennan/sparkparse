@@ -1,23 +1,34 @@
 import datetime
 import json
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 
+import dash_ag_grid as dag
 import pandas as pd
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback, dcc, get_app, html
 from pydantic import BaseModel
 
-import dash_ag_grid as dag
+from sparkparse.common import resolve_dir, timeit
+from sparkparse.parse import check_if_log_has_queries
 
 
 @callback(
     Output("available-logs", "data"),
     Input("available-logs", "id"),
 )
-def get_available_logs(_, base_dir="data", log_dir="logs/raw"):
-    base_path = Path(__file__).parents[2] / base_dir / log_dir
-    log_files = list(base_path.glob("*"))
-    log_files = [log.as_posix() for log in log_files if log.name != ".DS_Store"]
-    return sorted(log_files)
+@timeit
+@lru_cache()
+def get_available_logs(_) -> list[str]:
+    log_path = resolve_dir(get_app().server.config["LOG_DIR"])
+    log_files = tuple(log_path.glob("*"))
+
+    # filter out logs that don't have queries
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(check_if_log_has_queries, log_files))
+    log_files_filtered = [x.as_posix() for x, y in zip(log_files, results) if y]
+
+    return sorted(log_files_filtered)
 
 
 class LogDuration(BaseModel):
