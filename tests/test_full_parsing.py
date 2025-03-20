@@ -20,6 +20,10 @@ def test_full_parsing_broadcast_nested_loop_join():
     all_results.extend(metrics.combined.drop("parsed_log_name").to_dicts())
 
     result_json = json.loads(json.dumps(all_results, indent=2))
+
+    # with expected_path.open("w") as f:
+    #     json.dump(result_json, f, indent=2)
+
     with expected_path.open("r") as f:
         expected_json = json.load(f)
 

@@ -599,14 +599,7 @@
         "id2#85",
         "rank#105"
       ],
-      "condition": [
-        {
-          "condition": "AND",
-          "col": "rank#105",
-          "operator": "<",
-          "value": "42"
-        }
-      ]
+      "condition": "(rank#105 < 42)"
     }
   },
   {
@@ -729,14 +722,7 @@
         "id2#85",
         "rn#132"
       ],
-      "condition": [
-        {
-          "condition": "AND",
-          "col": "rn#132",
-          "operator": ">",
-          "value": "42"
-        }
-      ]
+      "condition": "(rn#132 > 42)"
     }
   },
   {

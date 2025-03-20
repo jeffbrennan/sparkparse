@@ -1442,7 +1442,7 @@
     "node_id": 10,
     "node_type": "Filter",
     "child_nodes": "11",
-    "details": "{\"node_id\":10,\"node_type\":\"Filter\",\"detail\":{\"input\":[\"id1#36\"],\"condition\":[{\"condition\":\"AND\",\"col\":\"id1#36\",\"operator\":\"!=\",\"value\":null}]}}",
+    "details": "{\"node_id\":10,\"node_type\":\"Filter\",\"detail\":{\"input\":[\"id1#36\"],\"condition\":\"isnotnull(id1#36)\"}}",
     "query_function": "count",
     "query_header": "3 - count [0.01 min]",
     "accumulators": [
