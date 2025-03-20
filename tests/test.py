@@ -23,6 +23,43 @@ def config(data_size: str = "small"):
     return spark, data_path, base_dir
 
 
+def test_explode_generate():
+    spark, data_path, base_dir = config("small")
+
+    df = spark.read.parquet(data_path.as_posix()).limit(1000)
+    df_with_array = df.withColumn("array_col", F.array("id1", "id2"))
+    exploded_df = df_with_array.select(
+        "id1", "array_col", F.explode("array_col").alias("exploded_value")
+    )
+    count = exploded_df.count()
+    print("Exploded row count:", count)
+
+
+# TODO: handle this case
+def test_nested_final_plans():
+    spark, data_path, base_dir = config("small")
+
+    df1 = spark.read.parquet(data_path.as_posix()).limit(1000)
+    df2 = spark.read.parquet(data_path.as_posix()).limit(1000)
+
+    union_df = df1.union(df2)
+
+    cached_df = union_df.cache()
+    cached_df.count()
+
+    cached_df.createOrReplaceTempView("cached_union")
+
+    query = """
+    select id1, v3 FROM cached_union
+    union 
+    select id1, v3 FROM cached_union
+    """
+    result_df = spark.sql(query)
+
+    result_count = result_df.count()
+    print("Result count:", result_count)
+
+
 def test_broadcast_nested_loop_join():
     spark, data_path, base_dir = config()
     df = (

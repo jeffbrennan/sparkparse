@@ -70,6 +70,7 @@ class NodeType(StrEnum):
     WholeStageCodegen = auto()
     BroadcastNestedLoopJoin = auto()
     ReusedExchange = auto()
+    Generate = auto()
 
 
 class Accumulator(BaseModel):
@@ -514,44 +515,7 @@ class FilterDetail(BaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
-    condition: Annotated[list[FilterDetailCondition], Field(alias="Condition")]
-
-    @field_validator("condition", mode="before")
-    @classmethod
-    def parse_filter_condition_str(cls, value: Any) -> list[FilterDetailCondition]:
-        filter_split = value.split(") ")
-        filter_conditions = []
-        for i, filter_str in enumerate(filter_split):
-            if filter_str == "":
-                continue
-            if i == 0:
-                condition = Condition("AND")
-            else:
-                condition = Condition(filter_str.split(" ")[0].strip())
-
-            if "isnotnull" in filter_str or "isnull" in filter_str:
-                col = filter_str.split("(")[1].removesuffix(")")
-                operator = "!=" if "isnot" in filter_str else "=="
-                filter_conditions.append(
-                    FilterDetailCondition(
-                        condition=condition,
-                        col=col,
-                        operator=Operator(operator),
-                        value=None,
-                    )
-                )
-                continue
-
-            col = filter_str.split(" ")[0].removeprefix("(")
-            operator = Operator(filter_str.split(" ")[1])
-            value = filter_str.split(" ")[2].removesuffix(")")
-            filter_conditions.append(
-                FilterDetailCondition(
-                    condition=condition, col=col, operator=operator, value=value
-                )
-            )
-
-        return filter_conditions
+    condition: str = Field(alias="Condition")
 
 
 class CoalesceDetail(BaseModel):
@@ -815,6 +779,30 @@ class ReusedExchangeDetail(BaseModel):
     reuses_node_id: int = Field(alias="reuses_node_id")
 
 
+class GenerateDetailArguments(BaseModel):
+    generator: str
+    include_nulls: bool
+    output: list[str] | None
+
+
+class GenerateDetail(BaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    arguments: GenerateDetailArguments = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_generate_detail_arguments_str(cls, value: Any) -> GenerateDetailArguments:
+        generator = value.split("), ")[0]
+        include_nulls = ", true, " in value
+        output = str_to_list(value.split(", [")[-1])
+
+        return GenerateDetailArguments(
+            generator=generator, include_nulls=include_nulls, output=output
+        )
+
+
 class PhysicalPlanDetail(BaseModel):
     node_id: int
     node_type: NodeType
@@ -843,6 +831,7 @@ class PhysicalPlanDetail(BaseModel):
         | TakeOrderedAndProjectDetail
         | BroadcastNestedLoopJoinDetail
         | ReusedExchangeDetail
+        | GenerateDetail
         | None
     )
 
@@ -1020,4 +1009,5 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.TakeOrderedAndProject: TakeOrderedAndProjectDetail,
     NodeType.BroadcastNestedLoopJoin: BroadcastNestedLoopJoinDetail,
     NodeType.ReusedExchange: ReusedExchangeDetail,
+    NodeType.Generate: GenerateDetail,
 }
