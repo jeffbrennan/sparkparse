@@ -1,10 +1,8 @@
-from typing import Literal
 import uuid
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 
 import sparkparse
-from sparkparse.capture import SparkLogCapture
 from tests.test import config
 
 
@@ -25,13 +23,13 @@ def _run_broadcast_join(spark: SparkSession, data_path):
 
 def test_basic_capture():
     spark, data_path, _ = config()
-    with sparkparse.capture(spark=spark, headless=True) as cap:
+    with sparkparse.capture_context(spark=spark, headless=True) as cap:
         _run_broadcast_join(cap.spark, data_path)
 
 
 def test_basic_capture_get():
     spark, data_path, _ = config()
-    with sparkparse.capture(action_or_func="get", spark=spark, headless=True) as cap:
+    with sparkparse.capture_context(action="get", spark=spark) as cap:
         _run_broadcast_join(cap.spark, data_path)
 
     if cap._parsed_logs is None:
@@ -44,23 +42,25 @@ def test_basic_capture_get():
 def test_capture_with_decorator(headless: bool = True):
     spark, data_path, _ = config()
 
-    @sparkparse.capture(headless=headless)
+    @sparkparse.capture(spark=spark, headless=headless)
     def run_broadcast_join_with_decorator(spark, data_path):
         _run_broadcast_join(spark, data_path)
 
-    run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
+    _, cap = run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
+    assert cap._parsed_logs is None
 
 
 def test_capture_with_decorator_get():
     spark, data_path, _ = config()
 
-    @sparkparse.capture(action_or_func="get")
-    def run_broadcast_join_with_decorator(spark, data_path) -> Literal["done"]:
+    @sparkparse.capture(action="get", spark=spark)
+    def run_broadcast_join_with_decorator(spark, data_path) -> dict[str, str]:
         _run_broadcast_join(spark, data_path)
-        return "done"
+        my_result = {"result": "done"}
+        return my_result
 
     result, cap = run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
-    assert isinstance(cap, SparkLogCapture)
+    assert result == {"result": "done"}
     if cap._parsed_logs is None:
         raise ValueError("No logs found")
 
