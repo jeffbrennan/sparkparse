@@ -198,7 +198,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
 
         # skip nodes not displayed in spark ui and connect the previous node to the next node
-        nodes_to_exclude = ["BroadcastQueryStage", "ShuffleQueryStage"]
+        nodes_to_exclude = ["BroadcastQueryStage", "ShuffleQueryStage", "ReusedExchange"]
         if row["node_type"] in nodes_to_exclude:
             if not row["child_nodes"]:
                 continue
