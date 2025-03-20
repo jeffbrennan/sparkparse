@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 
@@ -31,6 +32,7 @@ from sparkparse.models import (
     PlanAccumulator,
     QueryEvent,
     QueryFunction,
+    ReusedExchangeDetail,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
@@ -135,6 +137,7 @@ def get_plan_details(
                 )
             )
             continue
+
         if node_type not in NODE_TYPE_DETAIL_MAP:
             raise ValueError(f"Could not find detail model for node type: {node_type}")
 
@@ -152,6 +155,10 @@ def get_plan_details(
             # remove detail size indicators like Output [4] -> Output
             cleaned_key = re.sub(r"\s+\[\d+\]", "", key.strip())
             detail_dict[cleaned_key] = value.strip()
+
+        if node_type == NodeType.ReusedExchange:
+            reused_id = detail_lines[0].split(": ")[-1].removesuffix("]").strip()
+            detail_dict.update({"reuses_node_id": int(reused_id)})
 
         detail_parsed = detail_model.model_validate(detail_dict)
         details_parsed.append(
@@ -214,7 +221,8 @@ def parse_node_accumulators(
             ]
             accumulators[node_id] = metrics_parsed
 
-        if "children" in node_info:
+        # reusedexchange nodes repeat the metrics of the node they are reusing
+        if "children" in node_info and "ReusedExchange" not in node_name:
             for child in node_info["children"]:
                 process_node(child, child_index=len(accumulators))
 
@@ -236,7 +244,11 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     node_map: dict[int, PhysicalPlanNode] = {}
     indentation_history = []
 
-    n_expected_roots = tree.count("Scan ")
+    root_indicators = ["Scan", "ReusedExchange"]
+    n_expected_roots = 0
+    for indicator in root_indicators:
+        n_expected_roots += tree.count(indicator)
+
     all_child_nodes = []
     lines = tree.split("\n")
 
@@ -336,6 +348,16 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     detail_list = details.details
     for detail in detail_list:
         node_map[detail.node_id].details = detail.model_dump_json()
+
+        # reused nodes are the children of the node they are reusing in the spark ui
+        if detail.node_type == NodeType.ReusedExchange:
+            reused_detail = cast(ReusedExchangeDetail, detail.detail)
+            reuses_node = node_map[reused_detail.reuses_node_id]
+
+            if reuses_node.child_nodes is None:
+                reuses_node.child_nodes = [detail.node_id]
+            else:
+                reuses_node.child_nodes.append(detail.node_id)
 
     return PhysicalPlan(
         query_id=query_id,

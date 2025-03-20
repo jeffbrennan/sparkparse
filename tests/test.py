@@ -23,8 +23,31 @@ def config(data_size: str = "small"):
     return spark, data_path, base_dir
 
 
-# TODO: validate against the expected output
-# all metric values seem off - probably an issue with how they are being joined
+def test_broadcast_nested_loop_join():
+    spark, data_path, base_dir = config()
+    df = (
+        spark.read.parquet(data_path.as_posix())
+        .limit(1000)
+        .createOrReplaceTempView("df")
+    )
+    df2 = spark.sql("SELECT * FROM df").createOrReplaceTempView("df2")
+    df3 = spark.sql("SELECT * FROM df").createOrReplaceTempView("df3")
+
+    query = """
+    select
+        df.id1,
+        df2.id2,
+        df3.id3,
+        df.v3
+    from df
+    left join df2 on df.id1 = df2.id1
+    left join df3 on df.id1 = df2.id1
+    """
+
+    df_final = spark.sql(query)
+    df_final.count()
+
+
 def test_broadcast_join():
     spark, data_path, base_dir = config()
     df = spark.read.parquet(data_path.as_posix())

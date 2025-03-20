@@ -68,6 +68,8 @@ class NodeType(StrEnum):
     InMemoryTableScan = auto()
     InMemoryRelation = auto()
     WholeStageCodegen = auto()
+    BroadcastNestedLoopJoin = auto()
+    ReusedExchange = auto()
 
 
 class Accumulator(BaseModel):
@@ -104,6 +106,7 @@ class PhysicalPlanNode(BaseModel):
 class QueryFunction(StrEnum):
     COUNT = "count"
     SAVE = "save"
+    CREATE_OR_REPLACE_TEMP_VIEW = "createOrReplaceTempView"
 
 
 class QueryEvent(BaseModel):
@@ -691,12 +694,13 @@ class GlobalLimitDetail(BaseModel):
 
 class BroadcastExchangeMode(StrEnum):
     HASHED_RELATION_BROADCAST_MODE = "HashedRelationBroadcastMode"
+    IDENTITY_BROADCAST_MODE = "IdentityBroadcastMode"
 
 
 class BroadcastExchangeArguments(BaseModel):
     mode: BroadcastExchangeMode
-    join_cols: str
-    nullable: bool
+    join_cols: str | None
+    nullable: bool | None
     plan_identifier: int
 
 
@@ -713,6 +717,18 @@ class BroadcastExchangeDetail(BaseModel):
     ) -> BroadcastExchangeArguments:
         value_split = value.split(", ")
         mode = BroadcastExchangeMode(value_split[0].split("(")[0])
+        plan_identifier = int(
+            value.split(", [")[1].split("=")[1].removeprefix("#").removesuffix("]")
+        )
+
+        if mode == BroadcastExchangeMode.IDENTITY_BROADCAST_MODE:
+            return BroadcastExchangeArguments(
+                mode=mode,
+                join_cols=None,
+                nullable=None,
+                plan_identifier=plan_identifier,
+            )
+
         nullable = value.split("), [plan")[0].split(", ")[-1].strip() == "true"
 
         cols = (
@@ -720,10 +736,6 @@ class BroadcastExchangeDetail(BaseModel):
             .split("), [")[0]
             .removesuffix("),false)")
             .removesuffix("),true)")
-        )
-
-        plan_identifier = int(
-            value.split("), [")[1].split("=")[1].removeprefix("#").removesuffix("]")
         )
 
         return BroadcastExchangeArguments(
@@ -785,6 +797,24 @@ class TakeOrderedAndProjectDetail(BaseModel):
         )
 
 
+class BroadcastNestedLoopJoinDetail(BaseModel):
+    join_type: JoinType = Field(alias="Join type")
+    join_condition: str | None = Field(alias="Join condition", default=None)
+
+    @field_validator("join_condition", mode="before")
+    def parse_join_condition_str(cls, value: Any) -> str | None:
+        if value.strip() == "None":
+            return None
+        return value
+
+
+class ReusedExchangeDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    reuses_node_id: int = Field(alias="reuses_node_id")
+
+
 class PhysicalPlanDetail(BaseModel):
     node_id: int
     node_type: NodeType
@@ -811,6 +841,8 @@ class PhysicalPlanDetail(BaseModel):
         | BroadcastQueryStageDetail
         | BroadcastHashJoinDetail
         | TakeOrderedAndProjectDetail
+        | BroadcastNestedLoopJoinDetail
+        | ReusedExchangeDetail
         | None
     )
 
@@ -986,4 +1018,6 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.BroadcastQueryStage: BroadcastQueryStageDetail,
     NodeType.BroadcastHashJoin: BroadcastHashJoinDetail,
     NodeType.TakeOrderedAndProject: TakeOrderedAndProjectDetail,
+    NodeType.BroadcastNestedLoopJoin: BroadcastNestedLoopJoinDetail,
+    NodeType.ReusedExchange: ReusedExchangeDetail,
 }
