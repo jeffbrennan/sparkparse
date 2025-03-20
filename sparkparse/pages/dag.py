@@ -125,8 +125,40 @@ def get_codegen_elements(
 )
 @timeit
 def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
-    elements = []
+    def format_accumulators(hover_info: str) -> str:
+        hover_info += "\n"
+        prev_metric_type = []
+        for metric in row["accumulator_totals"]:
+            if metric["metric_type"] not in prev_metric_type:
+                hover_info += (
+                    create_header(
+                        header_length,
+                        metric["metric_type"].title(),
+                        center=True,
+                        spacer="-",
+                    )
+                    + "\n"
+                )
 
+                prev_metric_type.append(metric["metric_type"])
+            hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
+
+        return hover_info
+
+    def format_details(hover_info: str) -> str:
+        dict_to_display = json.loads(row["details"])["detail"]
+        if dict_to_display is not None:
+            hover_info += (
+                create_header(header_length, "Details", center=True, spacer="-") + "\n"
+            )
+            hover_info += json.dumps(dict_to_display, indent=1)
+            hover_info += "\n" + create_header(
+                header_length, "", center=False, spacer="-"
+            )
+
+        return hover_info
+
+    elements = []
     codegen_elements = get_codegen_elements(df_data, dark_mode)
     if codegen_elements is not None:
         elements.extend(codegen_elements)
@@ -136,7 +168,6 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     max_duration = max(durations)
 
     header_length = 30
-
     for row in df_data:
         # skip wholestagecodegen nodes
         if row["node_id"] >= 100_000:
@@ -147,34 +178,10 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             hover_info += f"Child Nodes: {row['child_nodes']}\n"
 
         if row["accumulator_totals"] is not None:
-            hover_info += "\n"
-            prev_metric_type = []
-            for metric in row["accumulator_totals"]:
-                if metric["metric_type"] not in prev_metric_type:
-                    hover_info += (
-                        create_header(
-                            header_length,
-                            metric["metric_type"].title(),
-                            center=True,
-                            spacer="-",
-                        )
-                        + "\n"
-                    )
-
-                    prev_metric_type.append(metric["metric_type"])
-                hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
+            hover_info = format_accumulators(hover_info)
 
         if row["details"] is not None:
-            dict_to_display = json.loads(row["details"])["detail"]
-            if dict_to_display is not None:
-                hover_info += (
-                    create_header(header_length, "Details", center=True, spacer="-")
-                    + "\n"
-                )
-                hover_info += json.dumps(dict_to_display, indent=1)
-                hover_info += "\n" + create_header(
-                    header_length, "", center=False, spacer="-"
-                )
+            hover_info = format_details(hover_info)
 
         node_color = get_node_color(
             row["node_duration_minutes"], min_duration, max_duration, dark_mode
@@ -195,15 +202,39 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         if row["node_type"] in nodes_to_exclude:
             if not row["child_nodes"]:
                 continue
-            next_child = row["child_nodes"].split(",")[0]
-            elements[-1]["data"]["target"] = f"query_{row['query_id']}_{next_child}"
+
+            next_child = int(row["child_nodes"].split(", ")[0])
+
+            # handle case where nodes have multiple children and previous element is not the parent
+            match_found = False
+            max_depth = 100
+            search_index = 0
+            while not match_found and search_index < max_depth:
+                search_index += 1
+                print("search_index", search_index, next_child)
+                previous_element = elements[-search_index]
+                if "target" not in previous_element["data"]:
+                    continue
+
+                previous_target_id = int(
+                    previous_element["data"]["target"].split("_")[-1]
+                )
+
+                if row["node_id"] != previous_target_id:
+                    continue
+
+                previous_element["data"]["target"] = (
+                    f"query_{row['query_id']}_{next_child}"
+                )
+                match_found = True
+
             continue
 
         elements.append({"data": node_data})
         if not row["child_nodes"]:
             continue
 
-        children = row["child_nodes"].split(",")
+        children = row["child_nodes"].split(", ")
         for child in children:
             target_formatted = f"query_{row['query_id']}_{child}"
             source_formatted = f"query_{row['query_id']}_{row['node_id']}"
@@ -211,7 +242,6 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             elements.append(
                 {"data": {"target": target_formatted, "source": source_formatted}}
             )
-
     return elements
 
 
