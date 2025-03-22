@@ -68,6 +68,10 @@ class NodeType(StrEnum):
     InMemoryTableScan = auto()
     InMemoryRelation = auto()
     WholeStageCodegen = auto()
+    BroadcastNestedLoopJoin = auto()
+    ReusedExchange = auto()
+    Generate = auto()
+    AdaptiveSparkPlan = auto()
 
 
 class Accumulator(BaseModel):
@@ -104,6 +108,7 @@ class PhysicalPlanNode(BaseModel):
 class QueryFunction(StrEnum):
     COUNT = "count"
     SAVE = "save"
+    CREATE_OR_REPLACE_TEMP_VIEW = "createOrReplaceTempView"
 
 
 class QueryEvent(BaseModel):
@@ -511,44 +516,7 @@ class FilterDetail(BaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
-    condition: Annotated[list[FilterDetailCondition], Field(alias="Condition")]
-
-    @field_validator("condition", mode="before")
-    @classmethod
-    def parse_filter_condition_str(cls, value: Any) -> list[FilterDetailCondition]:
-        filter_split = value.split(") ")
-        filter_conditions = []
-        for i, filter_str in enumerate(filter_split):
-            if filter_str == "":
-                continue
-            if i == 0:
-                condition = Condition("AND")
-            else:
-                condition = Condition(filter_str.split(" ")[0].strip())
-
-            if "isnotnull" in filter_str or "isnull" in filter_str:
-                col = filter_str.split("(")[1].removesuffix(")")
-                operator = "!=" if "isnot" in filter_str else "=="
-                filter_conditions.append(
-                    FilterDetailCondition(
-                        condition=condition,
-                        col=col,
-                        operator=Operator(operator),
-                        value=None,
-                    )
-                )
-                continue
-
-            col = filter_str.split(" ")[0].removeprefix("(")
-            operator = Operator(filter_str.split(" ")[1])
-            value = filter_str.split(" ")[2].removesuffix(")")
-            filter_conditions.append(
-                FilterDetailCondition(
-                    condition=condition, col=col, operator=operator, value=value
-                )
-            )
-
-        return filter_conditions
+    condition: str = Field(alias="Condition")
 
 
 class CoalesceDetail(BaseModel):
@@ -691,12 +659,13 @@ class GlobalLimitDetail(BaseModel):
 
 class BroadcastExchangeMode(StrEnum):
     HASHED_RELATION_BROADCAST_MODE = "HashedRelationBroadcastMode"
+    IDENTITY_BROADCAST_MODE = "IdentityBroadcastMode"
 
 
 class BroadcastExchangeArguments(BaseModel):
     mode: BroadcastExchangeMode
-    join_cols: str
-    nullable: bool
+    join_cols: str | None
+    nullable: bool | None
     plan_identifier: int
 
 
@@ -713,6 +682,18 @@ class BroadcastExchangeDetail(BaseModel):
     ) -> BroadcastExchangeArguments:
         value_split = value.split(", ")
         mode = BroadcastExchangeMode(value_split[0].split("(")[0])
+        plan_identifier = int(
+            value.split(", [")[1].split("=")[1].removeprefix("#").removesuffix("]")
+        )
+
+        if mode == BroadcastExchangeMode.IDENTITY_BROADCAST_MODE:
+            return BroadcastExchangeArguments(
+                mode=mode,
+                join_cols=None,
+                nullable=None,
+                plan_identifier=plan_identifier,
+            )
+
         nullable = value.split("), [plan")[0].split(", ")[-1].strip() == "true"
 
         cols = (
@@ -720,10 +701,6 @@ class BroadcastExchangeDetail(BaseModel):
             .split("), [")[0]
             .removesuffix("),false)")
             .removesuffix("),true)")
-        )
-
-        plan_identifier = int(
-            value.split("), [")[1].split("=")[1].removeprefix("#").removesuffix("]")
         )
 
         return BroadcastExchangeArguments(
@@ -785,6 +762,78 @@ class TakeOrderedAndProjectDetail(BaseModel):
         )
 
 
+class BroadcastNestedLoopJoinDetail(BaseModel):
+    join_type: JoinType = Field(alias="Join type")
+    join_condition: str | None = Field(alias="Join condition", default=None)
+
+    @field_validator("join_condition", mode="before")
+    def parse_join_condition_str(cls, value: Any) -> str | None:
+        if value.strip() == "None":
+            return None
+        return value
+
+
+class ReusedExchangeDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    reuses_node_id: int = Field(alias="reuses_node_id")
+
+
+class GenerateDetailArguments(BaseModel):
+    generator: str
+    include_nulls: bool
+    output: list[str] | None
+
+
+class GenerateDetail(BaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    arguments: GenerateDetailArguments = Field(alias="Arguments")
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_generate_detail_arguments_str(cls, value: Any) -> GenerateDetailArguments:
+        generator = value.split("), ")[0]
+        include_nulls = ", true, " in value
+        output = str_to_list(value.split(", [")[-1])
+
+        return GenerateDetailArguments(
+            generator=generator, include_nulls=include_nulls, output=output
+        )
+
+
+class TableCacheQueryStageDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    stage_order: int = Field(alias="Arguments")
+
+
+class InMemoryTableScanDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+
+
+class InMemoryRelationDetail(BaseModel):
+    # contains an entire nested plan - won't be parsed
+    arguments: str = Field(alias="Arguments")
+
+
+class AdaptiveSparkPlanDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    is_final_plan: bool = Field(alias="Arguments")
+
+    @field_validator("is_final_plan", mode="before")
+    @classmethod
+    def parse_is_final_plan_str(cls, value: Any) -> bool:
+        return value.split("=")[-1] == "true"
+
+
 class PhysicalPlanDetail(BaseModel):
     node_id: int
     node_type: NodeType
@@ -811,6 +860,13 @@ class PhysicalPlanDetail(BaseModel):
         | BroadcastQueryStageDetail
         | BroadcastHashJoinDetail
         | TakeOrderedAndProjectDetail
+        | BroadcastNestedLoopJoinDetail
+        | ReusedExchangeDetail
+        | GenerateDetail
+        | TableCacheQueryStageDetail
+        | InMemoryTableScanDetail
+        | InMemoryRelationDetail
+        | AdaptiveSparkPlanDetail
         | None
     )
 
@@ -986,4 +1042,11 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.BroadcastQueryStage: BroadcastQueryStageDetail,
     NodeType.BroadcastHashJoin: BroadcastHashJoinDetail,
     NodeType.TakeOrderedAndProject: TakeOrderedAndProjectDetail,
+    NodeType.BroadcastNestedLoopJoin: BroadcastNestedLoopJoinDetail,
+    NodeType.ReusedExchange: ReusedExchangeDetail,
+    NodeType.Generate: GenerateDetail,
+    NodeType.TableCacheQueryStage: TableCacheQueryStageDetail,
+    NodeType.InMemoryTableScan: InMemoryTableScanDetail,
+    NodeType.InMemoryRelation: InMemoryRelationDetail,
+    NodeType.AdaptiveSparkPlan: AdaptiveSparkPlanDetail,
 }

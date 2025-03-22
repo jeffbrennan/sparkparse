@@ -763,6 +763,7 @@ def log_to_combined_df(
         )
         .join(query_task_lookup, on=["stage_id", "task_id"], how="left")
         .filter(pl.col("query_id").is_not_null())
+        .sort("query_id", "stage_id", "task_id")
     )
 
     final = combined_clean.select(final_cols)

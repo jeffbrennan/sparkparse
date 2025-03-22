@@ -35,8 +35,8 @@ def test_details_parse_correctly():
 
     result_json = json.loads(json.dumps(result_dicts))
 
-    with expected_path.open("w") as f:
-        json.dump(result_json, f, indent=2)
+    # with expected_path.open("w") as f:
+    #     json.dump(result_json, f, indent=2)
 
     with expected_path.open("r") as f:
         expected_json = json.load(f)
@@ -49,12 +49,7 @@ def test_filter_parsing():
         "Input": "[v5#68, id2#85, rn#132]",
         "Condition": "(rn#132 > 42)",
     }
-    expected = {
-        "input": ["v5#68", "id2#85", "rn#132"],
-        "condition": [
-            {"condition": "AND", "col": "rn#132", "operator": ">", "value": "42"}
-        ],
-    }
+    expected = {"input": ["v5#68", "id2#85", "rn#132"], "condition": "(rn#132 > 42)"}
 
     parsed = FilterDetail.model_validate(input_dict)
     assert json.loads(parsed.model_dump_json()) == expected

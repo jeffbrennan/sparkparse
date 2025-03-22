@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 
@@ -31,6 +32,7 @@ from sparkparse.models import (
     PlanAccumulator,
     QueryEvent,
     QueryFunction,
+    ReusedExchangeDetail,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
@@ -124,6 +126,9 @@ def get_plan_details(
             raise ValueError(f"Could not parse node id from line: {detail}")
 
         node_id = int(node_id.group(1))
+        if node_id not in node_map:
+            continue
+
         node_type = node_map[node_id].node_type
 
         if node_type in null_detail_types:
@@ -135,6 +140,7 @@ def get_plan_details(
                 )
             )
             continue
+
         if node_type not in NODE_TYPE_DETAIL_MAP:
             raise ValueError(f"Could not find detail model for node type: {node_type}")
 
@@ -152,6 +158,10 @@ def get_plan_details(
             # remove detail size indicators like Output [4] -> Output
             cleaned_key = re.sub(r"\s+\[\d+\]", "", key.strip())
             detail_dict[cleaned_key] = value.strip()
+
+        if node_type == NodeType.ReusedExchange:
+            reused_id = detail_lines[0].split(": ")[-1].removesuffix("]").strip()
+            detail_dict.update({"reuses_node_id": int(reused_id)})
 
         detail_parsed = detail_model.model_validate(detail_dict)
         details_parsed.append(
@@ -194,7 +204,9 @@ def parse_node_accumulators(
                 )
             ]
 
-        is_excluded = any([excluded in node_name for excluded in nodes_to_exclude])
+        is_excluded = any(
+            [excluded in node_name for excluded in accumulators_missing_from_tree_nodes]
+        )
         if "metrics" in node_info and not is_excluded:
             node_id = node_ids[child_index]
             expected_node_name = node_map[node_id].node_type
@@ -214,16 +226,24 @@ def parse_node_accumulators(
             ]
             accumulators[node_id] = metrics_parsed
 
-        if "children" in node_info:
+        # reusedexchange nodes repeat the metrics of the node they are reusing
+        if "children" in node_info and "ReusedExchange" not in node_name:
             for child in node_info["children"]:
                 process_node(child, child_index=len(accumulators))
 
-    node_ids = list(node_map.keys())
+    tree_nodes_missing_from_accumulators = [NodeType.InMemoryRelation]
+    accumulators_missing_from_tree_nodes = ["WholeStageCodegen", "InputAdapter"]
+    node_ids = [
+        k
+        for k, v in node_map.items()
+        if v.node_type not in tree_nodes_missing_from_accumulators
+    ]
+
     accumulators = {}
     whole_stage_codegen_accumulators = {}
 
-    nodes_to_exclude = ["WholeStageCodegen", "InputAdapter"]
-    for i, child in enumerate(plan["sparkPlanInfo"]["children"]):
+    all_children = plan["sparkPlanInfo"]["children"]
+    for i, child in enumerate(all_children):
         process_node(child, i)
 
     accumulators.update(whole_stage_codegen_accumulators)
@@ -232,32 +252,30 @@ def parse_node_accumulators(
 
 def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     step = 3
+    n_expected_roots = 1
     empty_leading_lines = 0
-    node_map: dict[int, PhysicalPlanNode] = {}
-    indentation_history = []
 
-    n_expected_roots = tree.count("Scan ")
-    all_child_nodes = []
     lines = tree.split("\n")
+
+    node_map: dict[int, PhysicalPlanNode] = {}
+    all_child_nodes = []
+    indentation_history = []
+    branch_history = []
 
     for i, line in enumerate(lines):
         if line == "":
             empty_leading_lines += 1
             continue
 
-        # remove leading spaces and nested indentation after :
-        line_strip = line.lstrip().replace(": ", "").lstrip()
         match = re.compile(NODE_ID_PATTERN).search(line)
         if not match:
             continue
 
         node_id = int(match.group(1))
-
         node_type_match = re.search(NODE_TYPE_PATTERN, line.replace("Execute", ""))
 
         if node_type_match:
             node_type = NodeType(node_type_match.group(1))
-
         else:
             raise ValueError(f"Could not parse node type from line: {line}")
 
@@ -269,48 +287,77 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         )
         node_map[node_id] = node
 
+        # remove leading spaces and nested indentation after :
+        line_strip = line.lstrip().replace(": ", "").lstrip()
         indentation_level = len(line) - len(line_strip)
+        assert indentation_level % step == 0
 
         # first non-empty line is always the leaf node
         if i == 0 + empty_leading_lines:
             indentation_history.append((indentation_level, node_id))
             continue
 
+        # appears one line after a new branch
+        branch_start_indicator = ":-"
+        if i < len(lines) - 1 and branch_start_indicator in lines[i + 1]:
+            # handle nested loop case where branch start is missing standard indentation
+            if "+-" not in line and ":-" not in line:
+                indentation_level -= step
+            branch_history.append((indentation_level, node_id))
+
         prev_indentation = indentation_history[-1]
-        indentation_history.append((indentation_level, node_id))
         if prev_indentation[0] > indentation_level:
+            n_expected_roots += 1
             child_nodes = [
-                [i[1] for i in indentation_history if i[0] == indentation_level - step][
-                    -1
-                ]
+                i[1] for i in branch_history if i[0] == indentation_level - step
             ]
+
             if child_nodes:
                 assert all(i > node_id for i in child_nodes)
                 node_map[node_id].child_nodes = child_nodes
                 all_child_nodes.extend(child_nodes)
+            indentation_history.append((indentation_level, node_id))
             continue
 
         child_nodes = [prev_indentation[1]]
-        assert all(i > node_id for i in child_nodes)
+
         node_map[node_id].child_nodes = child_nodes
+        indentation_history.append((indentation_level, node_id))
         all_child_nodes.extend(child_nodes)
 
     roots = [node_id for node_id in node_map.keys() if node_id not in all_child_nodes]
-    n_roots = len(roots)
-    assert n_roots == n_expected_roots
+    assert len(roots) == n_expected_roots
     return node_map
 
 
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     plan_string = line_dict["physicalPlanDescription"]
     query_id = line_dict["executionId"]
-    plan_lines = plan_string.split("\n")
 
-    tree_start = plan_lines.index("+- == Final Plan ==") + 1
-    tree_end = plan_lines.index("+- == Initial Plan ==")
+    plan_lines = plan_string.split("\n")
+    final_plan_indicator = "+- == Final Plan =="
+    initial_plan_indicator = "+- == Initial Plan =="
+
+    # catches top level sections
+    tree_start = plan_lines.index(final_plan_indicator) + 1
+    tree_end = plan_lines.index(initial_plan_indicator)
     tree = "\n".join(plan_lines[tree_start:tree_end])
 
-    logging.debug(tree)
+    max_attempts = 3
+    attempts = 0
+    while initial_plan_indicator in tree and attempts < max_attempts:
+        attempts += 1
+        # remove initial indicator
+        tree_split = tree.split(initial_plan_indicator)
+
+        # remove final indicator
+        tree_split_final = tree_split[0].split(final_plan_indicator)
+        tree = tree_split_final[0].strip() + tree_split_final[1]
+
+    if initial_plan_indicator in tree or final_plan_indicator in tree:
+        raise ValueError(
+            "could not remove initial plan after", max_attempts, "attempts"
+        )
 
     node_map = parse_spark_ui_tree(tree)
     plan_accumulators = parse_node_accumulators(line_dict, node_map)
@@ -336,6 +383,16 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     detail_list = details.details
     for detail in detail_list:
         node_map[detail.node_id].details = detail.model_dump_json()
+
+        # reused nodes are the children of the node they are reusing in the spark ui
+        if detail.node_type == NodeType.ReusedExchange:
+            reused_detail = cast(ReusedExchangeDetail, detail.detail)
+            reuses_node = node_map[reused_detail.reuses_node_id]
+
+            if reuses_node.child_nodes is None:
+                reuses_node.child_nodes = [detail.node_id]
+            else:
+                reuses_node.child_nodes.append(detail.node_id)
 
     return PhysicalPlan(
         query_id=query_id,

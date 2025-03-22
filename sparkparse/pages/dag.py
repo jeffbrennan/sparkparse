@@ -9,6 +9,7 @@ from dash import Input, Output, State, callback, callback_context, dcc, html
 from plotly.graph_objs import Figure
 
 from sparkparse.common import create_header, timeit
+from sparkparse.models import NodeType
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
 
@@ -125,8 +126,41 @@ def get_codegen_elements(
 )
 @timeit
 def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
-    elements = []
+    def format_accumulators(hover_info: str) -> str:
+        hover_info += "\n"
+        prev_metric_type = []
+        for metric in row["accumulator_totals"]:
+            if metric["metric_type"] not in prev_metric_type:
+                hover_info += (
+                    create_header(
+                        header_length,
+                        metric["metric_type"].title(),
+                        center=True,
+                        spacer="-",
+                    )
+                    + "\n"
+                )
 
+                prev_metric_type.append(metric["metric_type"])
+            hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
+
+        return hover_info
+
+    def format_details(hover_info: str) -> str:
+        dict_to_display = json.loads(row["details"])["detail"]
+        if dict_to_display is not None:
+            hover_info += (
+                create_header(header_length, "Details", center=True, spacer="-") + "\n"
+            )
+            hover_info += json.dumps(dict_to_display, indent=1)
+            hover_info += "\n" + create_header(
+                header_length, "", center=False, spacer="-"
+            )
+
+        return hover_info
+
+    node_map = {i["node_id"]: i for i in df_data}
+    elements = []
     codegen_elements = get_codegen_elements(df_data, dark_mode)
     if codegen_elements is not None:
         elements.extend(codegen_elements)
@@ -135,11 +169,25 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     min_duration = min(durations)
     max_duration = max(durations)
 
-    header_length = 30
+    # skip nodes not displayed in spark ui and connect the previous node to the next node
+    nodes_to_exclude = [
+        NodeType.BroadcastQueryStage,
+        NodeType.ShuffleQueryStage,
+        NodeType.ReusedExchange,
+        NodeType.TableCacheQueryStage,
+        NodeType.InMemoryRelation,
+    ]
 
+    header_length = 30
+    codegen_id_adjustment = 100_000
+    # add nodes
     for row in df_data:
         # skip wholestagecodegen nodes
-        if row["node_id"] >= 100_000:
+        if row["node_id"] >= codegen_id_adjustment:
+            continue
+
+        # skip nodes not displayed in spark ui
+        if row["node_type"] in nodes_to_exclude:
             continue
 
         hover_info = row["node_name"] + "\n"
@@ -147,34 +195,10 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             hover_info += f"Child Nodes: {row['child_nodes']}\n"
 
         if row["accumulator_totals"] is not None:
-            hover_info += "\n"
-            prev_metric_type = []
-            for metric in row["accumulator_totals"]:
-                if metric["metric_type"] not in prev_metric_type:
-                    hover_info += (
-                        create_header(
-                            header_length,
-                            metric["metric_type"].title(),
-                            center=True,
-                            spacer="-",
-                        )
-                        + "\n"
-                    )
-
-                    prev_metric_type.append(metric["metric_type"])
-                hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
+            hover_info = format_accumulators(hover_info)
 
         if row["details"] is not None:
-            dict_to_display = json.loads(row["details"])["detail"]
-            if dict_to_display is not None:
-                hover_info += (
-                    create_header(header_length, "Details", center=True, spacer="-")
-                    + "\n"
-                )
-                hover_info += json.dumps(dict_to_display, indent=1)
-                hover_info += "\n" + create_header(
-                    header_length, "", center=False, spacer="-"
-                )
+            hover_info = format_details(hover_info)
 
         node_color = get_node_color(
             row["node_duration_minutes"], min_duration, max_duration, dark_mode
@@ -187,32 +211,52 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             "color": node_color,
         }
 
+        # add nodes to parent codegen container
         if row["whole_stage_codegen_id"] is not None:
             node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
-
-        # skip nodes not displayed in spark ui and connect the previous node to the next node
-        nodes_to_exclude = ["BroadcastQueryStage", "ShuffleQueryStage"]
-        if row["node_type"] in nodes_to_exclude:
-            if not row["child_nodes"]:
-                continue
-            next_child = row["child_nodes"].split(",")[0]
-            elements[-1]["data"]["target"] = f"query_{row['query_id']}_{next_child}"
-            continue
-
         elements.append({"data": node_data})
+
+    # add edges
+    for row in df_data:
         if not row["child_nodes"]:
             continue
+        if row["node_type"] in nodes_to_exclude:
+            continue
+        if row["node_id"] >= codegen_id_adjustment:
+            continue
 
-        children = row["child_nodes"].split(",")
+        print(row["node_name"])
+        source_formatted = f"query_{row['query_id']}_{row['node_id']}"
+        children = [int(i) for i in row["child_nodes"].split(", ")]
         for child in children:
-            target_formatted = f"query_{row['query_id']}_{child}"
-            source_formatted = f"query_{row['query_id']}_{row['node_id']}"
-
+            target_formatted = get_node_target(row, node_map, child, nodes_to_exclude)
             elements.append(
-                {"data": {"target": target_formatted, "source": source_formatted}}
+                {
+                    "data": {
+                        "target": target_formatted,
+                        "source": source_formatted,
+                    }
+                }
             )
-
     return elements
+
+
+def get_node_target(
+    row: dict,
+    node_map: dict,
+    child: int,
+    nodes_to_exclude: list[NodeType],
+    search_index: int = 0,
+):
+    if search_index > 100:
+        raise ValueError("Max depth reached")
+    child_node = node_map[child]
+    match_found = child_node["node_type"] not in nodes_to_exclude
+    if match_found:
+        return f"query_{row['query_id']}_{child}"
+    children = [int(i) for i in child_node["child_nodes"].split(", ") if i != ""]
+    for child in children:
+        return get_node_target(row, node_map, child, nodes_to_exclude, search_index + 1)
 
 
 @callback(

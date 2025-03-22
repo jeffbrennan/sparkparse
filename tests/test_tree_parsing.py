@@ -22,6 +22,9 @@ def test_plan_parses_correctly():
 
     result = parse_physical_plan(input_data)
 
+    # with expected_path.open("w") as f:
+    #     json.dump(json.loads(result.model_dump_json()), f, indent=2)
+
     with expected_path.open("r") as f:
         expected_json = json.load(f)
 
