@@ -21,10 +21,14 @@ def test_full_parsing_nested_plan():
 
     result_json = json.loads(json.dumps(all_results, indent=2))
 
+    # with expected_path.open("w") as f:
+    #     json.dump(result_json, f, indent=2)
+
     with expected_path.open("r") as f:
         expected_json = json.load(f)
 
     assert result_json == expected_json
+
 
 def test_full_parsing_broadcast_nested_loop_join():
     base_path = Path(__file__).parents[0] / "data"
