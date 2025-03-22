@@ -71,6 +71,7 @@ class NodeType(StrEnum):
     BroadcastNestedLoopJoin = auto()
     ReusedExchange = auto()
     Generate = auto()
+    AdaptiveSparkPlan = auto()
 
 
 class Accumulator(BaseModel):
@@ -803,6 +804,36 @@ class GenerateDetail(BaseModel):
         )
 
 
+class TableCacheQueryStageDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    stage_order: int = Field(alias="Arguments")
+
+
+class InMemoryTableScanDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+
+
+class InMemoryRelationDetail(BaseModel):
+    # contains an entire nested plan - won't be parsed
+    arguments: str = Field(alias="Arguments")
+
+
+class AdaptiveSparkPlanDetail(BaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    is_final_plan: bool = Field(alias="Arguments")
+
+    @field_validator("is_final_plan", mode="before")
+    @classmethod
+    def parse_is_final_plan_str(cls, value: Any) -> bool:
+        return value.split("=")[-1] == "true"
+
+
 class PhysicalPlanDetail(BaseModel):
     node_id: int
     node_type: NodeType
@@ -832,6 +863,10 @@ class PhysicalPlanDetail(BaseModel):
         | BroadcastNestedLoopJoinDetail
         | ReusedExchangeDetail
         | GenerateDetail
+        | TableCacheQueryStageDetail
+        | InMemoryTableScanDetail
+        | InMemoryRelationDetail
+        | AdaptiveSparkPlanDetail
         | None
     )
 
@@ -1010,4 +1045,8 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
     NodeType.BroadcastNestedLoopJoin: BroadcastNestedLoopJoinDetail,
     NodeType.ReusedExchange: ReusedExchangeDetail,
     NodeType.Generate: GenerateDetail,
+    NodeType.TableCacheQueryStage: TableCacheQueryStageDetail,
+    NodeType.InMemoryTableScan: InMemoryTableScanDetail,
+    NodeType.InMemoryRelation: InMemoryRelationDetail,
+    NodeType.AdaptiveSparkPlan: AdaptiveSparkPlanDetail,
 }

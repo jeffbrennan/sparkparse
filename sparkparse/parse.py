@@ -126,6 +126,9 @@ def get_plan_details(
             raise ValueError(f"Could not parse node id from line: {detail}")
 
         node_id = int(node_id.group(1))
+        if node_id not in node_map:
+            continue
+
         node_type = node_map[node_id].node_type
 
         if node_type in null_detail_types:
@@ -201,7 +204,9 @@ def parse_node_accumulators(
                 )
             ]
 
-        is_excluded = any([excluded in node_name for excluded in nodes_to_exclude])
+        is_excluded = any(
+            [excluded in node_name for excluded in accumulators_missing_from_tree_nodes]
+        )
         if "metrics" in node_info and not is_excluded:
             node_id = node_ids[child_index]
             expected_node_name = node_map[node_id].node_type
@@ -226,12 +231,19 @@ def parse_node_accumulators(
             for child in node_info["children"]:
                 process_node(child, child_index=len(accumulators))
 
-    node_ids = list(node_map.keys())
+    tree_nodes_missing_from_accumulators = [NodeType.InMemoryRelation]
+    accumulators_missing_from_tree_nodes = ["WholeStageCodegen", "InputAdapter"]
+    node_ids = [
+        k
+        for k, v in node_map.items()
+        if v.node_type not in tree_nodes_missing_from_accumulators
+    ]
+
     accumulators = {}
     whole_stage_codegen_accumulators = {}
 
-    nodes_to_exclude = ["WholeStageCodegen", "InputAdapter"]
-    for i, child in enumerate(plan["sparkPlanInfo"]["children"]):
+    all_children = plan["sparkPlanInfo"]["children"]
+    for i, child in enumerate(all_children):
         process_node(child, i)
 
     accumulators.update(whole_stage_codegen_accumulators)
@@ -244,11 +256,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     node_map: dict[int, PhysicalPlanNode] = {}
     indentation_history = []
 
-    root_indicators = ["Scan", "ReusedExchange"]
-    n_expected_roots = 0
-    for indicator in root_indicators:
-        n_expected_roots += tree.count(indicator)
-
+    n_expected_roots = 1
     all_child_nodes = []
     lines = tree.split("\n")
 
@@ -258,7 +266,14 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
             continue
 
         # remove leading spaces and nested indentation after :
-        line_strip = line.lstrip().replace(": ", "").lstrip()
+        line_strip = (
+            line.lstrip()
+            .replace(":- * ", ":-")
+            .replace("+- * ", "+-")
+            .replace(": ", "")
+            .lstrip()
+        )
+
         match = re.compile(NODE_ID_PATTERN).search(line)
         if not match:
             continue
@@ -282,6 +297,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         node_map[node_id] = node
 
         indentation_level = len(line) - len(line_strip)
+        assert indentation_level % step == 0
 
         # first non-empty line is always the leaf node
         if i == 0 + empty_leading_lines:
@@ -289,8 +305,8 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
             continue
 
         prev_indentation = indentation_history[-1]
-        indentation_history.append((indentation_level, node_id))
         if prev_indentation[0] > indentation_level:
+            n_expected_roots += 1
             child_nodes = [
                 [i[1] for i in indentation_history if i[0] == indentation_level - step][
                     -1
@@ -300,11 +316,13 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
                 assert all(i > node_id for i in child_nodes)
                 node_map[node_id].child_nodes = child_nodes
                 all_child_nodes.extend(child_nodes)
+            indentation_history.append((indentation_level, node_id))
             continue
 
         child_nodes = [prev_indentation[1]]
-        assert all(i > node_id for i in child_nodes)
+
         node_map[node_id].child_nodes = child_nodes
+        indentation_history.append((indentation_level, node_id))
         all_child_nodes.extend(child_nodes)
 
     roots = [node_id for node_id in node_map.keys() if node_id not in all_child_nodes]
@@ -316,13 +334,31 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
 def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
     plan_string = line_dict["physicalPlanDescription"]
     query_id = line_dict["executionId"]
-    plan_lines = plan_string.split("\n")
 
-    tree_start = plan_lines.index("+- == Final Plan ==") + 1
-    tree_end = plan_lines.index("+- == Initial Plan ==")
+    plan_lines = plan_string.split("\n")
+    final_plan_indicator = "+- == Final Plan =="
+    initial_plan_indicator = "+- == Initial Plan =="
+
+    # catches top level sections
+    tree_start = plan_lines.index(final_plan_indicator) + 1
+    tree_end = plan_lines.index(initial_plan_indicator)
     tree = "\n".join(plan_lines[tree_start:tree_end])
 
-    logging.debug(tree)
+    max_attempts = 3
+    attempts = 0
+    while initial_plan_indicator in tree and attempts < max_attempts:
+        attempts += 1
+        # remove initial indicator
+        tree_split = tree.split(initial_plan_indicator)
+
+        # remove final indicator
+        tree_split_final = tree_split[0].split(final_plan_indicator)
+        tree = tree_split_final[0].strip() + tree_split_final[1]
+
+    if initial_plan_indicator in tree or final_plan_indicator in tree:
+        raise ValueError(
+            "could not remove initial plan after", max_attempts, "attempts"
+        )
 
     node_map = parse_spark_ui_tree(tree)
     plan_accumulators = parse_node_accumulators(line_dict, node_map)

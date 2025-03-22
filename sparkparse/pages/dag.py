@@ -9,6 +9,7 @@ from dash import Input, Output, State, callback, callback_context, dcc, html
 from plotly.graph_objs import Figure
 
 from sparkparse.common import create_header, timeit
+from sparkparse.models import NodeType
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
 
@@ -158,6 +159,7 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
 
         return hover_info
 
+    node_map = {i["node_id"]: i for i in df_data}
     elements = []
     codegen_elements = get_codegen_elements(df_data, dark_mode)
     if codegen_elements is not None:
@@ -167,10 +169,25 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
     min_duration = min(durations)
     max_duration = max(durations)
 
+    # skip nodes not displayed in spark ui and connect the previous node to the next node
+    nodes_to_exclude = [
+        NodeType.BroadcastQueryStage,
+        NodeType.ShuffleQueryStage,
+        NodeType.ReusedExchange,
+        NodeType.TableCacheQueryStage,
+        NodeType.InMemoryRelation,
+    ]
+
     header_length = 30
+    codegen_id_adjustment = 100_000
+    # add nodes
     for row in df_data:
         # skip wholestagecodegen nodes
-        if row["node_id"] >= 100_000:
+        if row["node_id"] >= codegen_id_adjustment:
+            continue
+
+        # skip nodes not displayed in spark ui
+        if row["node_type"] in nodes_to_exclude:
             continue
 
         hover_info = row["node_name"] + "\n"
@@ -194,55 +211,52 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             "color": node_color,
         }
 
+        # add nodes to parent codegen container
         if row["whole_stage_codegen_id"] is not None:
             node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
-
-        # skip nodes not displayed in spark ui and connect the previous node to the next node
-        nodes_to_exclude = ["BroadcastQueryStage", "ShuffleQueryStage", "ReusedExchange"]
-        if row["node_type"] in nodes_to_exclude:
-            if not row["child_nodes"]:
-                continue
-
-            next_child = int(row["child_nodes"].split(", ")[0])
-
-            # handle case where nodes have multiple children and previous element is not the parent
-            match_found = False
-            max_depth = 100
-            search_index = 0
-            while not match_found and search_index < max_depth:
-                search_index += 1
-                print("search_index", search_index, next_child)
-                previous_element = elements[-search_index]
-                if "target" not in previous_element["data"]:
-                    continue
-
-                previous_target_id = int(
-                    previous_element["data"]["target"].split("_")[-1]
-                )
-
-                if row["node_id"] != previous_target_id:
-                    continue
-
-                previous_element["data"]["target"] = (
-                    f"query_{row['query_id']}_{next_child}"
-                )
-                match_found = True
-
-            continue
-
         elements.append({"data": node_data})
+
+    # add edges
+    for row in df_data:
         if not row["child_nodes"]:
             continue
+        if row["node_type"] in nodes_to_exclude:
+            continue
+        if row["node_id"] >= codegen_id_adjustment:
+            continue
 
-        children = row["child_nodes"].split(", ")
+        print(row["node_name"])
+        source_formatted = f"query_{row['query_id']}_{row['node_id']}"
+        children = [int(i) for i in row["child_nodes"].split(", ")]
         for child in children:
-            target_formatted = f"query_{row['query_id']}_{child}"
-            source_formatted = f"query_{row['query_id']}_{row['node_id']}"
-
+            target_formatted = get_node_target(row, node_map, child, nodes_to_exclude)
             elements.append(
-                {"data": {"target": target_formatted, "source": source_formatted}}
+                {
+                    "data": {
+                        "target": target_formatted,
+                        "source": source_formatted,
+                    }
+                }
             )
     return elements
+
+
+def get_node_target(
+    row: dict,
+    node_map: dict,
+    child: int,
+    nodes_to_exclude: list[NodeType],
+    search_index: int = 0,
+):
+    if search_index > 100:
+        raise ValueError("Max depth reached")
+    child_node = node_map[child]
+    match_found = child_node["node_type"] not in nodes_to_exclude
+    if match_found:
+        return f"query_{row['query_id']}_{child}"
+    children = [int(i) for i in child_node["child_nodes"].split(", ") if i != ""]
+    for child in children:
+        return get_node_target(row, node_map, child, nodes_to_exclude, search_index + 1)
 
 
 @callback(
