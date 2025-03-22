@@ -252,39 +252,30 @@ def parse_node_accumulators(
 
 def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     step = 3
-    empty_leading_lines = 0
-    node_map: dict[int, PhysicalPlanNode] = {}
-    indentation_history = []
-
     n_expected_roots = 1
-    all_child_nodes = []
+    empty_leading_lines = 0
+
     lines = tree.split("\n")
+
+    node_map: dict[int, PhysicalPlanNode] = {}
+    all_child_nodes = []
+    indentation_history = []
+    branch_history = []
 
     for i, line in enumerate(lines):
         if line == "":
             empty_leading_lines += 1
             continue
 
-        # remove leading spaces and nested indentation after :
-        line_strip = (
-            line.lstrip()
-            .replace(":- * ", ":-")
-            .replace("+- * ", "+-")
-            .replace(": ", "")
-            .lstrip()
-        )
-
         match = re.compile(NODE_ID_PATTERN).search(line)
         if not match:
             continue
 
         node_id = int(match.group(1))
-
         node_type_match = re.search(NODE_TYPE_PATTERN, line.replace("Execute", ""))
 
         if node_type_match:
             node_type = NodeType(node_type_match.group(1))
-
         else:
             raise ValueError(f"Could not parse node type from line: {line}")
 
@@ -296,6 +287,8 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         )
         node_map[node_id] = node
 
+        # remove leading spaces and nested indentation after :
+        line_strip = line.lstrip().replace(": ", "").lstrip()
         indentation_level = len(line) - len(line_strip)
         assert indentation_level % step == 0
 
@@ -304,14 +297,21 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
             indentation_history.append((indentation_level, node_id))
             continue
 
+        # appears one line after a new branch
+        branch_start_indicator = ":-"
+        if i < len(lines) - 1 and branch_start_indicator in lines[i + 1]:
+            # handle nested loop case where branch start is missing standard indentation
+            if "+-" not in line and ":-" not in line:
+                indentation_level -= step
+            branch_history.append((indentation_level, node_id))
+
         prev_indentation = indentation_history[-1]
         if prev_indentation[0] > indentation_level:
             n_expected_roots += 1
             child_nodes = [
-                [i[1] for i in indentation_history if i[0] == indentation_level - step][
-                    -1
-                ]
+                i[1] for i in branch_history if i[0] == indentation_level - step
             ]
+
             if child_nodes:
                 assert all(i > node_id for i in child_nodes)
                 node_map[node_id].child_nodes = child_nodes
@@ -326,8 +326,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         all_child_nodes.extend(child_nodes)
 
     roots = [node_id for node_id in node_map.keys() if node_id not in all_child_nodes]
-    n_roots = len(roots)
-    assert n_roots == n_expected_roots
+    assert len(roots) == n_expected_roots
     return node_map
 
 
