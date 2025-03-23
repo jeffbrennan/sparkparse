@@ -48,7 +48,7 @@ def get_node_color(
 
 
 def get_codegen_elements(
-    df_data: list[dict[str, Any]], dark_mode: bool
+    df_data: list[dict[str, Any]], dark_mode: bool, hotspot_metric: str
 ) -> None | list[dict[str, Any]]:
     df = pl.DataFrame(df_data, strict=False)
 
@@ -80,7 +80,6 @@ def get_codegen_elements(
         .to_dicts()
     )
 
-    # codegen metrics only have timing values, so not using the the hotspot selector here
     codegen_durations = [i["value"] for i in codegen_details if i["value"] is not None]
     min_codegen_duration = min(codegen_durations)
     max_codegen_duration = max(codegen_durations)
@@ -100,10 +99,18 @@ def get_codegen_elements(
             + "\n\n"
             + "\n".join(tooltip)
         )
+        if hotspot_metric == "node_duration_minutes":
+            container_value = row["value"]
+        else:
+            container_value = None
 
         container_color = get_node_color(
-            row["value"], min_codegen_duration, max_codegen_duration, dark_mode
+            node_value=container_value,
+            min_value=min_codegen_duration,
+            max_value=max_codegen_duration,
+            dark_mode=dark_mode,
         )
+
         codegen_elements.append(
             {
                 "data": {
@@ -166,7 +173,7 @@ def create_elements(
 
     node_map = {i["node_id"]: i for i in df_data}
     elements = []
-    codegen_elements = get_codegen_elements(df_data, dark_mode)
+    codegen_elements = get_codegen_elements(df_data, dark_mode, hotspot_metric)
     if codegen_elements is not None:
         elements.extend(codegen_elements)
 
