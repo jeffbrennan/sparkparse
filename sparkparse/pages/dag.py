@@ -19,11 +19,12 @@ def get_node_color(
 ) -> str:
     """Generate a color between gray and red based on duration."""
     if node_value is None:
-        node_value = min_value
-    if min_value == max_value:
         normalized = 0
     else:
-        normalized = (node_value - min_value) / (max_value - min_value)
+        if min_value == max_value:
+            normalized = 0.5
+        else:
+            normalized = (node_value - min_value) / (max_value - min_value)
 
     bg_color, _ = get_site_colors(dark_mode, contrast=False)
     base_rgb = bg_color.removeprefix("rgb(").removesuffix(")")
@@ -47,7 +48,7 @@ def get_node_color(
 
 
 def get_codegen_elements(
-    df_data: list[dict[str, Any]], dark_mode: bool
+    df_data: list[dict[str, Any]], dark_mode: bool, hotspot_metric: str
 ) -> None | list[dict[str, Any]]:
     df = pl.DataFrame(df_data, strict=False)
 
@@ -98,10 +99,18 @@ def get_codegen_elements(
             + "\n\n"
             + "\n".join(tooltip)
         )
+        if hotspot_metric == "node_duration_minutes":
+            container_value = row["value"]
+        else:
+            container_value = None
 
         container_color = get_node_color(
-            row["value"], min_codegen_duration, max_codegen_duration, dark_mode
+            node_value=container_value,
+            min_value=min_codegen_duration,
+            max_value=max_codegen_duration,
+            dark_mode=dark_mode,
         )
+
         codegen_elements.append(
             {
                 "data": {
@@ -122,10 +131,13 @@ def get_codegen_elements(
     [
         Input("metrics-df", "data"),
         Input("color-mode-switch", "value"),
+        Input("hotspot-picker-dropdown", "value"),
     ],
 )
 @timeit
-def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict]:
+def create_elements(
+    df_data: List[Dict[str, Any]], dark_mode: bool, hotspot_metric: str
+) -> List[Dict]:
     def format_accumulators(hover_info: str) -> str:
         hover_info += "\n"
         prev_metric_type = []
@@ -161,13 +173,33 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
 
     node_map = {i["node_id"]: i for i in df_data}
     elements = []
-    codegen_elements = get_codegen_elements(df_data, dark_mode)
+    codegen_elements = get_codegen_elements(df_data, dark_mode, hotspot_metric)
     if codegen_elements is not None:
         elements.extend(codegen_elements)
 
-    durations = [row["node_duration_minutes"] for row in df_data]
-    min_duration = min(durations)
-    max_duration = max(durations)
+    hotspot_map = {}
+    if hotspot_metric == "node_duration_minutes":
+        hotspot_map.update(
+            {row["node_id"]: row["node_duration_minutes"] for row in df_data}
+        )
+    else:
+        for row in df_data:
+            if row["accumulator_totals"] is None:
+                continue
+
+            metrics = [
+                i
+                for i in row["accumulator_totals"]
+                if i["metric_name"] == hotspot_metric
+            ]
+
+            if not metrics:
+                continue
+
+            hotspot_map[row["node_id"]] = metrics[0]["value"]
+
+    min_hotspot = min(hotspot_map.values())
+    max_hotspot = max(hotspot_map.values())
 
     # skip nodes not displayed in spark ui and connect the previous node to the next node
     nodes_to_exclude = [
@@ -201,8 +233,12 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
             hover_info = format_details(hover_info)
 
         node_color = get_node_color(
-            row["node_duration_minutes"], min_duration, max_duration, dark_mode
+            node_value=hotspot_map.get(row["node_id"]),
+            min_value=min_hotspot,
+            max_value=max_hotspot,
+            dark_mode=dark_mode,
         )
+
         node_id_formatted = f"query_{row['query_id']}_{row['node_id']}"
         node_data = {
             "id": node_id_formatted,
@@ -225,7 +261,6 @@ def create_elements(df_data: List[Dict[str, Any]], dark_mode: bool) -> List[Dict
         if row["node_id"] >= codegen_id_adjustment:
             continue
 
-        print(row["node_name"])
         source_formatted = f"query_{row['query_id']}_{row['node_id']}"
         children = [int(i) for i in row["child_nodes"].split(", ")]
         for child in children:
@@ -353,6 +388,41 @@ def initialize_dropdown(log_name: str):
 
 @callback(
     [
+        Output("hotspot-picker-dropdown", "value"),
+        Output("hotspot-picker-dropdown", "options"),
+    ],
+    Input("metrics-df", "data"),
+)
+@timeit
+def hotspot_picker(df_data: list[dict[str, Any]]):
+    all_accumulators = []
+    excluded_accumulators = ["duration"]
+
+    for row in df_data:
+        if row["accumulator_totals"] is None:
+            continue
+        all_accumulators.extend([i["metric_name"] for i in row["accumulator_totals"]])
+
+    valid_accumulators = sorted(
+        set(
+            [
+                i
+                for i in all_accumulators
+                if all_accumulators.count(i) > 1 and i not in excluded_accumulators
+            ]
+        )
+    )
+
+    default_value = "node_duration_minutes"
+    options = [{"label": "Node Duration", "value": "node_duration_minutes"}]
+    if valid_accumulators:
+        options.extend([{"label": i, "value": i} for i in valid_accumulators])
+
+    return default_value, options
+
+
+@callback(
+    [
         Output("metrics-df", "data"),
         Output("dag-title", "children"),
     ],
@@ -393,8 +463,28 @@ def layout(log_name: str, **kwargs) -> html.Div:
             dbc.Row(
                 [
                     dbc.Col(
-                        width=8,
+                        width=7,
                         children=[html.Div(id="dag-title")],
+                    ),
+                    dbc.Col(
+                        width=2,
+                        children=[
+                            dcc.Dropdown(
+                                id="query-id-dropdown",
+                                clearable=False,
+                                style={"marginTop": "15px", "width": "100%"},
+                            )
+                        ],
+                    ),
+                    dbc.Col(
+                        width=2,
+                        children=[
+                            dcc.Dropdown(
+                                id="hotspot-picker-dropdown",
+                                clearable=False,
+                                style={"marginTop": "15px", "width": "100%"},
+                            )
+                        ],
                     ),
                     dbc.Col(
                         width=1,
@@ -402,16 +492,6 @@ def layout(log_name: str, **kwargs) -> html.Div:
                             dbc.Button(
                                 "clear",
                                 id="clear-tooltip",
-                            )
-                        ],
-                    ),
-                    dbc.Col(
-                        width=3,
-                        children=[
-                            dcc.Dropdown(
-                                id="query-id-dropdown",
-                                clearable=False,
-                                style={"marginTop": "15px", "width": "100%"},
                             )
                         ],
                     ),
