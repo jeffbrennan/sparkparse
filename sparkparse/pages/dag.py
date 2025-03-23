@@ -19,12 +19,12 @@ def get_node_color(
 ) -> str:
     """Generate a color between gray and red based on duration."""
     if node_value is None:
-        node_value = min_value
-
-    if min_value == max_value:
         normalized = 0
     else:
-        normalized = (node_value - min_value) / (max_value - min_value)
+        if min_value == max_value:
+            normalized = 0.5
+        else:
+            normalized = (node_value - min_value) / (max_value - min_value)
 
     bg_color, _ = get_site_colors(dark_mode, contrast=False)
     base_rgb = bg_color.removeprefix("rgb(").removesuffix(")")
