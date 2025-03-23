@@ -396,12 +396,21 @@ def initialize_dropdown(log_name: str):
 @timeit
 def hotspot_picker(df_data: list[dict[str, Any]]):
     all_accumulators = []
+    excluded_accumulators = ["duration"]
+
     for row in df_data:
         if row["accumulator_totals"] is None:
             continue
         all_accumulators.extend([i["metric_name"] for i in row["accumulator_totals"]])
+
     valid_accumulators = sorted(
-        set([i for i in all_accumulators if all_accumulators.count(i) > 1])
+        set(
+            [
+                i
+                for i in all_accumulators
+                if all_accumulators.count(i) > 1 and i not in excluded_accumulators
+            ]
+        )
     )
 
     default_value = "node_duration_minutes"
