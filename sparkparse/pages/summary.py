@@ -426,6 +426,7 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             .alias("stage_end_timestamp"),
             "stage_duration_seconds",
         )
+        .unique()
         .with_columns(
             pl.concat_str(
                 [
@@ -445,23 +446,28 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             .otherwise(pl.col("stage_end_timestamp"))
             .alias("stage_end_timestamp")
         )
-        .with_columns(pl.col("job_id").cast(pl.Utf8).alias("job_id"))
+        .sort("stage_id")
         .to_pandas()
     )
 
+    # TODO: address > 100% active time (parallel stages)
     pct_active = job_time["job_cpu_time_ms"] / job_time["job_clock_time_ms"] * 100
 
     log_title = f"<b>{df['log_name'].iloc[0]}</b> {job_time['clock_time_str']} | {job_time['cpu_time_str']} cpu time [{pct_active:.2f}%]"
     parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
 
     title = f"{log_title}<br>{parsed_log_subtitle}"
+
+    print(df.head())
+
+    n_stages = len(df["stage_id"].unique())
     fig = px.timeline(
         data_frame=df,
         x_start="stage_start_timestamp",
         x_end="stage_end_timestamp",
         y="stage_rank",
-        color="job_id",
         title=title,
+        height=500 + (25 * n_stages),
         text="stage_label",
     )
 

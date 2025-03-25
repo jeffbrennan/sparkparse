@@ -21,6 +21,14 @@ def style_fig(
         },
     )
 
+    fig.update_traces(
+        {
+            "marker": {"color": font_color, "line": {"color": bg_color, "width": 1}},
+            "textfont": {"color": font_color, "size": 14},
+        },
+    )
+    fig.update_traces(textposition="outside", selector=dict(type="bar"))
+
     fig.for_each_yaxis(
         lambda y: y.update(
             title="",
@@ -49,7 +57,7 @@ def style_fig(
         )
     )
     min_x_adj = min_x - (0.1 * (max_x - min_x))
-    max_x_adj = max_x + (0.2 * (max_x - min_x))
+    max_x_adj = max_x + (0.25 * (max_x - min_x))
     fig.update_xaxes(range=[min_x_adj, max_x_adj])
 
     fig.update_yaxes(

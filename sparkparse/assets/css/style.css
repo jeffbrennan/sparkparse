@@ -681,3 +681,8 @@ td.dash-cell.cell--selected.focused {
 .dark-mode .table-title {
     color: rgb(242, 240, 227) !important;
 }
+
+text {
+    font-family: "JetBrains Mono", monospace !important;
+    padding-left: 5px;
+}
