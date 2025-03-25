@@ -445,6 +445,7 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             .otherwise(pl.col("stage_end_timestamp"))
             .alias("stage_end_timestamp")
         )
+        .with_columns(pl.col("job_id").cast(pl.Utf8).alias("job_id"))
         .to_pandas()
     )
 
@@ -454,7 +455,6 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
     parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
 
     title = f"{log_title}<br>{parsed_log_subtitle}"
-
     fig = px.timeline(
         data_frame=df,
         x_start="stage_start_timestamp",
