@@ -365,18 +365,44 @@ def get_styled_executor_table(df_data: list[dict], dark_mode: bool):
 )
 def get_stage_timeline(df_data: list[dict], dark_mode: bool):
     df_raw = pl.DataFrame(df_data)
-    elapsed_time = (
-        df_raw.select("job_id", "job_duration_seconds")
+    job_time = (
+        df_raw.select(
+            "job_id", "job_start_timestamp", "job_end_timestamp", "job_duration_seconds"
+        )
         .unique()
-        .select(pl.sum("job_duration_seconds").alias("elapsed_time_seconds"))
+        .select(
+            pl.sum("job_duration_seconds").alias("job_cpu_time_seconds"),
+            pl.min("job_start_timestamp").alias("first_job_start_timestamp"),
+            pl.max("job_end_timestamp").alias("last_job_end_timestamp"),
+        )
         .with_columns(
-            get_readable_col(pl.col("elapsed_time_seconds").mul(1000), "timing").alias(
-                "elapsed_time_struct"
+            pl.col("last_job_end_timestamp")
+            .cast(pl.Datetime)
+            .dt.epoch("ms")
+            .sub(pl.col("first_job_start_timestamp").cast(pl.Datetime).dt.epoch("ms"))
+            .alias("job_clock_time_ms")
+        )
+        .with_columns(
+            get_readable_col(pl.col("job_clock_time_ms"), "timing").alias(
+                "job_clock_time_struct"
             )
         )
-        .select(pl.col("elapsed_time_struct").struct.field("readable_str"))
-        .to_pandas()
-        .iloc[0, 0]
+        .with_columns(
+            get_readable_col(pl.col("job_cpu_time_seconds").mul(1000), "timing").alias(
+                "job_cpu_time_struct"
+            )
+        )
+        .select(
+            pl.col("job_clock_time_ms"),
+            pl.col("job_cpu_time_seconds").mul(1000).alias("job_cpu_time_ms"),
+            pl.col("job_cpu_time_struct")
+            .struct.field("readable_str")
+            .alias("cpu_time_str"),
+            pl.col("job_clock_time_struct")
+            .struct.field("readable_str")
+            .alias("clock_time_str"),
+        )
+        .to_dicts()[0]
     )
 
     stage_rank = (
@@ -412,7 +438,9 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         .to_pandas()
     )
 
-    log_title = f"<b>{df['log_name'].iloc[0]}</b> {elapsed_time}"
+    pct_active = job_time["job_cpu_time_ms"] / job_time["job_clock_time_ms"] * 100
+
+    log_title = f"<b>{df['log_name'].iloc[0]}</b> {job_time['clock_time_str']} | {job_time['cpu_time_str']} cpu time [{pct_active:.2f}%]"
     parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
 
     title = f"{log_title}<br>{parsed_log_subtitle}"
