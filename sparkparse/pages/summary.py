@@ -418,8 +418,12 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             "parsed_log_name",
             "job_id",
             "stage_id",
-            "stage_start_timestamp",
-            "stage_end_timestamp",
+            pl.col("stage_start_timestamp")
+            .cast(pl.Datetime)
+            .alias("stage_start_timestamp"),
+            pl.col("stage_end_timestamp")
+            .cast(pl.Datetime)
+            .alias("stage_end_timestamp"),
             "stage_duration_seconds",
         )
         .with_columns(
@@ -435,6 +439,12 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             ).alias("stage_label")
         )
         .join(stage_rank, on="stage_id")
+        .with_columns(
+            pl.when(pl.col("stage_duration_seconds").lt(1))
+            .then(pl.col("stage_end_timestamp").dt.offset_by("1s"))
+            .otherwise(pl.col("stage_end_timestamp"))
+            .alias("stage_end_timestamp")
+        )
         .to_pandas()
     )
 
@@ -455,7 +465,12 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         text="stage_label",
     )
 
-    fig = style_fig(fig, dark_mode)
+    fig = style_fig(
+        fig=fig,
+        dark_mode=dark_mode,
+        min_x=min(df["stage_start_timestamp"]),
+        max_x=max(df["stage_end_timestamp"]),
+    )
 
     return fig, {}, True
 

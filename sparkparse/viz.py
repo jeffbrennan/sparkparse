@@ -1,9 +1,12 @@
 from plotly.graph_objs import Figure
 
 from sparkparse.styling import get_site_colors
+import pandas as pd
 
 
-def style_fig(fig: Figure, dark_mode: bool) -> Figure:
+def style_fig(
+    fig: Figure, dark_mode: bool, min_x: pd.Timestamp, max_x: pd.Timestamp
+) -> Figure:
     bg_color, font_color = get_site_colors(dark_mode, contrast=False)
 
     legend_font_size = 16
@@ -44,9 +47,13 @@ def style_fig(fig: Figure, dark_mode: bool) -> Figure:
             tickfont_size=tick_font_size,
         )
     )
-    fig.update_yaxes(matches=None, showticklabels=False, showgrid=False, fixedrange=True)
+    min_x_adj = min_x - (0.1 * (max_x - min_x))
+    max_x_adj = max_x + (0.2 * (max_x - min_x))
+    fig.update_xaxes(range=[min_x_adj, max_x_adj])
 
-
+    fig.update_yaxes(
+        matches=None, showticklabels=False, showgrid=False, fixedrange=True
+    )
 
     fig.update_layout(
         title={
