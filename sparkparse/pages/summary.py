@@ -5,7 +5,7 @@ import polars as pl
 from dash import Input, Output, callback, dash_table, dcc, get_app, html
 from pydantic import BaseModel
 
-from sparkparse.clean import get_readable_col
+from sparkparse.clean import get_job_idle_time, get_readable_col
 from sparkparse.common import resolve_dir, timeit
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_dt_style
@@ -450,10 +450,13 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         .to_pandas()
     )
 
-    # TODO: address > 100% active time (parallel stages)
-    pct_active = job_time["job_cpu_time_ms"] / job_time["job_clock_time_ms"] * 100
+    idle_time = get_job_idle_time(df_raw)
+    pct_active = idle_time["idle_time_ms"] / job_time["job_clock_time_ms"] * 100
+    idle_str = f"idle: {idle_time['readable']['readable_str']} [{pct_active:.2f}%]"
 
-    log_title = f"<b>{df['log_name'].iloc[0]}</b> {job_time['clock_time_str']} | {job_time['cpu_time_str']} cpu time [{pct_active:.2f}%]"
+    log_title = (
+        f"<b>{df['log_name'].iloc[0]}</b> {job_time['clock_time_str']} | {idle_str}"
+    )
     parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
 
     title = f"{log_title}<br>{parsed_log_subtitle}"

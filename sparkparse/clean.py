@@ -719,7 +719,7 @@ def log_to_combined_df(
                 pl.col(col)
                 .mul(1000)
                 .cast(pl.Datetime)
-                .dt.strftime("%Y-%m-%dT%H:%M:%S")
+                .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
                 .alias(col)
                 for col in timestamp_cols
             ]
@@ -768,6 +768,40 @@ def log_to_combined_df(
 
     final = combined_clean.select(final_cols)
     return final
+
+
+def get_job_idle_time(df: pl.DataFrame) -> dict:
+    return (
+        df.select("job_id", "job_start_timestamp", "job_end_timestamp")
+        .unique()
+        .melt(id_vars="job_id")
+        .with_columns(
+            pl.col("value").cast(pl.Datetime).dt.epoch("ms").alias("timestamp")
+        )
+        .sort("job_id", "timestamp")
+        .with_columns(
+            pl.col("timestamp")
+            .shift(1)
+            .over(partition_by=1, order_by=["job_id", "value"])
+            .alias("prev_timestamp")
+        )
+        .with_columns(pl.col("timestamp").sub(pl.col("prev_timestamp")).alias("gap_ms"))
+        .with_columns(
+            pl.when(
+                (pl.col("variable").eq("job_end_timestamp")).or_(
+                    pl.col("gap_ms").lt(0), pl.col("gap_ms").is_null()
+                )
+            )
+            .then(0)
+            .otherwise(pl.col("gap_ms"))
+            .alias("gap_ms")
+        )
+        .select(pl.sum("gap_ms").alias("idle_time_ms"))
+        .with_columns(
+            get_readable_col(pl.col("idle_time_ms"), "timing").alias("readable")
+        )
+        .to_dicts()[0]
+    )
 
 
 def write_parsed_log(
