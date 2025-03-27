@@ -123,7 +123,12 @@ def get_table_df(data: list[dict], grouping_cols: list[str]) -> pd.DataFrame:
                 for col in struct_cols.values()
             ]
         )
-        .with_columns(pl.col("submitted").str.replace("T", " ").alias("submitted"))
+        .with_columns(
+            pl.col("submitted")
+            .cast(pl.Datetime)
+            .dt.strftime("%Y-%m-%d %H:%M:%S")
+            .alias("submitted")
+        )
         .sort("query_id", "job_id", "stage_id")
         .to_pandas()
     )
