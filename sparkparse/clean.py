@@ -771,7 +771,7 @@ def log_to_combined_df(
 
 
 def get_job_idle_time(df: pl.DataFrame) -> dict:
-    return (
+    idle_time_df = (
         df.select("job_id", "job_start_timestamp", "job_end_timestamp")
         .unique()
         .melt(id_vars="job_id")
@@ -796,12 +796,15 @@ def get_job_idle_time(df: pl.DataFrame) -> dict:
             .otherwise(pl.col("gap_ms"))
             .alias("gap_ms")
         )
-        .select(pl.sum("gap_ms").alias("idle_time_ms"))
+    )
+    idle_time = (
+        idle_time_df.select(pl.sum("gap_ms").alias("idle_time_ms"))
         .with_columns(
             get_readable_col(pl.col("idle_time_ms"), "timing").alias("readable")
         )
         .to_dicts()[0]
     )
+    return idle_time
 
 
 def write_parsed_log(
