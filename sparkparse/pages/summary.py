@@ -440,12 +440,6 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             ).alias("stage_label")
         )
         .join(stage_rank, on="stage_id")
-        .with_columns(
-            pl.when(pl.col("stage_duration_seconds").lt(1))
-            .then(pl.col("stage_end_timestamp").dt.offset_by("1s"))
-            .otherwise(pl.col("stage_end_timestamp"))
-            .alias("stage_end_timestamp")
-        )
         .sort("stage_id")
         .to_pandas()
     )
