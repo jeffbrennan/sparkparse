@@ -457,14 +457,10 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
     pct_active = idle_time["idle_time_ms"] / job_time["job_clock_time_ms"] * 100
     idle_str = f"idle: {idle_time['readable']['readable_str']} [{pct_active:.2f}%]"
 
-    log_title = (
-        f"<b>{df['log_name'].iloc[0]}</b> {job_time['clock_time_str']} | {idle_str}"
-    )
-    parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
+    log_title = f"<b>{df['log_name'].iloc[0]}</b>"
+    log_subtitle = f"<sup>{job_time['clock_time_str']} | {idle_str}</sup>"
 
-    title = f"{log_title}<br>{parsed_log_subtitle}"
-
-    print(df.head())
+    title = f"{log_title}<br>{log_subtitle}"
 
     n_stages = len(df["stage_id"].unique())
     fig = px.timeline(
