@@ -1,5 +1,6 @@
 from functools import reduce
 from pathlib import Path
+import time
 
 import pyspark
 import pyspark.sql.functions as F
@@ -21,6 +22,21 @@ def config(data_size: str = "small"):
     spark = get_spark(log_dir)
 
     return spark, data_path, base_dir
+
+def test_idle_diagnostic():
+    spark, data_path, base_dir = config("small")
+    df = spark.read.parquet(data_path.as_posix())
+    df.groupBy("id1").agg(F.sum("v3").alias("v3")).orderBy("v3").count()
+
+    time.sleep(60.123)
+
+    df.groupBy("id2").agg(F.sum("v3").alias("v3")).orderBy("v3").count()
+
+    time.sleep(30.456)
+
+    df.groupBy("id3").agg(F.sum("v3").alias("v3")).orderBy("v3").count()
+
+    time.sleep(10.789)
 
 
 def test_explode_generate():

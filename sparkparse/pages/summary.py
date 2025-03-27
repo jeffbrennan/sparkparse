@@ -5,7 +5,7 @@ import polars as pl
 from dash import Input, Output, callback, dash_table, dcc, get_app, html
 from pydantic import BaseModel
 
-from sparkparse.clean import get_readable_col
+from sparkparse.clean import get_job_idle_time, get_readable_col
 from sparkparse.common import resolve_dir, timeit
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_dt_style
@@ -123,7 +123,12 @@ def get_table_df(data: list[dict], grouping_cols: list[str]) -> pd.DataFrame:
                 for col in struct_cols.values()
             ]
         )
-        .with_columns(pl.col("submitted").str.replace("T", " ").alias("submitted"))
+        .with_columns(
+            pl.col("submitted")
+            .cast(pl.Datetime)
+            .dt.strftime("%Y-%m-%d %H:%M:%S")
+            .alias("submitted")
+        )
         .sort("query_id", "job_id", "stage_id")
         .to_pandas()
     )
@@ -365,18 +370,44 @@ def get_styled_executor_table(df_data: list[dict], dark_mode: bool):
 )
 def get_stage_timeline(df_data: list[dict], dark_mode: bool):
     df_raw = pl.DataFrame(df_data)
-    elapsed_time = (
-        df_raw.select("job_id", "job_duration_seconds")
+    job_time = (
+        df_raw.select(
+            "job_id", "job_start_timestamp", "job_end_timestamp", "job_duration_seconds"
+        )
         .unique()
-        .select(pl.sum("job_duration_seconds").alias("elapsed_time_seconds"))
+        .select(
+            pl.sum("job_duration_seconds").alias("job_cpu_time_seconds"),
+            pl.min("job_start_timestamp").alias("first_job_start_timestamp"),
+            pl.max("job_end_timestamp").alias("last_job_end_timestamp"),
+        )
         .with_columns(
-            get_readable_col(pl.col("elapsed_time_seconds").mul(1000), "timing").alias(
-                "elapsed_time_struct"
+            pl.col("last_job_end_timestamp")
+            .cast(pl.Datetime)
+            .dt.epoch("ms")
+            .sub(pl.col("first_job_start_timestamp").cast(pl.Datetime).dt.epoch("ms"))
+            .alias("job_clock_time_ms")
+        )
+        .with_columns(
+            get_readable_col(pl.col("job_clock_time_ms"), "timing").alias(
+                "job_clock_time_struct"
             )
         )
-        .select(pl.col("elapsed_time_struct").struct.field("readable_str"))
-        .to_pandas()
-        .iloc[0, 0]
+        .with_columns(
+            get_readable_col(pl.col("job_cpu_time_seconds").mul(1000), "timing").alias(
+                "job_cpu_time_struct"
+            )
+        )
+        .select(
+            pl.col("job_clock_time_ms"),
+            pl.col("job_cpu_time_seconds").mul(1000).alias("job_cpu_time_ms"),
+            pl.col("job_cpu_time_struct")
+            .struct.field("readable_str")
+            .alias("cpu_time_str"),
+            pl.col("job_clock_time_struct")
+            .struct.field("readable_str")
+            .alias("clock_time_str"),
+        )
+        .to_dicts()[0]
     )
 
     stage_rank = (
@@ -392,9 +423,19 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             "parsed_log_name",
             "job_id",
             "stage_id",
-            "stage_start_timestamp",
-            "stage_end_timestamp",
+            pl.col("stage_start_timestamp")
+            .cast(pl.Datetime)
+            .alias("stage_start_timestamp"),
+            pl.col("stage_end_timestamp")
+            .cast(pl.Datetime)
+            .alias("stage_end_timestamp"),
             "stage_duration_seconds",
+        )
+        .unique()
+        .with_columns(
+            get_readable_col(
+                pl.col("stage_duration_seconds").mul(1000), "timing"
+            ).alias("stage_duration_struct")
         )
         .with_columns(
             pl.concat_str(
@@ -402,32 +443,42 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
                     pl.lit("stage #"),
                     pl.col("stage_id"),
                     pl.lit(" ["),
-                    pl.col("stage_duration_seconds").round(2),
-                    pl.lit(" sec"),
+                    pl.col("stage_duration_struct").struct.field("readable_str"),
                     pl.lit("]"),
                 ]
             ).alias("stage_label")
         )
         .join(stage_rank, on="stage_id")
+        .sort("stage_id")
         .to_pandas()
     )
 
-    log_title = f"<b>{df['log_name'].iloc[0]}</b> {elapsed_time}"
-    parsed_log_subtitle = f"parsed log: {df['parsed_log_name'].iloc[0]}</sup>"
+    idle_time = get_job_idle_time(df_raw)
+    pct_active = idle_time["idle_time_ms"] / job_time["job_clock_time_ms"] * 100
+    idle_str = f"idle: {idle_time['readable']['readable_str']} [{pct_active:.2f}%]"
 
-    title = f"{log_title}<br>{parsed_log_subtitle}"
+    log_title = f"<b>{df['log_name'].iloc[0]}</b>"
+    log_subtitle = f"<sup>{job_time['clock_time_str']} | {idle_str}</sup>"
 
+    title = f"{log_title}<br>{log_subtitle}"
+
+    n_stages = len(df["stage_id"].unique())
     fig = px.timeline(
         data_frame=df,
         x_start="stage_start_timestamp",
         x_end="stage_end_timestamp",
         y="stage_rank",
-        color="job_id",
         title=title,
+        height=500 + (25 * n_stages),
         text="stage_label",
     )
 
-    fig = style_fig(fig, dark_mode)
+    fig = style_fig(
+        fig=fig,
+        dark_mode=dark_mode,
+        min_x=min(df["stage_start_timestamp"]),
+        max_x=max(df["stage_end_timestamp"]),
+    )
 
     return fig, {}, True
 
