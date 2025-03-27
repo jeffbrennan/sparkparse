@@ -433,13 +433,17 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         )
         .unique()
         .with_columns(
+            get_readable_col(
+                pl.col("stage_duration_seconds").mul(1000), "timing"
+            ).alias("stage_duration_struct")
+        )
+        .with_columns(
             pl.concat_str(
                 [
                     pl.lit("stage #"),
                     pl.col("stage_id"),
                     pl.lit(" ["),
-                    pl.col("stage_duration_seconds").round(2),
-                    pl.lit(" sec"),
+                    pl.col("stage_duration_struct").struct.field("readable_str"),
                     pl.lit("]"),
                 ]
             ).alias("stage_label")
