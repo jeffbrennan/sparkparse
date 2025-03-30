@@ -6,10 +6,11 @@ import pyspark
 import pyspark.sql.functions as F
 from pyspark.sql import Window
 
+import sparkparse
 from sparkparse.common import get_spark
 
 
-def config(data_size: str = "small"):
+def config(data_size: str = "small", app_name: str = "sparkparse"):
     data_lookup = {
         "small": "1e7_1e7",
         "medium": "1e8_1e8",
@@ -19,9 +20,10 @@ def config(data_size: str = "small"):
     base_dir = Path(__file__).parents[1] / "data"
     data_path = base_dir / "raw" / f"G1_{data_lookup[data_size]}_100_0.parquet"
     log_dir = base_dir / "logs" / "raw"
-    spark = get_spark(log_dir)
+    spark = get_spark(log_dir, app_name)
 
     return spark, data_path, base_dir
+
 
 def test_idle_diagnostic():
     spark, data_path, base_dir = config("small")
@@ -168,7 +170,7 @@ def test_complex_transformation():
     )
 
 
-def _test_row_count_explosion_join():
+def test_row_count_explosion_join():
     spark, data_path, base_dir = config()
 
     df = spark.read.parquet(data_path.as_posix())
@@ -196,18 +198,21 @@ def _test_row_count_explosion_join():
     )
 
 
-def _test_basic_transformation():
-    spark, data_path, base_dir = config()
+def test_basic_transformation():
+    spark, data_path, base_dir = config("small", "basic")
+    with sparkparse.capture_context(
+        action="get", spark=spark, clean_log_name="basic"
+    ) as cap:
+        df = cap.spark.read.parquet(data_path.as_posix())
+        df_clean = (
+            df.limit(1000)
+            .withColumn("v4", F.col("v3") * 3)
+            .groupBy("id1")
+            .agg(F.sum("v4").alias("v4"))
+            .orderBy("v4")
+        )
 
-    df = spark.read.parquet(data_path.as_posix())
-
-    df_clean = (
-        df.limit(1000)
-        .withColumn("v4", F.col("v3") * 3)
-        .groupBy("id1")
-        .agg(F.sum("v4").alias("v4"))
-        .orderBy("v4")
-    )
-
-    output_path = base_dir / "clean" / "basic"
-    df_clean.write.format("csv").mode("overwrite").save(str(output_path), header=True)
+        output_path = base_dir / "clean" / "basic"
+        df_clean.write.format("csv").mode("overwrite").save(
+            str(output_path), header=True
+        )

@@ -7,7 +7,7 @@ import tempfile
 import time
 import webbrowser
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, TypeVar, cast, overload
+from typing import Any, Callable, TypeVar, overload
 
 from pyspark.sql import SparkSession
 
@@ -26,17 +26,15 @@ class SparkparseCapture:
         self,
         action: str,
         spark: SparkSession,
-        temp_dir: Optional[str] = None,
         headless: bool = False,
+        clean_log_name: str | None = None,
     ) -> None:
         self.action = action
-        self.temp_dir = temp_dir
         self.spark = spark
         self._orig_log_dir = None
-        self._log_dir = None
-        self._should_cleanup = temp_dir is None
         self._headless = headless
         self._parsed_logs = None
+        self._clean_log_name = clean_log_name
 
     def __call__(
         self, func: Callable[..., R]
@@ -54,32 +52,26 @@ class SparkparseCapture:
         return get_wrapper
 
     def __enter__(self):
-        if not self.spark and not SparkSession.getActiveSession():
-            raise ValueError(
-                "No active SparkSession found - please create one before using this context manager."
-            )
+        # keep orig spark session config for later
+        self._orig_spark = self.spark
+        orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
 
-        if self.temp_dir is None:
-            self._log_dir = tempfile.mkdtemp(prefix="sparkparse_")
-        else:
-            os.makedirs(self.temp_dir, exist_ok=True)
-            self._log_dir = self.temp_dir
-
-        if self.spark or SparkSession.getActiveSession():
-            self._orig_spark = self.spark
-            self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir")
-            orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
-            self.spark.stop()
+        log_dir = self._orig_spark.conf.get("spark.eventLog.dir")
+        self._should_cleanup = log_dir is None
+        if log_dir is None:
+            log_dir = tempfile.mkdtemp(prefix="sparkparse_")
+        self._log_dir = log_dir
 
         builder = SparkSession.builder.appName("sparkparse")  # type: ignore
-        if hasattr(self, "_orig_spark"):
-            for key, value in orig_conf.items():
-                if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
-                    builder = builder.config(key, value)
-
         builder = builder.config("spark.eventLog.enabled", "true").config(
             "spark.eventLog.dir", self._log_dir
         )
+        for key, value in orig_conf.items():
+            if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
+                builder = builder.config(key, value)
+
+        self._orig_log_name = self.spark.sparkContext.applicationId
+        self.spark.stop()
 
         self.spark = builder.getOrCreate()
 
@@ -113,38 +105,37 @@ class SparkparseCapture:
             webbrowser.open("http://127.0.0.1:8050/")
 
     def __exit__(self, exc_type, *args):
+        log_name = self.spark.sparkContext.applicationId
         self.spark.stop()
+        if self._clean_log_name:
+            src = f"{self._log_dir}/{log_name}"
+            dst = f"{self._log_dir}/{self._clean_log_name}"
+
+            assert os.path.exists(src), f"Source file {src} does not exist"
+            os.rename(src, dst)
+            assert os.path.exists(dst), f"Destination file {dst} does not exist"
+            os.unlink(f"{self._log_dir}/{self._orig_log_name}")
+
+            log_name = self._clean_log_name
+
         self.spark = self._orig_spark
 
         if exc_type:
             return
 
-        if self._log_dir is None:
-            raise ValueError("log directory is not set")
-
         log_dir_contents = [i for i in Path(self._log_dir).glob("*")]
         if not any(log_dir_contents):
             raise ValueError("no logs found in log directory")
 
-        if self._orig_log_dir is not None:
-            for f in log_dir_contents:
-                out_path = Path(self._orig_log_dir) / f.stem
-                shutil.copy2(f.as_posix(), out_path)
-
         if self.action == "viz":
             self._run_dashboard_in_background()
             return
+
         elif self.action == "get":
-            if self._log_dir is None:
-                raise ValueError("log directory is not set")
-            result = get(log_dir=self._log_dir)
+            result = get(log_dir=self._log_dir, log_file=log_name)
             self._parsed_logs = result
 
-            if (
-                self._should_cleanup
-                and self._log_dir is not None
-                and os.path.exists(self._log_dir)
-            ):
+            if self._should_cleanup and os.path.exists(self._log_dir):
                 shutil.rmtree(self._log_dir)
         else:
             raise ValueError(f"Invalid action: {self.action}")
@@ -152,16 +143,21 @@ class SparkparseCapture:
 
 def capture_context(
     action: str = "viz",
-    temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
+    clean_log_name: str | None = None,
 ) -> SparkparseCapture:
     if spark is None:
         _spark = SparkSession.builder.appName("temp").getOrCreate()  # type: ignore
     else:
         _spark = spark
 
-    return SparkparseCapture(action, temp_dir=temp_dir, spark=_spark, headless=headless)
+    return SparkparseCapture(
+        action,
+        spark=_spark,
+        headless=headless,
+        clean_log_name=clean_log_name,
+    )
 
 
 @overload
@@ -169,9 +165,9 @@ def capture(
     func: Callable[..., R],
     *,
     action: str = ...,
-    temp_dir: str | None = ...,
     spark: SparkSession | None = ...,
     headless: bool = ...,
+    clean_log_name: str | None = None,
 ) -> Callable[..., tuple[R, SparkparseCapture]]: ...
 
 
@@ -180,9 +176,9 @@ def capture(
     func: None = None,
     *,
     action: str = ...,
-    temp_dir: str | None = ...,
     spark: SparkSession | None = ...,
     headless: bool = ...,
+    clean_log_name: str | None = None,
 ) -> Callable[[Callable[..., R]], Callable[..., tuple[R, SparkparseCapture]]]: ...
 
 
@@ -190,9 +186,9 @@ def capture(
     func=None,
     *,
     action: str = "viz",
-    temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
+    clean_log_name: str | None = None,
 ) -> Any:
     def decorator(
         func: Callable[..., R],
@@ -203,7 +199,7 @@ def capture(
             _spark = spark
 
         cap = SparkparseCapture(
-            action, spark=_spark, temp_dir=temp_dir, headless=headless
+            action, spark=_spark, headless=headless, clean_log_name=clean_log_name
         )
         return cap(func)
 

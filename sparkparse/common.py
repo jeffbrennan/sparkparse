@@ -45,9 +45,9 @@ def write_dataframe(
         df.write_json(out_path.with_suffix(".json").as_posix())
 
 
-def get_spark(log_dir: Path) -> SparkSession:
+def get_spark(log_dir: Path, app_name="sparkparse") -> SparkSession:
     return (
-        SparkSession.builder.appName("sparkparse")  # type: ignore
+        SparkSession.builder.appName(app_name)  # type: ignore
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", log_dir.as_posix())
         .config("spark.history.fs.logDirectory", log_dir.as_posix())
