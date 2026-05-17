@@ -1,8 +1,6 @@
-from functools import reduce
-from pathlib import Path
 import time
+from pathlib import Path
 
-import pyspark
 import pyspark.sql.functions as F
 from pyspark.sql import Window
 
@@ -22,6 +20,7 @@ def config(data_size: str = "small"):
     spark = get_spark(log_dir)
 
     return spark, data_path, base_dir
+
 
 def test_idle_diagnostic():
     spark, data_path, base_dir = config("small")
@@ -78,13 +77,9 @@ def test_nested_final_plans():
 
 def test_broadcast_nested_loop_join():
     spark, data_path, base_dir = config()
-    df = (
-        spark.read.parquet(data_path.as_posix())
-        .limit(1000)
-        .createOrReplaceTempView("df")
-    )
-    df2 = spark.sql("SELECT * FROM df").createOrReplaceTempView("df2")
-    df3 = spark.sql("SELECT * FROM df").createOrReplaceTempView("df3")
+    (spark.read.parquet(data_path.as_posix()).limit(1000).createOrReplaceTempView("df"))
+    spark.sql("SELECT * FROM df").createOrReplaceTempView("df2")
+    spark.sql("SELECT * FROM df").createOrReplaceTempView("df3")
 
     query = """
     select
