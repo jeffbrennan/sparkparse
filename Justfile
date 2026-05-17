@@ -1,3 +1,9 @@
+ci:
+    uv run ruff check sparkparse/ tests/
+    uv run ruff format --check sparkparse/ tests/
+    uv run pyrefly check sparkparse/
+    uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
+
 jsonformat:
     mkdir -p data/logs/sandbox
     for file in data/logs/raw/*; do \

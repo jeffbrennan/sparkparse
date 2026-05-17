@@ -179,7 +179,9 @@ def test_clean_jobs_multiple_jobs():
     result = clean_jobs(jobs)
     non_null = result.filter(pl.col("stage_id").is_not_null())
     assert non_null.shape[0] == 2
-    durations = dict(zip(non_null["job_id"].to_list(), non_null["job_duration_seconds"].to_list()))
+    durations = dict(
+        zip(non_null["job_id"].to_list(), non_null["job_duration_seconds"].to_list())
+    )
     assert durations[0] == pytest.approx(2.0)
     assert durations[1] == pytest.approx(3.0)
 
@@ -226,7 +228,9 @@ def test_clean_stages_multiple():
     ]
     result = clean_stages(stages)
     assert result.shape[0] == 2
-    durations = dict(zip(result["stage_id"].to_list(), result["stage_duration_seconds"].to_list()))
+    durations = dict(
+        zip(result["stage_id"].to_list(), result["stage_duration_seconds"].to_list())
+    )
     assert durations[0] == pytest.approx(1.0)
     assert durations[1] == pytest.approx(2.0)
 
@@ -254,7 +258,9 @@ def test_clean_tasks_duration_calculation(parsed_log):
     result = clean_tasks(parsed_log.tasks)
     first = parsed_log.tasks[0]
     expected = (first.task_finish_time - first.task_start_time) / 1_000
-    actual = result.filter(pl.col("task_id") == first.task_id)["task_duration_seconds"][0]
+    actual = result.filter(pl.col("task_id") == first.task_id)["task_duration_seconds"][
+        0
+    ]
     assert actual == pytest.approx(expected)
 
 
