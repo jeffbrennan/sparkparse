@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
@@ -136,8 +136,8 @@ def get_codegen_elements(
 )
 @timeit
 def create_elements(
-    df_data: List[Dict[str, Any]], dark_mode: bool, hotspot_metric: str
-) -> List[Dict]:
+    df_data: list[dict[str, Any]], dark_mode: bool, hotspot_metric: str
+) -> list[dict]:
     def format_accumulators(hover_info: str) -> str:
         hover_info += "\n"
         prev_metric_type = []
@@ -298,7 +298,7 @@ def get_node_target(
     Output("dag-graph", "stylesheet"),
     Input("color-mode-switch", "value"),
 )
-def update_stylesheet(dark_mode: bool) -> List[Dict[str, Any]]:
+def update_stylesheet(dark_mode: bool) -> list[dict[str, Any]]:
     bg_color, text_color = get_site_colors(dark_mode, contrast=True)
 
     return [

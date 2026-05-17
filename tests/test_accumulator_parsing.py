@@ -17,7 +17,7 @@ def test_accumulator_totals_parse_correctly():
 
     result = (
         dag.select("query_id", "node_id", "node_type", "accumulator_totals")
-        .explode(("accumulator_totals"))
+        .explode("accumulator_totals")
         .unnest("accumulator_totals")
         .sort("query_id", "node_id")
     )

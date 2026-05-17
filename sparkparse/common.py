@@ -10,7 +10,7 @@ from sparkparse.models import OutputFormat
 
 
 def get_current_time() -> datetime.datetime:
-    return datetime.datetime.now(datetime.timezone.utc)
+    return datetime.datetime.now(datetime.UTC)
 
 
 def timeit(func):
