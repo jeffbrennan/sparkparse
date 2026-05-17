@@ -125,6 +125,24 @@ uv run pyrefly check sparkparse/       # type check
 - Add `"analyze"` action to `capture.py`
 - Replace `print()` with `logging` in `capture.py`
 
+### PR 7 — Complete Pydantic coverage
+- Add `NodeType.Unknown` sentinel and `RawDetail` fallback model so unrecognized node types
+  degrade gracefully instead of raising (currently `parse_spark_ui_tree` and `get_plan_details`
+  both hard-fail on unknown types — see `parse.py:278` and `parse.py:145`)
+- Wrap `NodeType(...)` and `QueryFunction(...)` calls in try/except with warning logs
+- Add detail models for the standard Spark 3.5 operator set not yet covered:
+  - Aggregate variants: `ObjectHashAggregate`, `SortAggregate`, `Expand`
+  - Python/Pandas UDF nodes: `ArrowEvalPython`, `BatchEvalPython`, `MapInPandas`,
+    `MapInArrow`, `FlatMapGroupsInPandas`, `FlatMapCoGroupsInPandas`
+  - DataSource V2: `BatchScanExec`, `WriteToDatasourceV2`, `AppendData`,
+    `OverwriteByExpression`, `OverwritePartitionsDynamic`
+  - Subquery: `SubqueryExec`, `ReusedSubqueryExec`, `SubqueryBroadcast`
+  - Misc: `RepartitionByExpression`, `Sample`, `Range`, `CartesianProduct`
+- Extend `ExchangeType` with `REPARTITION_BY_COL`, `REPARTITION_BY_NUM`, `REPARTITION`
+- Extend `QueryFunction` with `show`, `collect`, `first`, `head`, `take`, etc.
+- Databricks/Photon-specific nodes handled by `Unknown` fallback until real fixtures available
+- Add test fixtures and cases for each new node type in `tests/test_detail_parsing.py`
+
 ### PR 5 — Cloud storage support
 - Add `sparkparse/storage.py` with path-agnostic I/O (`open_file`, `write_text`, `list_files`,
   `copy_file`, `remove_dir`) backed by `fsspec` for cloud URIs and stdlib for local paths
