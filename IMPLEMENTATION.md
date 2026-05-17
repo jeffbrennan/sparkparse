@@ -7,8 +7,9 @@ broken into self-contained PRs that can be reviewed and merged independently.
 
 1. **Modernize** — UV dev groups, ruff config, pyrefly type checking, more unit tests, CI
 2. **Better UX** — improved CLI, cleaner SparkSession wrapper, richer output
-3. **LLM-friendly analysis** — structured JSON findings for bottleneck detection (largest tables,
-   repeated scans, long-running operations, cartesian joins, high spill, shuffle-heavy stages)
+3. **LLM-friendly analysis** — token-efficient structured plan summary for piping to an LLM
+   (queries, nodes, durations, bytes, join types, paths — raw facts, no pre-assigned severity),
+   plus programmatic `find_*` helpers for interactive analysis in notebooks/scripts
 
 ---
 
@@ -88,78 +89,92 @@ uv run pytest tests/test_clean.py -v
 
 **Branch:** `feat/analyze-module`
 
-### Changes
+### Design
 
-**`sparkparse/analyze.py`** (new)
+`analyze.py` has two separate concerns:
 
-Entry point: `analyze(dfs: ParsedLogDataFrames, log_name: str) -> dict`
+1. **`to_plan_summary(dfs, log_name) -> dict`** — token-efficient structured plan data, used
+   by the CLI pipe. Presents raw facts; lets the LLM draw its own conclusions. No severity
+   levels, no pre-classified findings.
 
-Returns a structured JSON-serializable dict with two top-level sections:
+2. **`find_*()` helpers** — programmatic analysis functions for interactive/notebook use.
+   These return structured results but are not included in the piped JSON output.
+
+### Plan summary output format
+
+Short field names and flat structure to minimize token usage. Omit null/empty fields.
+Node details are inlined with only the fields relevant to that node type.
 
 ```json
 {
-  "metadata": {
-    "log_name": "...",
-    "analyzed_at": "ISO-8601",
-    "n_queries": 5,
-    "total_wall_time_seconds": 272.4,
-    "total_bytes_read": 3045000000,
-    "total_shuffle_bytes": 1200000000
-  },
-  "findings": [
+  "log": "my_job",
+  "duration_s": 272.4,
+  "bytes_read": 3045000000,
+  "bytes_written": 0,
+  "shuffle_bytes": 1200000000,
+  "spill_bytes": 0,
+  "queries": [
     {
-      "type": "cartesian_joins",
-      "severity": "critical",
-      "items": [{"node_id": 12, "query_id": 3, "join_type": "Cross", "join_condition": null}]
-    },
-    {
-      "type": "repeated_scans",
-      "severity": "warning",
-      "items": [{"path": "/data/warehouse/fact_orders", "scan_count": 3, "query_ids": [1, 2, 4]}]
-    },
-    ...
+      "id": 1,
+      "fn": "count",
+      "duration_s": 45.2,
+      "nodes": [
+        {"id": 4, "type": "Scan", "duration_min": 0.4, "paths": ["/data/warehouse/orders"], "bytes": 1073741824, "records": 12000000},
+        {"id": 3, "type": "Filter", "duration_min": 0.1},
+        {"id": 2, "type": "BroadcastNestedLoopJoin", "duration_min": 2.1, "join_type": "Cross"},
+        {"id": 1, "type": "HashAggregate", "duration_min": 0.3, "keys": ["customer_id"]},
+        {"id": 0, "type": "Sort", "duration_min": 0.6, "order": ["total_spend DESC"]}
+      ]
+    }
+  ],
+  "stages": [
+    {"id": 0, "duration_s": 12.1, "tasks": 200, "spill_bytes": 0, "shuffle_read_bytes": 0, "shuffle_write_bytes": 104857600}
   ]
 }
 ```
 
-Finding types and their data sources:
+Node-type-specific fields to include (omit entirely if absent/zero):
+- `Scan`: `paths` (from `ScanDetail.location.location`), `bytes`, `records` (from accumulator totals)
+- `BroadcastNestedLoopJoin`, `SortMergeJoin`, `BroadcastHashJoin`: `join_type`, `join_condition`
+- `HashAggregate`: `keys`
+- `Sort`, `TakeOrderedAndProject`: `order`
+- `Exchange`, `AQEShuffleRead`: `partitioning`
+- `Window`: `partition_by`, `order_by`
 
-| Finding type | Source | Logic |
+### `find_*` programmatic helpers
+
+These are available via `from sparkparse.analyze import find_cartesian_joins` etc. They are
+**not** called by `to_plan_summary` — they exist for interactive analysis in notebooks or
+scripts where the user wants structured programmatic output.
+
+| Function | Source | Returns |
 |---|---|---|
-| `largest_scans` | `dag` where `node_type == "Scan"` | deserialize `details` for paths, read `accumulator_totals["size of files read"]` |
-| `repeated_scans` | derived from largest_scans | group by path, count > 1 |
-| `long_running_nodes` | `dag` | filter `node_duration_minutes > 1.0` (configurable) |
-| `cartesian_joins` | `dag` where `node_type == "BroadcastNestedLoopJoin"` | deserialize `details` for join_type and join_condition |
-| `spill_operations` | `combined` | group by stage_id, sum `memory_bytes_spilled + disk_bytes_spilled > 10 MiB` |
-| `shuffle_heavy_stages` | `combined` | group by stage_id, sum `shuffle_bytes_read + shuffle_bytes_written > 1 GiB` |
+| `find_largest_scans(dag)` | `dag` where `node_type == "Scan"` | list of `{path, bytes, records, query_id, node_id}` sorted by bytes desc |
+| `find_repeated_scans(dag)` | derived from above | list of `{path, scan_count, query_ids}` where count > 1 |
+| `find_long_running_nodes(dag, threshold_min)` | `dag` | list of `{node_name, node_type, duration_min, query_id}` |
+| `find_cartesian_joins(dag)` | `dag` where `node_type == "BroadcastNestedLoopJoin"` | list of `{node_id, query_id, join_type, join_condition}` |
+| `find_spill(combined, threshold_bytes)` | `combined` grouped by stage_id | list of `{stage_id, memory_spill, disk_spill}` |
+| `find_shuffle_heavy_stages(combined, threshold_bytes)` | `combined` grouped by stage_id | list of `{stage_id, shuffle_read, shuffle_write}` |
 
 Key reuse from existing code:
 - `sparkparse.models.NodeType` — all node type filtering
-- `sparkparse.models.ScanDetail`, `BroadcastNestedLoopJoinDetail` — detail deserialization
 - `sparkparse.models.NODE_TYPE_DETAIL_MAP` — dispatch to correct detail model
-- `sparkparse.clean.get_readable_size()`, `get_readable_timing()` — format readable metrics
 - `sparkparse.parse.deserialize_scan_detail()` — parse the `details` JSON string for Scan nodes
 
 **`tests/test_analyze.py`** (new)
 
-Use existing `tests/data/full_logs/` fixtures. Parse with `get_parsed_metrics()` then run
-`analyze()` and assert:
-- Result is a valid dict with `metadata` and `findings` keys
-- `nested_loop_join` fixture produces at least one `cartesian_joins` finding
-- All findings have `type`, `severity`, `items` keys
+Use existing `tests/data/full_logs/` fixtures:
+- `to_plan_summary()` returns a dict with `log`, `queries`, `stages` keys
+- `queries[n].nodes` contains the right node types for the fixture
+- `find_cartesian_joins()` on the `nested_loop_join` fixture returns at least one result
+- Plan summary is valid JSON (no unserializable types)
 
 ### Verification
 
 ```bash
 uv run pytest tests/test_analyze.py -v
 # Manual check:
-uv run python -c "
-from sparkparse.parse import get_parsed_metrics
-from sparkparse.analyze import analyze
-import json
-dfs = get_parsed_metrics('tests/data/full_logs', log_file='nested_loop_join', out_dir=None, out_format=None)
-print(json.dumps(analyze(dfs, 'nested_loop_join'), indent=2))
-"
+sparkparse analyze --log-dir tests/data/full_logs/ | python -m json.tool
 ```
 
 ---

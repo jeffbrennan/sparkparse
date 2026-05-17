@@ -109,9 +109,12 @@ uv run pyrefly check sparkparse/       # type check
   `clean_stages`, `clean_tasks`, `get_job_idle_time`
 
 ### PR 3 — LLM-friendly analysis output
-- Add `sparkparse/analyze.py` with `analyze(dfs, log_name) -> dict`
-- Findings: largest scans, repeated scans, cartesian joins (`BroadcastNestedLoopJoin`),
-  long-running nodes, high spill, shuffle-heavy stages
+- Add `sparkparse/analyze.py` with two distinct concerns:
+  - `to_plan_summary(dfs, log_name) -> dict` — token-efficient structured plan data for LLM
+    piping; presents raw facts (nodes, durations, bytes, join types, paths) without pre-assigned
+    severity or pre-classified findings; the LLM draws its own conclusions
+  - `find_*()` helpers — programmatic analysis functions for interactive/notebook use
+    (`find_cartesian_joins`, `find_largest_scans`, `find_repeated_scans`, `find_spill`, etc.)
 - Add `tests/test_analyze.py`
 
 ### PR 4 — CLI improvements
