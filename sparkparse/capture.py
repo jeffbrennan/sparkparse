@@ -6,8 +6,9 @@ import sys
 import tempfile
 import time
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, TypeVar, cast, overload
+from typing import Any, TypeVar, overload
 
 from pyspark.sql import SparkSession
 
@@ -26,7 +27,7 @@ class SparkparseCapture:
         self,
         action: str,
         spark: SparkSession,
-        temp_dir: Optional[str] = None,
+        temp_dir: str | None = None,
         headless: bool = False,
     ) -> None:
         self.action = action

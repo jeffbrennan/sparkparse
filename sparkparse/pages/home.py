@@ -18,7 +18,7 @@ from sparkparse.parse import check_if_log_has_queries
     Input("available-logs", "id"),
 )
 @timeit
-@lru_cache()
+@lru_cache
 def get_available_logs(_) -> list[str]:
     log_path = resolve_dir(get_app().server.config["LOG_DIR"])
     log_files = tuple(log_path.glob("*"))

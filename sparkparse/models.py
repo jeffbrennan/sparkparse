@@ -1,6 +1,6 @@
 import json
 from enum import StrEnum, auto
-from typing import Annotated, Any, Type
+from typing import Annotated, Any
 
 import polars as pl
 from pydantic import (
@@ -1019,7 +1019,7 @@ class ParsedLogDataFrames(BaseModel):
 
 NODE_ID_PATTERN = r".*\((\d+)\)"
 NODE_TYPE_PATTERN = r"(\b\w+\b).*\(\d{1,4}\)"
-NODE_TYPE_DETAIL_MAP: dict[NodeType, Type[BaseModel]] = {
+NODE_TYPE_DETAIL_MAP: dict[NodeType, type[BaseModel]] = {
     NodeType.Scan: ScanDetail,
     NodeType.ColumnarToRow: ColumnarToRowDetail,
     NodeType.Project: ProjectDetail,

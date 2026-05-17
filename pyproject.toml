@@ -14,11 +14,8 @@ dependencies = [
     "polars>=1.24.0",
     "pydantic>=2.10.6",
     "pyspark>=3.5.5",
-    "pytest>=8.3.5",
-    "ruff>=0.9.9",
     "dash-bootstrap-components>=1.6.0,<2",
     "plotly>=6.0.0",
-    "ipykernel>=6.29.5",
     "dash-cytoscape>=1.0.2",
     "dash-ag-grid>=31.3.0",
 ]
@@ -29,3 +26,22 @@ packages = ["sparkparse"]
 
 [project.scripts]
 sparkparse = "sparkparse.app:app"
+
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+    "pyrefly>=0.15.0",
+    "pytest>=8.3.5",
+    "ruff>=0.9.9",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sparkparse"]
