@@ -135,6 +135,20 @@ uv run pyrefly check sparkparse/       # type check
 - Target: Databricks and other ephemeral cluster environments where local disk is gone at
   cluster termination
 
+### PR 6 — Performance history and alerts
+- Add `sparkparse/history.py` — append-only run history: `record_from_dfs()` derives a compact
+  `RunRecord` (duration, bytes, spill, shuffle, cartesian join count, etc.) from
+  `ParsedLogDataFrames`; `append()` writes to Delta (primary) or JSONL (fallback); `read()`
+  queries history filtered by `log_name`
+- Add `sparkparse/alerts.py` — `AlertConfig` model, `load_alert_config()` from TOML,
+  `check_alerts()` evaluates rules (pct_increase, absolute_increase, threshold) against history
+  and dispatches via `on_trigger` (`"log"`, `"raise"`, `"file"`)
+- Add `RunRecord` Pydantic model to `sparkparse/models.py`
+- Extend `capture.py` with `history_path`, `log_name`, `alert_config` params — history append
+  and alert check run automatically in `__exit__`
+- Add `sparkparse history` and `sparkparse check-alerts` CLI commands
+- Alert config defined in TOML; cloud paths supported via PR 5's `storage.py`
+
 ## Known quirks
 
 - `capture.py` stops and restarts the SparkSession to enable event logging — this resets

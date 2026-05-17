@@ -12,6 +12,8 @@ broken into self-contained PRs that can be reviewed and merged independently.
    plus programmatic `find_*` helpers for interactive analysis in notebooks/scripts
 4. **Cloud storage** — read logs from and write output to blob storage (S3, ADLS, GCS) for
    ephemeral cluster environments like Databricks
+5. **Performance history and alerts** — append-only run history for trending metrics over time,
+   with configurable regression alerts that trigger when a job degrades beyond a threshold
 
 ---
 
@@ -385,3 +387,233 @@ Manual integration test (requires cloud credentials):
 sparkparse get --log-dir s3://my-bucket/spark-logs/ --out-dir s3://my-bucket/parsed/
 sparkparse analyze --log-dir s3://my-bucket/spark-logs/ --out-file s3://my-bucket/summaries/latest.json
 ```
+
+---
+
+## PR 6: Performance History and Alerts
+
+**Branch:** `feat/history-and-alerts`
+
+### Design
+
+Two concerns kept separate:
+
+1. **`sparkparse/history.py`** — append-only run history. Writes a small fixed-schema record
+   per job run to a persistent store. Reads history back for trend queries.
+
+2. **`sparkparse/alerts.py`** — regression detection. Compares the current run record against
+   historical records for the same `log_name` and fires configured alerts on regressions.
+
+The history store is not the place for full plan summaries — those are large and
+query-specific. The history record is a compact numeric snapshot: the metrics you'd want
+to plot as a time series across hundreds of runs.
+
+### History record schema
+
+One row per run, fixed schema, stored in `sparkparse/models.py` as a Pydantic model:
+
+```python
+class RunRecord(BaseModel):
+    run_id: str             # uuid4
+    run_at: datetime        # UTC, when sparkparse processed the log
+    log_name: str           # stable job identifier, set by the caller
+    duration_s: float       # total wall time across all queries
+    bytes_read: int
+    bytes_written: int
+    shuffle_bytes: int
+    spill_bytes: int
+    n_queries: int
+    n_stages: int
+    n_tasks: int
+    n_cartesian_joins: int  # count of BroadcastNestedLoopJoin nodes
+    max_node_duration_min: float
+    max_scan_bytes: int
+```
+
+`log_name` is the key for grouping history — it should be a stable identifier for the
+job (e.g. `"nightly_customer_agg"`), not the event log filename which includes a
+timestamp. The caller sets this explicitly.
+
+`RunRecord` is derived from `ParsedLogDataFrames` by `history.record_from_dfs()`, which
+reuses the same accumulator cross-referencing already done in `analyze.py`.
+
+### Storage format
+
+**Primary: Delta Lake** — natively append-only, ACID, supports concurrent writers from
+multiple cluster nodes, and is already a supported output format in sparkparse. Works
+locally and on cloud storage via PR 5's `storage.py`. Schema evolution is handled
+automatically by Delta.
+
+**Fallback: JSONL** — one JSON object per line, used when Delta is unavailable (no
+PySpark, or `delta-spark` not installed). Append is a simple file write; reads scan
+the whole file.
+
+Format is selected automatically based on whether `delta-spark` is importable, or can
+be forced via a `format` parameter.
+
+### `sparkparse/history.py`
+
+```python
+def append(record: RunRecord, history_path: str, format: str = "auto") -> None:
+    """Append a RunRecord to the history store at history_path."""
+
+def read(history_path: str, log_name: str | None = None, last_n: int | None = None) -> pl.DataFrame:
+    """Read history records, optionally filtered by log_name and/or limited to last N rows."""
+
+def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
+    """Derive a RunRecord from parsed DataFrames. Reuses analyze.py helpers."""
+```
+
+`history_path` accepts local paths and cloud URIs (via PR 5's `storage.py`). For Delta,
+it's a directory; for JSONL, it's a file path.
+
+### Alert configuration
+
+Defined as a list of rules, loaded from a TOML file or passed as a Python dict.
+Each rule targets a single metric on a single `log_name`:
+
+```toml
+# sparkparse-alerts.toml
+
+[[alerts]]
+name = "duration_regression"
+log_name = "nightly_customer_agg"   # matches RunRecord.log_name
+metric = "duration_s"
+condition = "pct_increase"          # pct_increase | absolute_increase | threshold
+threshold = 0.20                    # 20% slower than baseline
+window = 5                          # baseline = mean of last 5 runs
+severity = "warning"                # warning | critical
+on_trigger = "log"                  # log | raise | file
+
+[[alerts]]
+name = "spill_alert"
+log_name = "nightly_customer_agg"
+metric = "spill_bytes"
+condition = "threshold"             # fire if current value exceeds threshold
+threshold = 1073741824              # 1 GiB
+severity = "critical"
+on_trigger = "raise"
+
+[[alerts]]
+name = "cartesian_join_check"
+log_name = "nightly_customer_agg"
+metric = "n_cartesian_joins"
+condition = "threshold"
+threshold = 0                       # fire if any cartesian joins appear
+severity = "critical"
+on_trigger = "raise"
+```
+
+`condition` types:
+- `pct_increase` — `(current - baseline) / baseline > threshold`
+- `absolute_increase` — `current - baseline > threshold`
+- `threshold` — `current > threshold` (no historical comparison needed)
+
+`baseline` for windowed conditions is the mean of the last `window` runs for the same
+`log_name`, excluding the current run. If fewer than `window` runs exist, the available
+runs are used (no alert suppression during warmup).
+
+`on_trigger` dispatch:
+- `"log"` — `logging.warning()` or `logging.error()` depending on severity
+- `"raise"` — raises `SparkparseAlertError(alert_name, metric, current, baseline)`
+- `"file"` — writes a JSON alert record to `alert_output_path` (set globally in config);
+  supports cloud paths via `storage.write_text()`
+
+### `sparkparse/alerts.py`
+
+```python
+class AlertConfig(BaseModel):
+    name: str
+    log_name: str
+    metric: str
+    condition: Literal["pct_increase", "absolute_increase", "threshold"]
+    threshold: float
+    window: int = 10
+    severity: Literal["warning", "critical"] = "warning"
+    on_trigger: Literal["log", "raise", "file"] = "log"
+
+def load_alert_config(path: str) -> list[AlertConfig]:
+    """Load alert rules from a TOML file."""
+
+def check_alerts(
+    record: RunRecord,
+    history: pl.DataFrame,
+    alerts: list[AlertConfig],
+    alert_output_path: str | None = None,
+) -> list[dict]:
+    """
+    Evaluate all alert rules against the current record and history.
+    Fires on_trigger actions for any triggered alerts.
+    Returns list of triggered alert dicts (empty if none triggered).
+    """
+```
+
+### Integration with `capture.py`
+
+`SparkparseCapture` gains two optional parameters:
+
+```python
+SparkparseCapture(
+    action="get",
+    history_path="s3://my-bucket/sparkparse-history/",  # where to append
+    log_name="nightly_customer_agg",                     # stable job identifier
+    alert_config="s3://my-bucket/sparkparse-alerts.toml",  # optional
+)
+```
+
+In `__exit__`, after parsing:
+1. Call `history.record_from_dfs(dfs, log_name)` → `RunRecord`
+2. Call `history.append(record, history_path)` → writes to history store
+3. If `alert_config` is set: load config, `history.read(history_path, log_name)`,
+   `alerts.check_alerts(record, history_df, alert_rules)` → fires triggers
+
+### New CLI commands
+
+**`sparkparse history`** — query the history store:
+
+```bash
+# Show last 20 runs for a job
+sparkparse history --history-path s3://bucket/history/ --log-name nightly_customer_agg --last 20
+
+# Show all runs (tabular output)
+sparkparse history --history-path ./history/
+```
+
+**`sparkparse check-alerts`** — run alert checks against the latest run:
+
+```bash
+sparkparse check-alerts \
+  --history-path s3://bucket/history/ \
+  --log-name nightly_customer_agg \
+  --alert-config sparkparse-alerts.toml
+```
+
+### New files
+
+| File | Purpose |
+|---|---|
+| `sparkparse/history.py` | `append`, `read`, `record_from_dfs` |
+| `sparkparse/alerts.py` | `AlertConfig`, `load_alert_config`, `check_alerts`, `SparkparseAlertError` |
+
+### Changes to existing files
+
+| File | Change |
+|---|---|
+| `sparkparse/models.py` | Add `RunRecord` Pydantic model |
+| `sparkparse/capture.py` | Add `history_path`, `log_name`, `alert_config` params; call history/alerts in `__exit__` |
+| `sparkparse/app.py` | Add `history` and `check-alerts` commands |
+
+### Verification
+
+```bash
+uv run pytest tests/test_history.py tests/test_alerts.py -v
+```
+
+Key test cases:
+- `record_from_dfs()` produces a valid `RunRecord` from each of the three fixture logs
+- `append()` + `read()` round-trips correctly for both Delta and JSONL formats
+- `check_alerts()` with a `threshold` rule fires when the metric exceeds the threshold
+- `check_alerts()` with a `pct_increase` rule fires when current > baseline × (1 + threshold)
+- `on_trigger = "raise"` raises `SparkparseAlertError`
+- `on_trigger = "log"` does not raise, emits a log record
+- Alert rules with `window` larger than available history use available runs without error
