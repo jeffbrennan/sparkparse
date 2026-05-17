@@ -125,6 +125,16 @@ uv run pyrefly check sparkparse/       # type check
 - Add `"analyze"` action to `capture.py`
 - Replace `print()` with `logging` in `capture.py`
 
+### PR 5 — Cloud storage support
+- Add `sparkparse/storage.py` with path-agnostic I/O (`open_file`, `write_text`, `list_files`,
+  `copy_file`, `remove_dir`) backed by `fsspec` for cloud URIs and stdlib for local paths
+- Update `parse.py`, `common.py`, `capture.py` to route all file I/O through `storage.py`
+- Accept cloud URIs (`s3://`, `abfss://`, `gs://`) as `temp_dir` in `capture.py`; Spark writes
+  event logs there natively, sparkparse reads them back via fsspec
+- Add optional `[s3]`, `[azure]`, `[gcs]`, `[cloud]` extras to `pyproject.toml`
+- Target: Databricks and other ephemeral cluster environments where local disk is gone at
+  cluster termination
+
 ## Known quirks
 
 - `capture.py` stops and restarts the SparkSession to enable event logging — this resets
@@ -133,5 +143,9 @@ uv run pyrefly check sparkparse/       # type check
   SparkSession. They are slow and cannot run in CI without a JVM available.
 - `falsa` is listed in `[project.dependencies]` but its usage in the codebase is unclear —
   verify before removing.
+- Cloud path support (`s3://`, `abfss://`, `gs://`) requires the relevant fsspec backend
+  (`s3fs`, `adlfs`, `gcsfs`) to be installed and cloud credentials to be configured.
+  On Databricks, DBFS paths (`/dbfs/...`) and Unity Catalog volumes (`/Volumes/...`) mount
+  as local filesystem paths and work without any additional configuration.
 - The `details` column stores Pydantic model data as a JSON string (not a Polars struct)
   to keep the schema flexible across 25+ node types.

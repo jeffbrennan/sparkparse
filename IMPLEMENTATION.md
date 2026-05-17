@@ -10,6 +10,8 @@ broken into self-contained PRs that can be reviewed and merged independently.
 3. **LLM-friendly analysis** — token-efficient structured plan summary for piping to an LLM
    (queries, nodes, durations, bytes, join types, paths — raw facts, no pre-assigned severity),
    plus programmatic `find_*` helpers for interactive analysis in notebooks/scripts
+4. **Cloud storage** — read logs from and write output to blob storage (S3, ADLS, GCS) for
+   ephemeral cluster environments like Databricks
 
 ---
 
@@ -236,4 +238,150 @@ sparkparse analyze --log-dir ./logs --format text
 sparkparse analyze --help
 sparkparse analyze --log-dir tests/data/full_logs/
 sparkparse analyze --log-dir tests/data/full_logs/ --format text
+```
+
+---
+
+## PR 5: Cloud Storage Support
+
+**Branch:** `feat/cloud-storage`
+
+### Problem
+
+On ephemeral clusters (Databricks, EMR, Dataproc), local disk is gone when the cluster
+terminates. Currently:
+- `capture.py` writes to `tempfile.mkdtemp()` — local only
+- `parse_log()` reads via `open()` — local paths only
+- `write_dataframe()` writes CSV/JSON/Parquet to local paths
+- `shutil.rmtree` and `shutil.copy2` in `capture.py` break on cloud URIs
+
+Spark can already write event logs directly to cloud storage
+(`spark.eventLog.dir = s3://my-bucket/logs/` works via Hadoop connectors), so the gap is
+sparkparse's own I/O not following suit.
+
+### Approach: `fsspec` as the filesystem abstraction
+
+`fsspec` is already a transitive dependency of Polars and Pandas. It provides a uniform
+`open()` / `ls()` / `rm()` interface across `s3://`, `abfss://` (Azure), `gs://`, `dbfs:/`,
+and local paths — no cloud-specific SDK needs to be added to the package itself. Users
+install the relevant fsspec backend for their cloud (`s3fs`, `adlfs`, `gcsfs`) alongside
+their cluster's existing credentials.
+
+Databricks note: DBFS paths (`/dbfs/...` or `dbfs:/...`) mount as local filesystem paths
+on the driver, so they work without fsspec. Unity Catalog volumes (`/Volumes/...`) are
+also local-mountable. Direct cloud paths (`s3://`, `abfss://`) require Hadoop credentials
+to be configured on the cluster, which Databricks handles through cluster policies or
+environment variables.
+
+### Changes
+
+**`pyproject.toml`**
+- Add `fsspec>=2024.1.0` to `[project.dependencies]` (lightweight, already transitive)
+- Add optional cloud extras so users can pull in the right backend:
+  ```toml
+  [project.optional-dependencies]
+  s3 = ["s3fs>=2024.1.0"]
+  azure = ["adlfs>=2024.1.0"]
+  gcs = ["gcsfs>=2024.1.0"]
+  cloud = ["s3fs>=2024.1.0", "adlfs>=2024.1.0", "gcsfs>=2024.1.0"]
+  ```
+
+**`sparkparse/storage.py`** (new)
+
+Path-agnostic I/O utilities. All other modules go through this instead of `open()`,
+`os.makedirs()`, `shutil`, or `pathlib.Path` directly.
+
+```python
+def is_cloud_path(path: str) -> bool:
+    return path.startswith(("s3://", "abfss://", "gs://", "dbfs:/"))
+
+def open_file(path: str, mode: str = "r") -> IO:
+    """Open a local or cloud file. Cloud paths require the relevant fsspec backend."""
+    if is_cloud_path(path):
+        import fsspec
+        return fsspec.open(path, mode).open()
+    return open(path, mode)
+
+def write_text(path: str, content: str) -> None:
+    with open_file(path, "w") as f:
+        f.write(content)
+
+def list_files(path: str, pattern: str = "*") -> list[str]:
+    if is_cloud_path(path):
+        import fsspec
+        fs, _ = fsspec.core.url_to_fs(path)
+        return [fs.unstrip_protocol(p) for p in fs.glob(f"{path.rstrip('/')}/{pattern}")]
+    return [str(p) for p in Path(path).glob(pattern)]
+
+def copy_file(src: str, dst: str) -> None:
+    """Copy between any combination of local/cloud paths."""
+    if is_cloud_path(src) or is_cloud_path(dst):
+        import fsspec
+        fsspec.copy(src, dst)
+    else:
+        shutil.copy2(src, dst)
+
+def remove_dir(path: str) -> None:
+    if is_cloud_path(path):
+        import fsspec
+        fs, _ = fsspec.core.url_to_fs(path)
+        fs.rm(path, recursive=True)
+    else:
+        shutil.rmtree(path)
+```
+
+**`sparkparse/parse.py`**
+- Replace `open(log_path)` in `parse_log()` with `storage.open_file(log_path)`
+- Replace `Path(log_dir).glob("*")` in `get_parsed_metrics()` with `storage.list_files(log_dir)`
+
+**`sparkparse/common.py`**
+- Replace `os.makedirs()` in `resolve_dir()` with a cloud-aware mkdir (no-op for cloud paths,
+  since cloud storage has no real directories)
+- Update `write_dataframe()` for CSV and JSON: Delta and Parquet already handle cloud paths
+  natively through PySpark; CSV and JSON use Python's `open()` and need to go through
+  `storage.write_text()` instead
+
+**`sparkparse/capture.py`**
+- Accept cloud URIs as `temp_dir` (e.g., `s3://my-bucket/sparkparse-logs/run-123/`)
+- Replace `os.makedirs(self.temp_dir)` with `storage.ensure_dir(path)` (no-op for cloud)
+- Replace `Path(self._log_dir).glob("*")` with `storage.list_files(self._log_dir)`
+- Replace `shutil.copy2` with `storage.copy_file`
+- Replace `shutil.rmtree` with `storage.remove_dir`
+- When `temp_dir` is a cloud URI, `spark.eventLog.dir` is set to that URI directly — Spark
+  writes the log there via Hadoop connectors, no local staging needed
+
+**`sparkparse/analyze.py`** (PR 3, but extend here)
+- `to_plan_summary()` gains an optional `out_path: str | None = None` parameter
+- When provided, writes the JSON summary via `storage.write_text(out_path, json_str)`
+
+### Databricks usage pattern after this PR
+
+```python
+import sparkparse
+
+# Logs and summary written to S3; cluster can terminate safely after
+with sparkparse.capture_context(
+    spark=spark,
+    action="analyze",
+    temp_dir="s3://my-bucket/sparkparse/job-2024-01-15/",
+) as cap:
+    df.groupBy("customer_id").agg(F.sum("amount")).write.parquet("s3://...")
+
+summary = cap._analysis  # dict; already written to S3 by capture.__exit__
+```
+
+### Verification
+
+```bash
+uv run pytest tests/test_storage.py -v
+# Cloud path parsing is pure-Python and testable without credentials:
+# - is_cloud_path("s3://bucket/key") → True
+# - is_cloud_path("/local/path") → False
+# - list_files behavior with a local temp dir
+```
+
+Manual integration test (requires cloud credentials):
+```bash
+sparkparse get --log-dir s3://my-bucket/spark-logs/ --out-dir s3://my-bucket/parsed/
+sparkparse analyze --log-dir s3://my-bucket/spark-logs/ --out-file s3://my-bucket/summaries/latest.json
 ```
