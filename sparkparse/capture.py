@@ -1,4 +1,5 @@
 import functools
+import logging
 import os
 import shutil
 import subprocess
@@ -8,12 +9,17 @@ import time
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar, overload
+from typing import Any, Literal, TypeVar, overload
 
 from pyspark.sql import SparkSession
 
+from sparkparse.analyze import to_plan_summary
 from sparkparse.app import get
 from sparkparse.models import ParsedLogDataFrames
+
+_log = logging.getLogger(__name__)
+
+CaptureAction = Literal["viz", "get", "analyze"]
 
 R = TypeVar("R")
 F = TypeVar("F", bound=Callable[..., Any])
@@ -25,7 +31,7 @@ class SparkparseCapture:
 
     def __init__(
         self,
-        action: str,
+        action: CaptureAction,
         spark: SparkSession,
         temp_dir: str | None = None,
         headless: bool = False,
@@ -38,6 +44,7 @@ class SparkparseCapture:
         self._should_cleanup = temp_dir is None
         self._headless = headless
         self._parsed_logs = None
+        self._analysis: dict[str, Any] | None = None
 
     def __call__(
         self, func: Callable[..., R]
@@ -84,8 +91,8 @@ class SparkparseCapture:
 
         self.spark = builder.getOrCreate()
 
-        print(f"Log enabled: {self.spark.conf.get('spark.eventLog.enabled')}")
-        print(f"Log dir config: {self.spark.conf.get('spark.eventLog.dir')}")
+        _log.info("Log enabled: %s", self.spark.conf.get("spark.eventLog.enabled"))
+        _log.info("Log dir config: %s", self.spark.conf.get("spark.eventLog.dir"))
         return self
 
     def _run_dashboard_in_background(self):
@@ -140,25 +147,32 @@ class SparkparseCapture:
                 raise ValueError("log directory is not set")
             result = get(log_dir=self._log_dir)
             self._parsed_logs = result
-
-            if (
-                self._should_cleanup
-                and self._log_dir is not None
-                and os.path.exists(self._log_dir)
-            ):
-                shutil.rmtree(self._log_dir)
+        elif self.action == "analyze":
+            if self._log_dir is None:
+                raise ValueError("log directory is not set")
+            result = get(log_dir=self._log_dir)
+            self._parsed_logs = result
+            log_name = Path(self._log_dir).name
+            self._analysis = to_plan_summary(result, log_name)
         else:
             raise ValueError(f"Invalid action: {self.action}")
 
+        if (
+            self._should_cleanup
+            and self._log_dir is not None
+            and os.path.exists(self._log_dir)
+        ):
+            shutil.rmtree(self._log_dir)
+
 
 def capture_context(
-    action: str = "viz",
+    action: CaptureAction = "viz",
     temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
 ) -> SparkparseCapture:
     if spark is None:
-        _spark = SparkSession.builder.appName("temp").getOrCreate()  # type: ignore
+        _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()  # type: ignore
     else:
         _spark = spark
 
@@ -169,7 +183,7 @@ def capture_context(
 def capture(
     func: Callable[..., R],
     *,
-    action: str = ...,
+    action: CaptureAction = ...,
     temp_dir: str | None = ...,
     spark: SparkSession | None = ...,
     headless: bool = ...,
@@ -180,7 +194,7 @@ def capture(
 def capture(
     func: None = None,
     *,
-    action: str = ...,
+    action: CaptureAction = ...,
     temp_dir: str | None = ...,
     spark: SparkSession | None = ...,
     headless: bool = ...,
@@ -190,7 +204,7 @@ def capture(
 def capture(
     func=None,
     *,
-    action: str = "viz",
+    action: CaptureAction = "viz",
     temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
@@ -199,7 +213,7 @@ def capture(
         func: Callable[..., R],
     ) -> Callable[..., tuple[Any, SparkparseCapture]]:
         if spark is None:
-            _spark = SparkSession.builder.appName("temp").getOrCreate()  # type: ignore
+            _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()  # type: ignore
         else:
             _spark = spark
 
