@@ -112,7 +112,9 @@ uv run pyrefly check sparkparse/       # type check
 - Add `sparkparse/analyze.py` with two distinct concerns:
   - `to_plan_summary(dfs, log_name) -> dict` — token-efficient structured plan data for LLM
     piping; presents raw facts (nodes, durations, bytes, join types, paths) without pre-assigned
-    severity or pre-classified findings; the LLM draws its own conclusions
+    severity or pre-classified findings; the LLM draws its own conclusions. The value over
+    `df.explain()` is runtime metrics (per-node durations, scan bytes/records) correlated from
+    accumulator updates — plan structure alone is not worth re-encoding.
   - `find_*()` helpers — programmatic analysis functions for interactive/notebook use
     (`find_cartesian_joins`, `find_largest_scans`, `find_repeated_scans`, `find_spill`, etc.)
 - Add `tests/test_analyze.py`

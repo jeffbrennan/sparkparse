@@ -93,17 +93,37 @@ uv run pytest tests/test_clean.py -v
 
 `analyze.py` has two separate concerns:
 
-1. **`to_plan_summary(dfs, log_name) -> dict`** — token-efficient structured plan data, used
-   by the CLI pipe. Presents raw facts; lets the LLM draw its own conclusions. No severity
-   levels, no pre-classified findings.
+1. **`to_plan_summary(dfs, log_name) -> dict`** — token-efficient output for LLM piping, used
+   by the CLI. The plan structure alone (node types, parent/child relationships) is already
+   available from `df.explain()` and isn't meaningfully better when re-encoded as JSON. The
+   value here is the **runtime metrics correlated to plan nodes**: actual measured durations,
+   bytes scanned, and rows produced from accumulator updates that Spark never exposes in a
+   single queryable surface. Without these metrics, `to_plan_summary` is just a lossy
+   re-encoding of `explain()`.
 
 2. **`find_*()` helpers** — programmatic analysis functions for interactive/notebook use.
    These return structured results but are not included in the piped JSON output.
 
+### What makes the plan summary worth producing
+
+- **Per-node runtime durations** — sparkparse cross-references accumulator updates (spread
+  across `SparkListenerSQLAdaptiveExecutionUpdate` and `SparkListenerTaskEnd` events) back to
+  specific plan nodes. This is not available from `explain()` or any single Spark API.
+- **Scan metrics on the node** — bytes read and record counts from accumulator totals, placed
+  directly on the Scan node they belong to rather than scattered across task events.
+- **Cross-query view** — a single event log contains many queries. Identifying that the same
+  path is scanned repeatedly across queries requires joining across events; sparkparse does
+  this join already.
+- **Task-level aggregates** — spill and shuffle totals live in `SparkListenerTaskEnd` events
+  (potentially thousands per log). The summary aggregates these per stage so the LLM sees
+  one row per stage rather than one row per task.
+- **Token efficiency** — a real event log is typically 1–10 MB of JSONL. The plan summary
+  for the same log is ~10–50 KB.
+
 ### Plan summary output format
 
-Short field names and flat structure to minimize token usage. Omit null/empty fields.
-Node details are inlined with only the fields relevant to that node type.
+Short field names; omit null/zero fields. Runtime metrics are the primary content —
+plan structure fields (join type, keys, order) are included as supporting context only.
 
 ```json
 {
@@ -119,11 +139,11 @@ Node details are inlined with only the fields relevant to that node type.
       "fn": "count",
       "duration_s": 45.2,
       "nodes": [
-        {"id": 4, "type": "Scan", "duration_min": 0.4, "paths": ["/data/warehouse/orders"], "bytes": 1073741824, "records": 12000000},
-        {"id": 3, "type": "Filter", "duration_min": 0.1},
+        {"id": 4, "type": "Scan", "duration_min": 0.4, "bytes": 1073741824, "records": 12000000, "paths": ["/data/warehouse/orders"]},
+        {"id": 3, "type": "Filter", "duration_min": 0.1, "records_out": 8400000},
         {"id": 2, "type": "BroadcastNestedLoopJoin", "duration_min": 2.1, "join_type": "Cross"},
-        {"id": 1, "type": "HashAggregate", "duration_min": 0.3, "keys": ["customer_id"]},
-        {"id": 0, "type": "Sort", "duration_min": 0.6, "order": ["total_spend DESC"]}
+        {"id": 1, "type": "HashAggregate", "duration_min": 0.3, "records_out": 94200},
+        {"id": 0, "type": "Sort", "duration_min": 0.6}
       ]
     }
   ],
@@ -133,13 +153,11 @@ Node details are inlined with only the fields relevant to that node type.
 }
 ```
 
-Node-type-specific fields to include (omit entirely if absent/zero):
-- `Scan`: `paths` (from `ScanDetail.location.location`), `bytes`, `records` (from accumulator totals)
+Fields per node (all sourced from accumulator totals — omit if absent):
+- All nodes: `duration_min`, `records_out` (number of output rows)
+- `Scan`: `bytes` (size of files read), `records` (number of output rows), `paths`
 - `BroadcastNestedLoopJoin`, `SortMergeJoin`, `BroadcastHashJoin`: `join_type`, `join_condition`
-- `HashAggregate`: `keys`
-- `Sort`, `TakeOrderedAndProject`: `order`
-- `Exchange`, `AQEShuffleRead`: `partitioning`
-- `Window`: `partition_by`, `order_by`
+- `Exchange`, `AQEShuffleRead`: `shuffle_write_bytes`, `shuffle_read_bytes`
 
 ### `find_*` programmatic helpers
 
