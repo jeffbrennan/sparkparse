@@ -162,7 +162,6 @@ def test_join_path(base: str, parts: tuple[str, ...], expected: str) -> None:
     assert join_path(base, *parts) == expected
 
 
-
 @pytest.fixture
 def mock_fsspec():
     fake = MagicMock(name="fsspec")

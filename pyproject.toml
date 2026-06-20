@@ -26,6 +26,7 @@ s3 = ["s3fs>=2024.1.0"]
 azure = ["adlfs>=2024.1.0"]
 gcs = ["gcsfs>=2024.1.0"]
 cloud = ["s3fs>=2024.1.0", "adlfs>=2024.1.0", "gcsfs>=2024.1.0"]
+delta = ["deltalake>=0.25"]
 
 
 [tool.hatch.build.targets.wheel]

@@ -1,3 +1,4 @@
+import datetime
 import json
 from enum import StrEnum, auto
 from typing import Annotated, Any
@@ -157,9 +158,7 @@ class ScanDetailLocation(BaseModel):
 
 
 class ScanDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     batched: bool = Field(alias="Batched")
     location: ScanDetailLocation = Field(alias="Location")
     read_schema: str = Field(alias="ReadSchema")
@@ -182,16 +181,12 @@ def deserialize_scan_detail(s: str) -> ScanDetail:
 
 
 class ColumnarToRowDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
 class ProjectDetail(BaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
 
 
 class Function(BaseModel):
@@ -200,9 +195,7 @@ class Function(BaseModel):
 
 
 class HashAggregateDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     keys: Annotated[list[str] | None, Field(alias="Keys"), BeforeValidator(str_to_list)]
     functions: list[Function] | None = Field(alias="Functions")
     aggregate_attributes: Annotated[
@@ -210,9 +203,7 @@ class HashAggregateDetail(BaseModel):
         Field(alias="Aggregate Attributes"),
         BeforeValidator(str_to_list),
     ]
-    results: Annotated[
-        list[str] | None, Field(alias="Results"), BeforeValidator(str_to_list)
-    ]
+    results: Annotated[list[str] | None, Field(alias="Results"), BeforeValidator(str_to_list)]
 
     @field_validator("functions", mode="before")
     @classmethod
@@ -242,9 +233,7 @@ class ExchangeArgument(BaseModel):
 
 
 class ExchangeDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: ExchangeArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -258,9 +247,7 @@ class ExchangeDetail(BaseModel):
                 plan_identifier=int(value.split("plan_id=")[1].removesuffix("]")),
             )
 
-        hash_partition_section = (
-            value.split("), ")[0].removeprefix("hashpartitioning(").split(", ")
-        )
+        hash_partition_section = value.split("), ")[0].removeprefix("hashpartitioning(").split(", ")
         cols = [i for i in hash_partition_section if "#" in i]
         n_partitions = hash_partition_section[-1].strip()
 
@@ -276,9 +263,7 @@ class ExchangeDetail(BaseModel):
 
 
 class ShuffleQueryStageDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     stage_order: int = Field(alias="Arguments")
 
 
@@ -288,9 +273,7 @@ class AQEShuffleReadArgument(StrEnum):
 
 
 class AQEShuffleReadDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: AQEShuffleReadArgument = Field(alias="Arguments")
 
 
@@ -319,9 +302,7 @@ def parse_sort_argument_col_str(col_section: str) -> list[SortArgumentCol]:
 
 
 class SortDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: SortArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -333,9 +314,7 @@ class SortDetail(BaseModel):
         global_sort = value.split("]")[1].strip() == "true"
         sort_order = value.split(",")[-1].strip()
 
-        return SortArgument(
-            cols=cols, global_sort=global_sort, sort_order=int(sort_order)
-        )
+        return SortArgument(cols=cols, global_sort=global_sort, sort_order=int(sort_order))
 
 
 class JoinType(StrEnum):
@@ -349,12 +328,8 @@ class JoinType(StrEnum):
 
 
 class SortMergeJoinDetail(BaseModel):
-    left_keys: Annotated[
-        list[str] | None, Field(alias="Left keys"), BeforeValidator(str_to_list)
-    ]
-    right_keys: Annotated[
-        list[str] | None, Field(alias="Right keys"), BeforeValidator(str_to_list)
-    ]
+    left_keys: Annotated[list[str] | None, Field(alias="Left keys"), BeforeValidator(str_to_list)]
+    right_keys: Annotated[list[str] | None, Field(alias="Right keys"), BeforeValidator(str_to_list)]
     join_type: JoinType = Field(alias="Join type")
     join_condition: str | None = Field(alias="Join condition", default=None)
 
@@ -377,9 +352,7 @@ class WindowDetailArgument(BaseModel):
 
 
 class WindowDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: WindowDetailArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -389,18 +362,14 @@ class WindowDetail(BaseModel):
 
         window_function_col = function_section.split("(")[1].removesuffix(")")
         window_function_col = None if window_function_col == "" else window_function_col
-        window_function = Function(
-            function=function_section.split("(")[0], col=window_function_col
-        )
+        window_function = Function(function=function_section.split("(")[0], col=window_function_col)
 
         window_specification = value.split("windowspecdefinition(")[1].split("], ")[0]
         pre_frame_section = window_specification.split(", specifiedwindowframe")[0]
         partition_cols = [
             i for i in pre_frame_section.split(", ") if not ("DESC" in i or "ASC" in i)
         ]
-        order_cols = [
-            i for i in pre_frame_section.split(", ") if "DESC" in i or "ASC" in i
-        ]
+        order_cols = [i for i in pre_frame_section.split(", ") if "DESC" in i or "ASC" in i]
 
         order_cols_parsed = []
         for col in order_cols:
@@ -412,9 +381,7 @@ class WindowDetail(BaseModel):
                 )
             )
 
-        window_frame = window_specification.split("specifiedwindowframe(")[1].split(
-            "], "
-        )[0]
+        window_frame = window_specification.split("specifiedwindowframe(")[1].split("], ")[0]
 
         window_frame = "specifiedwindowframe(" + window_frame.replace(")))", "))")
 
@@ -442,16 +409,12 @@ class WindowGroupLimitArgument(BaseModel):
 
 
 class WindowGroupLimitDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: WindowGroupLimitArgument = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
     @classmethod
-    def parse_window_group_limit_argument_str(
-        cls, value: Any
-    ) -> WindowGroupLimitArgument:
+    def parse_window_group_limit_argument_str(cls, value: Any) -> WindowGroupLimitArgument:
         partition_cols = value.split("], ")[0].removeprefix("[").strip().split(", ")
         order_section = value.split("], ")[1].removeprefix("[").strip().split(", ")
 
@@ -513,16 +476,12 @@ class FilterDetailCondition(BaseModel):
 
 
 class FilterDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     condition: str = Field(alias="Condition")
 
 
 class CoalesceDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     n_partitions: int = Field(alias="Arguments")
 
 
@@ -548,12 +507,8 @@ class InsertIntoHadoopFsRelationCommandDetailArguments(BaseModel):
 
 
 class InsertIntoHadoopFsRelationCommandDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
-    arguments: InsertIntoHadoopFsRelationCommandDetailArguments = Field(
-        alias="Arguments"
-    )
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
+    arguments: InsertIntoHadoopFsRelationCommandDetailArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
     @classmethod
@@ -594,10 +549,8 @@ def deserialize_insert_into_hadoop_fs_relation_command_detail(
     s: str,
 ) -> InsertIntoHadoopFsRelationCommandDetail:
     data = json.loads(s)["detail"]
-    data["arguments"] = (
-        InsertIntoHadoopFsRelationCommandDetailArguments.model_construct(
-            **data["arguments"]
-        )
+    data["arguments"] = InsertIntoHadoopFsRelationCommandDetailArguments.model_construct(
+        **data["arguments"]
     )
     return InsertIntoHadoopFsRelationCommandDetail.model_construct(**data)
 
@@ -608,16 +561,12 @@ class LocalTableScanArguments(BaseModel):
 
 
 class LocalTableScanDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     arguments: LocalTableScanArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
     @classmethod
-    def parse_local_table_scan_arguments_str(
-        cls, value: Any
-    ) -> LocalTableScanArguments:
+    def parse_local_table_scan_arguments_str(cls, value: Any) -> LocalTableScanArguments:
         contents = value.split(", [")[0]
         input_col_section = "[" + value.split(", [")[1]
         input_cols = str_to_list(input_col_section)
@@ -625,15 +574,11 @@ class LocalTableScanDetail(BaseModel):
 
 
 class WriteFilesDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
 
 
 class LocalLimitDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     limit: int = Field(alias="Arguments")
 
 
@@ -643,9 +588,7 @@ class GlobalLimitArguments(BaseModel):
 
 
 class GlobalLimitDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: GlobalLimitArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -670,16 +613,12 @@ class BroadcastExchangeArguments(BaseModel):
 
 
 class BroadcastExchangeDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: BroadcastExchangeArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
     @classmethod
-    def parse_broadcast_exchange_arguments_str(
-        cls, value: Any
-    ) -> BroadcastExchangeArguments:
+    def parse_broadcast_exchange_arguments_str(cls, value: Any) -> BroadcastExchangeArguments:
         value_split = value.split(", ")
         mode = BroadcastExchangeMode(value_split[0].split("(")[0])
         plan_identifier = int(
@@ -712,19 +651,13 @@ class BroadcastExchangeDetail(BaseModel):
 
 
 class BroadcastQueryStageDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     stage_order: int = Field(alias="Arguments")
 
 
 class BroadcastHashJoinDetail(BaseModel):
-    left_keys: Annotated[
-        list[str], Field(alias="Left keys"), BeforeValidator(str_to_list)
-    ]
-    right_keys: Annotated[
-        list[str], Field(alias="Right keys"), BeforeValidator(str_to_list)
-    ]
+    left_keys: Annotated[list[str], Field(alias="Left keys"), BeforeValidator(str_to_list)]
+    right_keys: Annotated[list[str], Field(alias="Right keys"), BeforeValidator(str_to_list)]
     join_type: JoinType = Field(alias="Join type")
     join_condition: str | None = Field(alias="Join condition", default=None)
 
@@ -742,9 +675,7 @@ class TakeOrderedAndProjectDetailArguments(BaseModel):
 
 
 class TakeOrderedAndProjectDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: TakeOrderedAndProjectDetailArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -757,9 +688,7 @@ class TakeOrderedAndProjectDetail(BaseModel):
         cols = parse_sort_argument_col_str(cols_raw)
         output = str_to_list(value.split("], [")[-1])
 
-        return TakeOrderedAndProjectDetailArguments(
-            limit=limit, cols=cols, output=output
-        )
+        return TakeOrderedAndProjectDetailArguments(limit=limit, cols=cols, output=output)
 
 
 class BroadcastNestedLoopJoinDetail(BaseModel):
@@ -774,9 +703,7 @@ class BroadcastNestedLoopJoinDetail(BaseModel):
 
 
 class ReusedExchangeDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     reuses_node_id: int = Field(alias="reuses_node_id")
 
 
@@ -787,9 +714,7 @@ class GenerateDetailArguments(BaseModel):
 
 
 class GenerateDetail(BaseModel):
-    input: Annotated[
-        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
-    ]
+    input: Annotated[list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)]
     arguments: GenerateDetailArguments = Field(alias="Arguments")
 
     @field_validator("arguments", mode="before")
@@ -805,16 +730,12 @@ class GenerateDetail(BaseModel):
 
 
 class TableCacheQueryStageDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     stage_order: int = Field(alias="Arguments")
 
 
 class InMemoryTableScanDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
 
 
 class InMemoryRelationDetail(BaseModel):
@@ -823,9 +744,7 @@ class InMemoryRelationDetail(BaseModel):
 
 
 class AdaptiveSparkPlanDetail(BaseModel):
-    output: Annotated[
-        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
-    ]
+    output: Annotated[list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)]
     is_final_plan: bool = Field(alias="Arguments")
 
     @field_validator("is_final_plan", mode="before")
@@ -915,9 +834,7 @@ class PushBasedShuffle(BaseModel):
     merged_local_chunks_fetched: int = Field(alias="Merged Local Chunks Fetched")
     merged_remote_bytes_read: int = Field(alias="Merged Remote Bytes Read")
     merged_local_bytes_read: int = Field(alias="Merged Local Bytes Read")
-    merged_remote_requests_duration: int = Field(
-        alias="Merged Remote Requests Duration"
-    )
+    merged_remote_requests_duration: int = Field(alias="Merged Remote Requests Duration")
 
 
 class ShuffleReadMetrics(BaseModel):
@@ -1050,3 +967,20 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, type[BaseModel]] = {
     NodeType.InMemoryRelation: InMemoryRelationDetail,
     NodeType.AdaptiveSparkPlan: AdaptiveSparkPlanDetail,
 }
+
+
+class RunRecord(BaseModel):
+    run_id: str
+    run_at: datetime.datetime
+    log_name: str
+    duration_s: float
+    bytes_read: int
+    bytes_written: int
+    shuffle_bytes: int
+    spill_bytes: int
+    n_queries: int
+    n_stages: int
+    n_tasks: int
+    n_cartesian_joins: int
+    max_node_duration_min: float
+    max_scan_bytes: int
