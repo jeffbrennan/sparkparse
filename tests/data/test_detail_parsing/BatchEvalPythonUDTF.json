@@ -1,0 +1,10 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 1,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (3)\n+- BatchEvalPythonUDTF (2)\n   +- Scan ExistingRDD (1)\n\n\n(1) Scan ExistingRDD\nOutput [1]: [id#0L]\nArguments: [id#0L], MapPartitionsRDD[4] at applySchemaToPythonRDD at NativeMethodAccessorImpl.java:0, ExistingRDD, UnknownPartitioning(0)\n\n(2) BatchEvalPythonUDTF\nInput [1]: [id#0L]\nArguments: my_udtf(id#0L)#2, [id#0L], [id#3, doubled#4]\n\n(3) AdaptiveSparkPlan\nOutput [3]: [id#0L, id#3, doubled#4]\nArguments: isFinalPlan=false\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": []
+  }
+}

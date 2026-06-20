@@ -1,0 +1,10 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 5,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (10)\n+- FlatMapCoGroupsInArrow (9)\n   :- Sort (4)\n   :  +- Exchange (3)\n   :     +- Project (2)\n   :        +- Scan ExistingRDD (1)\n   +- Sort (8)\n      +- Exchange (7)\n         +- Project (6)\n            +- Scan ExistingRDD (5)\n\n\n(1) Scan ExistingRDD\nOutput [2]: [id#18L, name#19]\nArguments: [id#18L, name#19], MapPartitionsRDD[33] at applySchemaToPythonRDD at NativeMethodAccessorImpl.java:0, ExistingRDD, UnknownPartitioning(0)\n\n(2) Project\nOutput [3]: [id#18L, id#18L, name#19]\nInput [2]: [id#18L, name#19]\n\n(3) Exchange\nInput [3]: [id#18L, id#18L, name#19]\nArguments: hashpartitioning(id#18L, 200), ENSURE_REQUIREMENTS, [plan_id=91]\n\n(4) Sort\nInput [3]: [id#18L, id#18L, name#19]\nArguments: [id#18L ASC NULLS FIRST], false, 0\n\n(5) Scan ExistingRDD\nOutput [2]: [id#20L, score#21]\nArguments: [id#20L, score#21], MapPartitionsRDD[38] at applySchemaToPythonRDD at NativeMethodAccessorImpl.java:0, ExistingRDD, UnknownPartitioning(0)\n\n(6) Project\nOutput [3]: [id#20L, id#20L, score#21]\nInput [2]: [id#20L, score#21]\n\n(7) Exchange\nInput [3]: [id#20L, id#20L, score#21]\nArguments: hashpartitioning(id#20L, 200), ENSURE_REQUIREMENTS, [plan_id=92]\n\n(8) Sort\nInput [3]: [id#20L, id#20L, score#21]\nArguments: [id#20L ASC NULLS FIRST], false, 0\n\n(9) FlatMapCoGroupsInArrow\nLeft output [3]: [id#18L, id#18L, name#19]\nRight output [3]: [id#20L, id#20L, score#21]\nArguments: [id#18L], [id#20L], process_cogroup(id#18L, name#19, id#20L, score#21)#22, [id#23L, name#24, score#25]\n\n(10) AdaptiveSparkPlan\nOutput [3]: [id#23L, name#24, score#25]\nArguments: isFinalPlan=false\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": []
+  }
+}
