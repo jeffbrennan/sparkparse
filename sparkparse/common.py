@@ -24,7 +24,9 @@ def timeit(func):
         result = func(*args, **kwargs)
         end_time = time.perf_counter()
         total_time = end_time - start_time
-        print(f"{get_current_time()} -- Function {func.__name__} Took {total_time * 1000:.2f} ms")
+        print(
+            f"{get_current_time()} -- Function {func.__name__} Took {total_time * 1000:.2f} ms"
+        )
         return result
 
     return timeit_wrapper
@@ -114,7 +116,9 @@ def resolve_dir(incoming_dir: str | Path, default_nesting=2) -> str | Path:
     path = Path(__file__).parents[default_nesting] / incoming_dir
     if not path.exists():
         if not path.parent.exists():
-            raise ValueError(f"directory {path} does not exist and parent is also missing")
+            raise ValueError(
+                f"directory {path} does not exist and parent is also missing"
+            )
         path.mkdir(exist_ok=True, parents=True)
 
     return path

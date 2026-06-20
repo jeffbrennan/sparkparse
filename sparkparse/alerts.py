@@ -77,7 +77,9 @@ def load_alert_config(path: str) -> list[AlertConfig]:
     return [AlertConfig(**a) for a in raw_alerts]
 
 
-def _compute_baseline(history: pl.DataFrame, alert: AlertConfig, current_run_id: str) -> float:
+def _compute_baseline(
+    history: pl.DataFrame, alert: AlertConfig, current_run_id: str
+) -> float:
     """Mean of the alert metric over the last ``window`` runs, excluding the
     current run. Returns 0.0 when no history is available.
     """
@@ -86,7 +88,8 @@ def _compute_baseline(history: pl.DataFrame, alert: AlertConfig, current_run_id:
 
     hist = (
         history.filter(
-            (pl.col("log_name") == alert.log_name) & (pl.col("run_id") != current_run_id)
+            (pl.col("log_name") == alert.log_name)
+            & (pl.col("run_id") != current_run_id)
         )
         .sort("run_at", descending=True)
         .head(alert.window)
@@ -101,7 +104,9 @@ def _compute_baseline(history: pl.DataFrame, alert: AlertConfig, current_run_id:
     return 0.0
 
 
-def _dispatch(alert: AlertConfig, alert_dict: dict, alert_output_path: str | None) -> None:
+def _dispatch(
+    alert: AlertConfig, alert_dict: dict, alert_output_path: str | None
+) -> None:
     if alert.on_trigger == "raise":
         raise SparkparseAlertError(
             alert_name=alert.name,

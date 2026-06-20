@@ -92,11 +92,15 @@ def parse_task(line_dict: dict) -> Task:
         task_metrics=TaskMetrics(**task_metrics),
         executor_metrics=ExecutorMetrics(**line_dict["Task Executor Metrics"]),
         shuffle_read_metrics=ShuffleReadMetrics(**task_metrics["Shuffle Read Metrics"]),
-        shuffle_write_metrics=ShuffleWriteMetrics(**task_metrics["Shuffle Write Metrics"]),
+        shuffle_write_metrics=ShuffleWriteMetrics(
+            **task_metrics["Shuffle Write Metrics"]
+        ),
         input_metrics=InputMetrics(**task_metrics["Input Metrics"]),
         output_metrics=OutputMetrics(**task_metrics["Output Metrics"]),
     )
-    accumulators = [Accumulator(task_id=task_id, **i) for i in task_info["Accumulables"]]
+    accumulators = [
+        Accumulator(task_id=task_id, **i) for i in task_info["Accumulables"]
+    ]
     return Task(
         metrics=metrics,
         accumulators=accumulators,
@@ -213,9 +217,10 @@ def parse_node_accumulators(
         if "metrics" in node_info and not is_excluded:
             node_id = node_ids[child_index]
             expected_node_name = node_map[node_id].node_type
-            assert node_name.replace("Execute ", "").split(" ")[0] in expected_node_name.value, (
-                print(f"{node_name} not in {expected_node_name.value}")
-            )
+            assert (
+                node_name.replace("Execute ", "").split(" ")[0]
+                in expected_node_name.value
+            ), print(f"{node_name} not in {expected_node_name.value}")
             metrics_parsed = [
                 PlanAccumulator(
                     node_id=node_id,
@@ -236,7 +241,9 @@ def parse_node_accumulators(
     tree_nodes_missing_from_accumulators = [NodeType.InMemoryRelation]
     accumulators_missing_from_tree_nodes = ["WholeStageCodegen", "InputAdapter"]
     node_ids = [
-        k for k, v in node_map.items() if v.node_type not in tree_nodes_missing_from_accumulators
+        k
+        for k, v in node_map.items()
+        if v.node_type not in tree_nodes_missing_from_accumulators
     ]
 
     accumulators = {}
@@ -308,7 +315,9 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         prev_indentation = indentation_history[-1]
         if prev_indentation[0] > indentation_level:
             n_expected_roots += 1
-            child_nodes = [i[1] for i in branch_history if i[0] == indentation_level - step]
+            child_nodes = [
+                i[1] for i in branch_history if i[0] == indentation_level - step
+            ]
 
             if child_nodes:
                 assert all(i > node_id for i in child_nodes)
@@ -353,7 +362,9 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
         tree = tree_split_final[0].strip() + tree_split_final[1]
 
     if initial_plan_indicator in tree or final_plan_indicator in tree:
-        raise ValueError("could not remove initial plan after", max_attempts, "attempts")
+        raise ValueError(
+            "could not remove initial plan after", max_attempts, "attempts"
+        )
 
     node_map = parse_spark_ui_tree(tree)
     plan_accumulators = parse_node_accumulators(line_dict, node_map)
@@ -421,7 +432,9 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
 
     targets = []
     for target in target_model_strings:
-        path = deserialize_insert_into_hadoop_fs_relation_command_detail(target).arguments.file_path
+        path = deserialize_insert_into_hadoop_fs_relation_command_detail(
+            target
+        ).arguments.file_path
         targets.append(path)
     parsed_paths = []
     if len(targets) > 0:
@@ -476,7 +489,9 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
             break
 
     if start_index is None:
-        raise ValueError(f"Could not find '{start_point}' event in log file: {log_path_str}")
+        raise ValueError(
+            f"Could not find '{start_point}' event in log file: {log_path_str}"
+        )
 
     contents_to_parse = all_contents[start_index:]
 
@@ -494,7 +509,9 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
         if event_type.startswith("SparkListenerJob"):
             job = parse_job(line_dict)
             jobs.append(job)
-            logger.debug(f"[line {i:04d}] parse finish - job#{job.job_id}  type:{job.event_type}")
+            logger.debug(
+                f"[line {i:04d}] parse finish - job#{job.job_id}  type:{job.event_type}"
+            )
         elif event_type.startswith("SparkListenerStage"):
             stage = parse_stage(line_dict)
             stages.append(stage)
@@ -504,20 +521,27 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
         elif event_type == "SparkListenerTaskEnd":
             task = parse_task(line_dict)
             tasks.append(task)
-            logger.debug(f"[line {i:04d}] parse finish - task#{task.task_id} stage#{task.stage_id}")
+            logger.debug(
+                f"[line {i:04d}] parse finish - task#{task.task_id} stage#{task.stage_id}"
+            )
         elif event_type.endswith("SparkListenerSQLAdaptiveExecutionUpdate"):
             is_final_plan = (
-                line_dict["sparkPlanInfo"]["simpleString"].split("isFinalPlan=")[-1] == "true"
+                line_dict["sparkPlanInfo"]["simpleString"].split("isFinalPlan=")[-1]
+                == "true"
             )
             if is_final_plan:
                 logger.debug(f"Found final plan at line {i}")
                 queries.append(line_dict)
-            logger.debug(f"[line {i:04d}] parse skip - unhandled event type {event_type}")
+            logger.debug(
+                f"[line {i:04d}] parse skip - unhandled event type {event_type}"
+            )
         elif event_type.endswith("SparkListenerSQLExecutionStart"):
             query_times.append(
                 QueryEvent(
                     query_id=line_dict["executionId"],
-                    query_function=QueryFunction(line_dict["description"].split(" ")[0]),
+                    query_function=QueryFunction(
+                        line_dict["description"].split(" ")[0]
+                    ),
                     query_time=line_dict["time"],
                     event_type=EventType.start,
                 )
@@ -621,7 +645,9 @@ def get_parsed_metrics(
             .unnest("accumulator_totals")
         )
 
-        combined_df = combined_df.with_columns(pl.col("nodes").list.join(", ").alias("nodes"))
+        combined_df = combined_df.with_columns(
+            pl.col("nodes").list.join(", ").alias("nodes")
+        )
 
     write_parsed_log(
         df=dag_df,

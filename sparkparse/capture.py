@@ -63,7 +63,9 @@ class SparkparseCapture:
         self._last_record: RunRecord | None = None
         self._triggered_alerts: list[dict] = []
 
-    def __call__(self, func: Callable[..., R]) -> Callable[..., tuple[R, "SparkparseCapture"]]:
+    def __call__(
+        self, func: Callable[..., R]
+    ) -> Callable[..., tuple[R, "SparkparseCapture"]]:
         @functools.wraps(func)
         def get_wrapper(*args: Any, **kwargs: Any) -> tuple[R, "SparkparseCapture"]:
             with self:
@@ -202,7 +204,11 @@ class SparkparseCapture:
         if self._history_path is not None:
             self._record_history_and_alerts()
 
-        if self._should_cleanup and self._log_dir is not None and path_exists(self._log_dir):
+        if (
+            self._should_cleanup
+            and self._log_dir is not None
+            and path_exists(self._log_dir)
+        ):
             remove_dir(self._log_dir)
 
 

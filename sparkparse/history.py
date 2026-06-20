@@ -132,7 +132,9 @@ def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
     )
 
 
-def append(record: RunRecord, history_path: str, format: HistoryFormat = "auto") -> None:
+def append(
+    record: RunRecord, history_path: str, format: HistoryFormat = "auto"
+) -> None:
     """Append a ``RunRecord`` to the history store at ``history_path``.
 
     For Delta, ``history_path`` is a directory. For JSONL, it is a file path.

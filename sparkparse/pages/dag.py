@@ -154,18 +154,20 @@ def create_elements(
                 )
 
                 prev_metric_type.append(metric["metric_type"])
-            hover_info += (
-                f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
-            )
+            hover_info += f"{metric['metric_name']}: {metric['readable_value']:,} {metric['readable_unit']}\n"
 
         return hover_info
 
     def format_details(hover_info: str) -> str:
         dict_to_display = json.loads(row["details"])["detail"]
         if dict_to_display is not None:
-            hover_info += create_header(header_length, "Details", center=True, spacer="-") + "\n"
+            hover_info += (
+                create_header(header_length, "Details", center=True, spacer="-") + "\n"
+            )
             hover_info += json.dumps(dict_to_display, indent=1)
-            hover_info += "\n" + create_header(header_length, "", center=False, spacer="-")
+            hover_info += "\n" + create_header(
+                header_length, "", center=False, spacer="-"
+            )
 
         return hover_info
 
@@ -177,13 +179,19 @@ def create_elements(
 
     hotspot_map = {}
     if hotspot_metric == "node_duration_minutes":
-        hotspot_map.update({row["node_id"]: row["node_duration_minutes"] for row in df_data})
+        hotspot_map.update(
+            {row["node_id"]: row["node_duration_minutes"] for row in df_data}
+        )
     else:
         for row in df_data:
             if row["accumulator_totals"] is None:
                 continue
 
-            metrics = [i for i in row["accumulator_totals"] if i["metric_name"] == hotspot_metric]
+            metrics = [
+                i
+                for i in row["accumulator_totals"]
+                if i["metric_name"] == hotspot_metric
+            ]
 
             if not metrics:
                 continue
@@ -363,14 +371,17 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
     Input("log-name", "data"),
 )
 def initialize_dropdown(log_name: str):
-    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).dag.filter(
-        pl.col("node_type").is_not_null()
+    df = get_parsed_metrics(
+        log_file=log_name, out_dir=None, out_format=None
+    ).dag.filter(pl.col("node_type").is_not_null())
+
+    query_records = (
+        df.select("query_id", "query_header").unique().sort("query_id").to_dicts()
     )
 
-    query_records = df.select("query_id", "query_header").unique().sort("query_id").to_dicts()
-
     options = [
-        {"label": f"Query {i['query_header']}", "value": i["query_id"]} for i in query_records
+        {"label": f"Query {i['query_header']}", "value": i["query_id"]}
+        for i in query_records
     ]
     return query_records[0]["query_id"], options
 
@@ -422,9 +433,9 @@ def hotspot_picker(df_data: list[dict[str, Any]]):
 )
 @timeit
 def get_records(log_name: str, query_id: int):
-    df = get_parsed_metrics(log_file=log_name, out_dir=None, out_format=None).dag.filter(
-        pl.col("node_type").is_not_null()
-    )
+    df = get_parsed_metrics(
+        log_file=log_name, out_dir=None, out_format=None
+    ).dag.filter(pl.col("node_type").is_not_null())
 
     filtered_df = df.filter(pl.col("query_id").eq(query_id))
     records = filtered_df.to_pandas().to_dict("records")
@@ -513,7 +524,9 @@ def layout(log_name: str, **kwargs) -> html.Div:
 
 
 @timeit
-def get_node_box(df_data: list[dict[str, Any]], node_id: int, dark_mode: bool) -> Figure | None:
+def get_node_box(
+    df_data: list[dict[str, Any]], node_id: int, dark_mode: bool
+) -> Figure | None:
     df = (
         pl.DataFrame(df_data, strict=False)
         .filter(pl.col("node_id").eq(node_id))
@@ -523,13 +536,17 @@ def get_node_box(df_data: list[dict[str, Any]], node_id: int, dark_mode: bool) -
         .unnest("accumulators")
         .with_columns(
             pl.when(pl.col("readable_unit").ne(""))
-            .then(pl.concat_str("metric_name", pl.lit(" ["), "readable_unit", pl.lit("]")))
+            .then(
+                pl.concat_str("metric_name", pl.lit(" ["), "readable_unit", pl.lit("]"))
+            )
             .otherwise(pl.col("metric_name"))
             .alias("metric_name_viz")
         )
         .with_columns(pl.col("readable_value").round(1).alias("readable_value"))
         .with_columns(pl.mean("readable_value").over("metric_name_viz").alias("mean"))
-        .with_columns(pl.median("readable_value").over("metric_name_viz").alias("median"))
+        .with_columns(
+            pl.median("readable_value").over("metric_name_viz").alias("median")
+        )
         .with_columns(pl.col("task_id").len().over("metric_name_viz").alias("n"))
         .select(
             "metric_name_viz",
@@ -574,7 +591,9 @@ def get_node_box(df_data: list[dict[str, Any]], node_id: int, dark_mode: bool) -
 
     fig.update_traces(
         hoveron="points",
-        hovertemplate=("Task #%{customdata[0]}<br>%{x} %{customdata[1]}<br><extra></extra>"),
+        hovertemplate=(
+            "Task #%{customdata[0]}<br>%{x} %{customdata[1]}<br><extra></extra>"
+        ),
         selector=dict(type="box"),
     )
 
@@ -602,7 +621,9 @@ def get_node_box(df_data: list[dict[str, Any]], node_id: int, dark_mode: bool) -
         mean_str = format(metrics["mean"], ",.2f").rstrip("0").rstrip(".")
         median_str = format(metrics["median"], ",.2f").rstrip("0").rstrip(".")
 
-        annotation.text = f"<b>{metric_name}</b><br>n={n_str} | avg={mean_str} | med={median_str}"
+        annotation.text = (
+            f"<b>{metric_name}</b><br>n={n_str} | avg={mean_str} | med={median_str}"
+        )
 
     fig.for_each_yaxis(
         lambda y: y.update(
@@ -660,7 +681,9 @@ def update_tooltip(
     current_graph: dcc.Graph,
 ):
     trigger = (
-        callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+        callback_context.triggered[0]["prop_id"].split(".")[0]
+        if callback_context.triggered
+        else ""
     )
     if trigger == "clear-tooltip":
         return "", {"display": "none"}, "", {"display": "none"}
