@@ -1,14 +1,12 @@
 import functools
 import logging
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import webbrowser
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Literal, TypeVar, overload
 
 from pyspark.sql import SparkSession
@@ -16,6 +14,16 @@ from pyspark.sql import SparkSession
 from sparkparse.analyze import to_plan_summary
 from sparkparse.app import get
 from sparkparse.models import ParsedLogDataFrames
+from sparkparse.storage import (
+    copy_file,
+    ensure_dir,
+    get_path_name,
+    get_path_stem,
+    join_path,
+    list_files,
+    path_exists,
+    remove_dir,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -46,9 +54,7 @@ class SparkparseCapture:
         self._parsed_logs = None
         self._analysis: dict[str, Any] | None = None
 
-    def __call__(
-        self, func: Callable[..., R]
-    ) -> Callable[..., tuple[R, "SparkparseCapture"]]:
+    def __call__(self, func: Callable[..., R]) -> Callable[..., tuple[R, "SparkparseCapture"]]:
         @functools.wraps(func)
         def get_wrapper(*args: Any, **kwargs: Any) -> tuple[R, "SparkparseCapture"]:
             with self:
@@ -70,7 +76,7 @@ class SparkparseCapture:
         if self.temp_dir is None:
             self._log_dir = tempfile.mkdtemp(prefix="sparkparse_")
         else:
-            os.makedirs(self.temp_dir, exist_ok=True)
+            ensure_dir(self.temp_dir)
             self._log_dir = self.temp_dir
 
         if self.spark or SparkSession.getActiveSession():
@@ -130,14 +136,14 @@ class SparkparseCapture:
         if self._log_dir is None:
             raise ValueError("log directory is not set")
 
-        log_dir_contents = [i for i in Path(self._log_dir).glob("*")]
-        if not any(log_dir_contents):
+        log_dir_contents = list_files(self._log_dir)
+        if not log_dir_contents:
             raise ValueError("no logs found in log directory")
 
         if self._orig_log_dir is not None:
             for f in log_dir_contents:
-                out_path = Path(self._orig_log_dir) / f.stem
-                shutil.copy2(f.as_posix(), out_path)
+                out_path = join_path(self._orig_log_dir, get_path_stem(f))
+                copy_file(f, out_path)
 
         if self.action == "viz":
             self._run_dashboard_in_background()
@@ -152,17 +158,13 @@ class SparkparseCapture:
                 raise ValueError("log directory is not set")
             result = get(log_dir=self._log_dir)
             self._parsed_logs = result
-            log_name = Path(self._log_dir).name
+            log_name = get_path_name(self._log_dir)
             self._analysis = to_plan_summary(result, log_name)
         else:
             raise ValueError(f"Invalid action: {self.action}")
 
-        if (
-            self._should_cleanup
-            and self._log_dir is not None
-            and os.path.exists(self._log_dir)
-        ):
-            shutil.rmtree(self._log_dir)
+        if self._should_cleanup and self._log_dir is not None and path_exists(self._log_dir):
+            remove_dir(self._log_dir)
 
 
 def capture_context(
@@ -217,9 +219,7 @@ def capture(
         else:
             _spark = spark
 
-        cap = SparkparseCapture(
-            action, spark=_spark, temp_dir=temp_dir, headless=headless
-        )
+        cap = SparkparseCapture(action, spark=_spark, temp_dir=temp_dir, headless=headless)
         return cap(func)
 
     if func is None:

@@ -41,6 +41,13 @@ from sparkparse.models import (
     deserialize_insert_into_hadoop_fs_relation_command_detail,
     deserialize_scan_detail,
 )
+from sparkparse.storage import (
+    get_path_stem,
+    is_cloud_path,
+    join_path,
+    list_files,
+    open_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -452,20 +459,22 @@ def parse_driver_accum_update(line_dict: dict) -> list[DriverAccumUpdates]:
     return accum_updates
 
 
-def check_if_log_has_queries(log_path: Path) -> bool:
-    if ".DS_Store" in log_path.name:
+def check_if_log_has_queries(log_path: str | Path) -> bool:
+    log_path_str = str(log_path)
+    if ".DS_Store" in log_path_str:
         return False
 
-    with log_path.open("r") as f:
+    with open_file(log_path_str, "r") as f:
         all_contents = f.read()
 
     return "SparkListenerSQLExecutionStart" in all_contents
 
 
 @timeit
-def parse_log(log_path: Path, out_name: str | None = None) -> ParsedLog:
-    logger.debug(f"Starting to parse log file: {log_path}")
-    with log_path.open("r") as f:
+def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
+    log_path_str = str(log_path)
+    logger.debug(f"Starting to parse log file: {log_path_str}")
+    with open_file(log_path_str, "r") as f:
         all_contents = f.readlines()
 
     start_point = "SparkListenerApplicationStart"
@@ -568,7 +577,8 @@ def get_parsed_metrics(
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
 ) -> ParsedLogDataFrames:
-    log_dir_path = resolve_dir(log_dir)
+    log_dir_str = str(log_dir)
+    cloud = is_cloud_path(log_dir_str)
 
     if verbose:
         logging.basicConfig(
@@ -579,16 +589,28 @@ def get_parsed_metrics(
     else:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    if log_file is None:
-        log_to_parse = sorted(log_dir_path.glob("*"))[-1]
+    if cloud:
+        if log_file is None:
+            candidates = sorted(list_files(log_dir_str))
+            if not candidates:
+                raise ValueError(f"No log files found in cloud path: {log_dir_str}")
+            log_to_parse = candidates[-1]
+        else:
+            log_to_parse = join_path(log_dir_str, log_file)
+        log_stem = get_path_stem(log_to_parse)
     else:
-        log_to_parse = log_dir_path / log_file
+        log_dir_path = resolve_dir(log_dir)
+        if log_file is None:
+            log_to_parse = sorted(log_dir_path.glob("*"))[-1]
+        else:
+            log_to_parse = log_dir_path / log_file
+        log_stem = log_to_parse.stem
 
     logging.info(f"Reading log file: {log_to_parse}")
 
     result = parse_log(log_to_parse, out_name)
     dag_df = log_to_dag_df(result)
-    combined_df = log_to_combined_df(result, dag_df, log_to_parse.stem)
+    combined_df = log_to_combined_df(result, dag_df, log_stem)
 
     output = ParsedLogDataFrames(combined=combined_df, dag=dag_df)
 

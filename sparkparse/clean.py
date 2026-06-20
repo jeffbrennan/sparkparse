@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import polars as pl
 
@@ -12,6 +13,7 @@ from sparkparse.models import (
     Stage,
     Task,
 )
+from sparkparse.storage import is_cloud_path, join_path
 
 
 def clean_jobs(jobs: list[Job]) -> pl.DataFrame:
@@ -814,10 +816,13 @@ def write_parsed_log(
     parsed_name: str,
     suffix: str,
 ) -> None:
-    out_dir_path = resolve_dir(out_dir, 1)
-    out_dir_path.mkdir(parents=True, exist_ok=True)
-
-    out_path = out_dir_path / f"{parsed_name}_{suffix}"
+    if is_cloud_path(out_dir):
+        out_path = join_path(out_dir, f"{parsed_name}_{suffix}")
+    else:
+        out_dir_path = resolve_dir(out_dir, 1)
+        assert isinstance(out_dir_path, Path)
+        out_dir_path.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir_path / f"{parsed_name}_{suffix}"
 
     logging.info(f"Writing parsed log: {out_path}")
     logging.debug(f"Output format: {out_format}")

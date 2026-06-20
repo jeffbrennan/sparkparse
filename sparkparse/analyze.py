@@ -6,6 +6,7 @@ from typing import Any
 import polars as pl
 
 from sparkparse.models import NodeType, ParsedLogDataFrames
+from sparkparse.storage import write_text
 
 _JOIN_NODE_TYPES = frozenset(
     [
@@ -26,13 +27,20 @@ def _detail_dict(details_str: str | None) -> dict[str, Any] | None:
         return None
 
 
-def to_plan_summary(dfs: ParsedLogDataFrames, log_name: str) -> dict[str, Any]:
+def to_plan_summary(
+    dfs: ParsedLogDataFrames,
+    log_name: str,
+    out_path: str | None = None,
+) -> dict[str, Any]:
     """
     Return a token-efficient dict of execution plan data for LLM analysis.
 
     Presents raw facts (nodes, durations, bytes, join types, paths) without
     pre-assigned severity. The value over df.explain() is runtime metrics
     (per-node durations correlated from accumulator updates).
+
+    When ``out_path`` is provided, the JSON-serialized summary is also written
+    there (local path or cloud URI via storage.write_text).
     """
     dag = dfs.dag
     combined = dfs.combined
@@ -110,11 +118,16 @@ def to_plan_summary(dfs: ParsedLogDataFrames, log_name: str) -> dict[str, Any]:
         pl.sum("jvm_gc_time_seconds").alias("jvm_gc_time_seconds"),
     ).row(0, named=True)
 
-    return {
+    summary = {
         "log_name": log_name,
         "queries": queries,
         "totals": agg,
     }
+
+    if out_path is not None:
+        write_text(out_path, json.dumps(summary, indent=2, default=str))
+
+    return summary
 
 
 def find_cartesian_joins(dfs: ParsedLogDataFrames) -> pl.DataFrame:
@@ -186,16 +199,12 @@ def find_largest_scans(dfs: ParsedLogDataFrames, n: int = 10) -> pl.DataFrame:
     )
 
     return (
-        scan_nodes.select(
-            "query_id", "node_id", "node_name", "details", "node_duration_minutes"
-        )
+        scan_nodes.select("query_id", "node_id", "node_name", "details", "node_duration_minutes")
         .join(node_bytes, on=["query_id", "node_name"], how="left")
         .with_columns(
             pl.col("details")
             .map_elements(
-                lambda s: json.loads(s)["detail"]["location"]["location"]
-                if s is not None
-                else [],
+                lambda s: json.loads(s)["detail"]["location"]["location"] if s is not None else [],
                 return_dtype=pl.List(pl.String),
             )
             .alias("paths")
