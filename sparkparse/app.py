@@ -6,9 +6,10 @@ from typing import Annotated
 
 import typer
 
+from sparkparse import alerts, history
 from sparkparse.analyze import to_plan_summary
 from sparkparse.dashboard import init_dashboard, run_app
-from sparkparse.models import OutputFormat, ParsedLogDataFrames
+from sparkparse.models import OutputFormat, ParsedLogDataFrames, RunRecord
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.storage import (
     get_path_name,
@@ -25,6 +26,11 @@ app = typer.Typer(pretty_exceptions_enable=False)
 class AnalysisFormat(StrEnum):
     json = "json"
     text = "text"
+
+
+class HistoryFormat(StrEnum):
+    table = "table"
+    json = "json"
 
 
 def _version_callback(value: bool) -> None:
@@ -159,6 +165,64 @@ def analyze(
         typer.echo(f"Analysis written to {out_file}", err=True)
     else:
         sys.stdout.write(output + "\n")
+
+
+@app.command("history")
+def history_cmd(
+    history_path: Annotated[
+        str, typer.Argument(help="Path to history store (Delta dir or JSONL file).")
+    ],
+    log_name: Annotated[
+        str | None,
+        typer.Option(help="Filter records to this log_name only."),
+    ] = None,
+    last: Annotated[
+        int | None, typer.Option(help="Show only the last N runs (most recent first).")
+    ] = None,
+    format: Annotated[
+        HistoryFormat,
+        typer.Option(help="Output format: 'table' (default) or 'json'."),
+    ] = HistoryFormat.table,
+) -> None:
+    """Query the run history store for past job metrics."""
+    df = history.read(history_path, log_name=log_name, last_n=last)
+
+    if df.is_empty():
+        typer.echo("No history records found.")
+        return
+
+    if format == HistoryFormat.json:
+        typer.echo(json.dumps(df.to_dicts(), default=str, indent=2))
+    else:
+        typer.echo(str(df))
+
+
+@app.command("check-alerts")
+def check_alerts_cmd(
+    history_path: Annotated[
+        str, typer.Argument(help="Path to history store (Delta dir or JSONL file).")
+    ],
+    log_name: Annotated[str, typer.Argument(help="Stable job identifier to check alerts for.")],
+    alert_config: Annotated[str, typer.Argument(help="Path to alert configuration TOML file.")],
+    alert_output_path: Annotated[
+        str | None,
+        typer.Option(help="File to write triggered alerts (for on_trigger='file' rules)."),
+    ] = None,
+) -> None:
+    """Run alert checks against the latest run in history."""
+    hist_df = history.read(history_path, log_name=log_name)
+
+    if hist_df.is_empty():
+        typer.echo(f"No history records found for log_name '{log_name}'.", err=True)
+        raise typer.Exit(1)
+
+    latest_row = hist_df.sort("run_at").row(-1, named=True)
+    latest = RunRecord(**latest_row)
+
+    rules = alerts.load_alert_config(alert_config)
+    triggered = alerts.check_alerts(latest, hist_df, rules, alert_output_path)
+
+    typer.echo(json.dumps(triggered, indent=2, default=str))
 
 
 if __name__ == "__main__":

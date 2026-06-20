@@ -29,7 +29,10 @@ def timeit(func):
 
 
 def write_dataframe(
-    df: pl.DataFrame, out_path: str | Path, out_format: OutputFormat, overwrite: bool = True
+    df: pl.DataFrame,
+    out_path: str | Path,
+    out_format: OutputFormat,
+    overwrite: bool = True,
 ) -> None:
     out_path_str = str(out_path)
     cloud = is_cloud_path(out_path_str)

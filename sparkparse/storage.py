@@ -69,6 +69,17 @@ def write_text(path: str | Path, content: str) -> None:
         f.write(content)
 
 
+def append_text(path: str | Path, content: str) -> None:
+    """Append ``content`` to ``path`` as UTF-8 text, local or cloud.
+
+    Creates the file if it does not exist. For cloud object stores there is
+    no true append primitive, so each call rewrites the object; Delta is the
+    recommended format for cloud history stores with frequent appends.
+    """
+    with open_file(path, "a") as f:
+        f.write(content)
+
+
 def read_text(path: str | Path) -> str:
     """Read and return the full text content of ``path``."""
     with open_file(path, "r") as f:

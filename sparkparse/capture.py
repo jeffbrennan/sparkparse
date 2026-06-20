@@ -11,9 +11,10 @@ from typing import Any, Literal, TypeVar, overload
 
 from pyspark.sql import SparkSession
 
+from sparkparse import alerts, history
 from sparkparse.analyze import to_plan_summary
 from sparkparse.app import get
-from sparkparse.models import ParsedLogDataFrames
+from sparkparse.models import ParsedLogDataFrames, RunRecord
 from sparkparse.storage import (
     copy_file,
     ensure_dir,
@@ -43,6 +44,9 @@ class SparkparseCapture:
         spark: SparkSession,
         temp_dir: str | None = None,
         headless: bool = False,
+        history_path: str | None = None,
+        log_name: str | None = None,
+        alert_config: str | None = None,
     ) -> None:
         self.action = action
         self.temp_dir = temp_dir
@@ -53,6 +57,11 @@ class SparkparseCapture:
         self._headless = headless
         self._parsed_logs = None
         self._analysis: dict[str, Any] | None = None
+        self._history_path = history_path
+        self._log_name = log_name
+        self._alert_config = alert_config
+        self._last_record: RunRecord | None = None
+        self._triggered_alerts: list[dict] = []
 
     def __call__(self, func: Callable[..., R]) -> Callable[..., tuple[R, "SparkparseCapture"]]:
         @functools.wraps(func)
@@ -126,6 +135,28 @@ class SparkparseCapture:
             time.sleep(2)
             webbrowser.open("http://127.0.0.1:8050/")
 
+    def _record_history_and_alerts(self) -> None:
+        if self._parsed_logs is None or self._history_path is None:
+            return
+
+        effective_log_name = self._log_name or get_path_name(self._log_dir)
+        record = history.record_from_dfs(self._parsed_logs, effective_log_name)
+        self._last_record = record
+
+        history.append(record, self._history_path)
+        _log.info("Appended run record %s to %s", record.run_id, self._history_path)
+
+        if self._alert_config is not None:
+            rules = alerts.load_alert_config(self._alert_config)
+            hist_df = history.read(self._history_path, effective_log_name)
+            self._triggered_alerts = alerts.check_alerts(record, hist_df, rules)
+            if self._triggered_alerts:
+                _log.warning(
+                    "%d alert(s) triggered for %s",
+                    len(self._triggered_alerts),
+                    effective_log_name,
+                )
+
     def __exit__(self, exc_type, *args):
         self.spark.stop()
         self.spark = self._orig_spark
@@ -163,6 +194,9 @@ class SparkparseCapture:
         else:
             raise ValueError(f"Invalid action: {self.action}")
 
+        if self._history_path is not None:
+            self._record_history_and_alerts()
+
         if self._should_cleanup and self._log_dir is not None and path_exists(self._log_dir):
             remove_dir(self._log_dir)
 
@@ -172,13 +206,24 @@ def capture_context(
     temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
+    history_path: str | None = None,
+    log_name: str | None = None,
+    alert_config: str | None = None,
 ) -> SparkparseCapture:
     if spark is None:
         _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()  # type: ignore
     else:
         _spark = spark
 
-    return SparkparseCapture(action, temp_dir=temp_dir, spark=_spark, headless=headless)
+    return SparkparseCapture(
+        action,
+        temp_dir=temp_dir,
+        spark=_spark,
+        headless=headless,
+        history_path=history_path,
+        log_name=log_name,
+        alert_config=alert_config,
+    )
 
 
 @overload
@@ -189,6 +234,9 @@ def capture(
     temp_dir: str | None = ...,
     spark: SparkSession | None = ...,
     headless: bool = ...,
+    history_path: str | None = ...,
+    log_name: str | None = ...,
+    alert_config: str | None = ...,
 ) -> Callable[..., tuple[R, SparkparseCapture]]: ...
 
 
@@ -200,6 +248,9 @@ def capture(
     temp_dir: str | None = ...,
     spark: SparkSession | None = ...,
     headless: bool = ...,
+    history_path: str | None = ...,
+    log_name: str | None = ...,
+    alert_config: str | None = ...,
 ) -> Callable[[Callable[..., R]], Callable[..., tuple[R, SparkparseCapture]]]: ...
 
 
@@ -210,6 +261,9 @@ def capture(
     temp_dir: str | None = None,
     spark: SparkSession | None = None,
     headless: bool = False,
+    history_path: str | None = None,
+    log_name: str | None = None,
+    alert_config: str | None = None,
 ) -> Any:
     def decorator(
         func: Callable[..., R],
@@ -219,7 +273,15 @@ def capture(
         else:
             _spark = spark
 
-        cap = SparkparseCapture(action, spark=_spark, temp_dir=temp_dir, headless=headless)
+        cap = SparkparseCapture(
+            action,
+            spark=_spark,
+            temp_dir=temp_dir,
+            headless=headless,
+            history_path=history_path,
+            log_name=log_name,
+            alert_config=alert_config,
+        )
         return cap(func)
 
     if func is None:
