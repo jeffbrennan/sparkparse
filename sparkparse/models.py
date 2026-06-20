@@ -99,6 +99,15 @@ class NodeType(StrEnum):
     Sample = auto()
     Range = auto()
     CartesianProduct = auto()
+    ArrowEvalPythonUDTF = auto()
+    BatchEvalPythonUDTF = auto()
+    FlatMapGroupsInArrow = auto()
+    FlatMapCoGroupsInArrow = auto()
+    TransformWithStateExec = auto()
+    TransformWithStateInPandas = auto()
+    TransformWithStateInPySpark = auto()
+    SubqueryAdaptiveBroadcast = auto()
+    ResultQueryStage = auto()
     Unknown = auto()
 
 
@@ -302,6 +311,7 @@ class ExchangeType(StrEnum):
     REPARTITION_BY_COL = "REPARTITION_BY_COL"
     REPARTITION_BY_NUM = "REPARTITION_BY_NUM"
     REPARTITION = "REPARTITION"
+    REQUIRED_BY_STATEFUL_OPERATOR = "REQUIRED_BY_STATEFUL_OPERATOR"
 
 
 class ExchangeArgument(BaseModel):
@@ -346,6 +356,13 @@ class ExchangeDetail(DetailBaseModel):
 
 
 class ShuffleQueryStageDetail(DetailBaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    stage_order: int = Field(alias="Arguments")
+
+
+class ResultQueryStageDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
@@ -1037,6 +1054,75 @@ class FlatMapCoGroupsInPandasDetail(DetailBaseModel):
     func: str = Field(alias="Arguments")
 
 
+class ArrowEvalPythonUDTFDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    udtf: str = Field(alias="Arguments")
+
+
+class BatchEvalPythonUDTFDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    udtf: str = Field(alias="Arguments")
+
+
+class FlatMapGroupsInArrowDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    func: str = Field(alias="Arguments")
+    grouping_keys: Annotated[
+        list[str] | None, Field(alias="GroupingKeys"), BeforeValidator(str_to_list)
+    ] = None
+
+
+class FlatMapCoGroupsInArrowDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    left_output: Annotated[
+        list[str] | None, Field(alias="Left output"), BeforeValidator(str_to_list)
+    ] = None
+    right_output: Annotated[
+        list[str] | None, Field(alias="Right output"), BeforeValidator(str_to_list)
+    ] = None
+    func: str = Field(alias="Arguments")
+
+
+class TransformWithStateExecDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    arguments: str | None = Field(alias="Arguments", default=None)
+
+
+class TransformWithStateInPandasDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    arguments: str | None = Field(alias="Arguments", default=None)
+
+
+class TransformWithStateInPySparkDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    arguments: str | None = Field(alias="Arguments", default=None)
+
+
+class SubqueryAdaptiveBroadcastDetail(DetailBaseModel):
+    name: str | None = Field(alias="Name", default=None)
+    index: int | None = Field(alias="Index", default=None)
+    indices: Annotated[
+        list[str] | None, Field(alias="Indices"), BeforeValidator(str_to_list)
+    ] = None
+    build_keys: Annotated[
+        list[str] | None, Field(alias="BuildKeys"), BeforeValidator(str_to_list)
+    ] = None
+
+
 class BatchScanDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
@@ -1189,6 +1275,7 @@ class PhysicalPlanDetail(DetailBaseModel):
         | ExpandDetail
         | ExchangeDetail
         | ShuffleQueryStageDetail
+        | ResultQueryStageDetail
         | AQEShuffleReadDetail
         | SortDetail
         | SortMergeJoinDetail
@@ -1219,6 +1306,14 @@ class PhysicalPlanDetail(DetailBaseModel):
         | MapInArrowDetail
         | FlatMapGroupsInPandasDetail
         | FlatMapCoGroupsInPandasDetail
+        | ArrowEvalPythonUDTFDetail
+        | BatchEvalPythonUDTFDetail
+        | FlatMapGroupsInArrowDetail
+        | FlatMapCoGroupsInArrowDetail
+        | TransformWithStateExecDetail
+        | TransformWithStateInPandasDetail
+        | TransformWithStateInPySparkDetail
+        | SubqueryAdaptiveBroadcastDetail
         | BatchScanDetail
         | WriteToDataSourceV2Detail
         | AppendDataDetail
@@ -1435,6 +1530,15 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, type[BaseModel]] = {
     NodeType.Sample: SampleDetail,
     NodeType.Range: RangeDetail,
     NodeType.CartesianProduct: CartesianProductDetail,
+    NodeType.ArrowEvalPythonUDTF: ArrowEvalPythonUDTFDetail,
+    NodeType.BatchEvalPythonUDTF: BatchEvalPythonUDTFDetail,
+    NodeType.FlatMapGroupsInArrow: FlatMapGroupsInArrowDetail,
+    NodeType.FlatMapCoGroupsInArrow: FlatMapCoGroupsInArrowDetail,
+    NodeType.TransformWithStateExec: TransformWithStateExecDetail,
+    NodeType.TransformWithStateInPandas: TransformWithStateInPandasDetail,
+    NodeType.TransformWithStateInPySpark: TransformWithStateInPySparkDetail,
+    NodeType.SubqueryAdaptiveBroadcast: SubqueryAdaptiveBroadcastDetail,
+    NodeType.ResultQueryStage: ResultQueryStageDetail,
 }
 
 

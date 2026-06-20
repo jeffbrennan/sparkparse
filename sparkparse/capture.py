@@ -103,8 +103,11 @@ class SparkparseCapture:
                 if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
                     builder = builder.config(key, value)
 
-        builder = builder.config("spark.eventLog.enabled", "true").config(
-            "spark.eventLog.dir", self._log_dir
+        builder = (
+            builder.config("spark.eventLog.enabled", "true")
+            .config("spark.eventLog.dir", self._log_dir)
+            .config("spark.eventLog.rolling.enabled", "false")
+            .config("spark.eventLog.compression.codec", "none")
         )
 
         self.spark = builder.getOrCreate()

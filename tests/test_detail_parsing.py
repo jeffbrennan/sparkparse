@@ -6,13 +6,17 @@ import pytest
 from sparkparse.models import (
     AppendDataDetail,
     ArrowEvalPythonDetail,
+    ArrowEvalPythonUDTFDetail,
     BatchEvalPythonDetail,
+    BatchEvalPythonUDTFDetail,
     BatchScanDetail,
     CartesianProductDetail,
     ExchangeDetail,
     ExpandDetail,
     FilterDetail,
+    FlatMapCoGroupsInArrowDetail,
     FlatMapCoGroupsInPandasDetail,
+    FlatMapGroupsInArrowDetail,
     FlatMapGroupsInPandasDetail,
     HashAggregateDetail,
     MapInArrowDetail,
@@ -27,9 +31,13 @@ from sparkparse.models import (
     SampleDetail,
     SortAggregateDetail,
     SortDetail,
+    SubqueryAdaptiveBroadcastDetail,
     SubqueryBroadcastDetail,
     SubqueryExecDetail,
     TakeOrderedAndProjectDetail,
+    TransformWithStateExecDetail,
+    TransformWithStateInPandasDetail,
+    TransformWithStateInPySparkDetail,
     WindowDetail,
     WindowGroupLimitDetail,
     WriteToDataSourceV2Detail,
@@ -607,6 +615,126 @@ def test_cartesian_product_parsing():
     assert json.loads(parsed.model_dump_json()) == expected
 
 
+def test_arrow_eval_python_udtf_parsing():
+    input_dict = {
+        "Input": "[id#0L]",
+        "Arguments": "my_udtf(id#0L)#2, [id#0L], [id#3, doubled#4], 301",
+    }
+    expected = {
+        "input": ["id#0L"],
+        "udtf": "my_udtf(id#0L)#2, [id#0L], [id#3, doubled#4], 301",
+    }
+
+    parsed = ArrowEvalPythonUDTFDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_batch_eval_python_udtf_parsing():
+    input_dict = {
+        "Input": "[id#0L]",
+        "Arguments": "my_udtf(id#0L)#2, [id#0L], [id#3, doubled#4]",
+    }
+    expected = {
+        "input": ["id#0L"],
+        "udtf": "my_udtf(id#0L)#2, [id#0L], [id#3, doubled#4]",
+    }
+
+    parsed = BatchEvalPythonUDTFDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_flat_map_groups_in_arrow_parsing():
+    input_dict = {
+        "Input": "[id#0, name#1, val#2]",
+        "Arguments": "[id#0], process_batch(id#0, name#1, val#2)#3, [id#4, name#5, val#6, result#7]",
+    }
+    expected = {
+        "input": ["id#0", "name#1", "val#2"],
+        "func": "[id#0], process_batch(id#0, name#1, val#2)#3, [id#4, name#5, val#6, result#7]",
+        "grouping_keys": None,
+    }
+
+    parsed = FlatMapGroupsInArrowDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_flat_map_co_groups_in_arrow_parsing():
+    input_dict = {
+        "Left output": "[id#0, name#1]",
+        "Right output": "[id#2, score#3]",
+        "Arguments": "[id#0], [id#2], process_cogroup(id#0, name#1, id#2, score#3)#4, [id#5, name#6, score#7]",
+    }
+    expected = {
+        "input": None,
+        "left_output": ["id#0", "name#1"],
+        "right_output": ["id#2", "score#3"],
+        "func": "[id#0], [id#2], process_cogroup(id#0, name#1, id#2, score#3)#4, [id#5, name#6, score#7]",
+    }
+
+    parsed = FlatMapCoGroupsInArrowDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_transform_with_state_exec_parsing():
+    input_dict = {
+        "Input": "[id#0, v#1]",
+        "Arguments": "[id#0], [id#0, v#1], Append, NoTime",
+    }
+    expected = {
+        "input": ["id#0", "v#1"],
+        "arguments": "[id#0], [id#0, v#1], Append, NoTime",
+    }
+
+    parsed = TransformWithStateExecDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_transform_with_state_in_pandas_parsing():
+    input_dict = {
+        "Input": "[id#0, v#1]",
+        "Arguments": "[id#0], [id#0, v#1], Append, NoTime",
+    }
+    expected = {
+        "input": ["id#0", "v#1"],
+        "arguments": "[id#0], [id#0, v#1], Append, NoTime",
+    }
+
+    parsed = TransformWithStateInPandasDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_transform_with_state_in_pyspark_parsing():
+    input_dict = {
+        "Input": "[id#0, id#0, v#1]",
+        "Arguments": "transformWithStateUDF(id#0, v#1)#2, [id#0], [id#3, v#4], Append, NoTime",
+    }
+    expected = {
+        "input": ["id#0", "id#0", "v#1"],
+        "arguments": "transformWithStateUDF(id#0, v#1)#2, [id#0], [id#3, v#4], Append, NoTime",
+    }
+
+    parsed = TransformWithStateInPySparkDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
+def test_subquery_adaptive_broadcast_parsing():
+    input_dict = {
+        "Name": "dpp-subquery#1",
+        "Index": "0",
+        "Indices": "[0, 1]",
+        "BuildKeys": "[id#0]",
+    }
+    expected = {
+        "name": "dpp-subquery#1",
+        "index": 0,
+        "indices": ["0", "1"],
+        "build_keys": ["id#0"],
+    }
+
+    parsed = SubqueryAdaptiveBroadcastDetail.model_validate(input_dict)
+    assert json.loads(parsed.model_dump_json()) == expected
+
+
 def test_exchange_type_enum_values():
     from sparkparse.models import ExchangeType
 
@@ -614,6 +742,7 @@ def test_exchange_type_enum_values():
     assert ExchangeType.REPARTITION_BY_COL == "REPARTITION_BY_COL"
     assert ExchangeType.REPARTITION_BY_NUM == "REPARTITION_BY_NUM"
     assert ExchangeType.REPARTITION == "REPARTITION"
+    assert ExchangeType.REQUIRED_BY_STATEFUL_OPERATOR == "REQUIRED_BY_STATEFUL_OPERATOR"
 
 
 def test_query_function_enum_values():
@@ -633,11 +762,15 @@ def test_query_function_enum_values():
 FIXTURE_DETAIL_MODELS: dict[str, type] = {
     "AppendData": AppendDataDetail,
     "ArrowEvalPython": ArrowEvalPythonDetail,
+    "ArrowEvalPythonUDTF": ArrowEvalPythonUDTFDetail,
     "BatchEvalPython": BatchEvalPythonDetail,
+    "BatchEvalPythonUDTF": BatchEvalPythonUDTFDetail,
     "BatchScan": BatchScanDetail,
     "CartesianProduct": CartesianProductDetail,
     "Expand": ExpandDetail,
+    "FlatMapCoGroupsInArrow": FlatMapCoGroupsInArrowDetail,
     "FlatMapCoGroupsInPandas": FlatMapCoGroupsInPandasDetail,
+    "FlatMapGroupsInArrow": FlatMapGroupsInArrowDetail,
     "FlatMapGroupsInPandas": FlatMapGroupsInPandasDetail,
     "MapInPandas": MapInPandasDetail,
     "ObjectHashAggregate": ObjectHashAggregateDetail,
@@ -646,6 +779,7 @@ FIXTURE_DETAIL_MODELS: dict[str, type] = {
     "PythonMapInArrow": MapInArrowDetail,
     "Range": RangeDetail,
     "Sample": SampleDetail,
+    "TransformWithStateInPySpark": TransformWithStateInPySparkDetail,
 }
 
 

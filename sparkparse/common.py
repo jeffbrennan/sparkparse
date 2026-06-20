@@ -74,6 +74,8 @@ def get_spark(log_dir: Path) -> SparkSession:
         SparkSession.builder.appName("sparkparse")
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", log_dir.as_posix())
+        .config("spark.eventLog.rolling.enabled", "false")
+        .config("spark.eventLog.compression.codec", "none")
         .config("spark.history.fs.logDirectory", log_dir.as_posix())
         .config("spark.executor.memory", "12g")
         .config("spark.driver.memory", "8g")
