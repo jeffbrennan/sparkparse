@@ -5,8 +5,8 @@ ci:
     uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
 
 # Trigger the test workflow on the current branch and watch it run.
-# The branch must be pushed to GitHub first (workflow_dispatch needs a remote ref).
-# Requires gh auth login.
+# The workflow also auto-runs when a PR is opened/reopened; use this for
+# manual re-runs after pushing new commits. Requires gh auth login.
 run-ci:
     @branch=$(git branch --show-current); \
     echo "Triggering test workflow on branch: $branch"; \

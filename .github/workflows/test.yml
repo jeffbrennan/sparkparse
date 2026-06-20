@@ -1,22 +1,20 @@
 name: test
 
 on:
+  pull_request:
+    types: [opened, reopened]
   workflow_dispatch:
 
-# Branch protection on `main` requires the `test / test` check to pass before
-# merge. Since this workflow only runs on manual dispatch, trigger it on the
-# PR branch from the Actions UI before requesting review:
+# Runs automatically when a PR is opened or reopened, but NOT on every push.
+# To re-run after pushing new commits, use "Re-run all checks" in the PR's
+# Checks tab, or trigger manually from Actions → test → Run workflow.
 #
-#   1. Go to Actions → test → Run workflow → select the PR branch
-#   2. Wait for the run to complete successfully
-#   3. The PR can now be merged
-#
-# To set up branch protection (run once):
+# Branch protection on `main` requires the `test` check to pass before merge:
 #   gh api -X PUT repos/jeffbrennan/sparkparse/branches/main/protection --input - <<'EOF'
 #   {
 #     "required_status_checks": {
 #       "strict": false,
-#       "contexts": ["test / test"]
+#       "contexts": ["test"]
 #     },
 #     "enforce_admins": false,
 #     "restrictions": null,
