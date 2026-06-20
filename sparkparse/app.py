@@ -10,6 +10,12 @@ from sparkparse.analyze import to_plan_summary
 from sparkparse.dashboard import init_dashboard, run_app
 from sparkparse.models import OutputFormat, ParsedLogDataFrames
 from sparkparse.parse import get_parsed_metrics
+from sparkparse.storage import (
+    get_path_name,
+    get_path_stem,
+    is_cloud_path,
+    write_text,
+)
 
 __version__ = "0.1.0"
 
@@ -98,8 +104,8 @@ def analyze(
         typer.Option(help="Analyze a single log file instead of the whole directory."),
     ] = None,
     out_file: Annotated[
-        Path | None,
-        typer.Option(help="Write analysis JSON to this file instead of stdout."),
+        str | None,
+        typer.Option(help="Write analysis output to this file (local path or cloud URI)."),
     ] = None,
     format: Annotated[
         AnalysisFormat,
@@ -116,7 +122,7 @@ def analyze(
         verbose=False,
     )
 
-    log_name = Path(log_file).stem if log_file else Path(log_dir).name
+    log_name = get_path_stem(log_file) if log_file else get_path_name(log_dir)
     summary = to_plan_summary(dfs, log_name)
 
     if format == AnalysisFormat.json:
@@ -128,9 +134,7 @@ def analyze(
         lines.append(f"Bytes read: {totals.get('bytes_read', 0):,}")
         lines.append(f"Bytes written: {totals.get('bytes_written', 0):,}")
         lines.append(f"Shuffle bytes read: {totals.get('shuffle_bytes_read', 0):,}")
-        lines.append(
-            f"Shuffle bytes written: {totals.get('shuffle_bytes_written', 0):,}"
-        )
+        lines.append(f"Shuffle bytes written: {totals.get('shuffle_bytes_written', 0):,}")
         lines.append(f"Memory spilled: {totals.get('memory_bytes_spilled', 0):,}")
         lines.append(f"Disk spilled: {totals.get('disk_bytes_spilled', 0):,}")
         for q in summary.get("queries", []):
@@ -149,8 +153,9 @@ def analyze(
         output = "\n".join(lines)
 
     if out_file is not None:
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        out_file.write_text(output)
+        if not is_cloud_path(out_file):
+            Path(out_file).parent.mkdir(parents=True, exist_ok=True)
+        write_text(out_file, output)
         typer.echo(f"Analysis written to {out_file}", err=True)
     else:
         sys.stdout.write(output + "\n")

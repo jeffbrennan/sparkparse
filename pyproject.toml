@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "falsa>=0.0.3",
+    "fsspec>=2024.1.0",
     "pandas>=2.2.3",
     "polars>=1.24.0",
     "pydantic>=2.10.6",
@@ -19,6 +20,12 @@ dependencies = [
     "dash-cytoscape>=1.0.2",
     "dash-ag-grid>=31.3.0",
 ]
+
+[project.optional-dependencies]
+s3 = ["s3fs>=2024.1.0"]
+azure = ["adlfs>=2024.1.0"]
+gcs = ["gcsfs>=2024.1.0"]
+cloud = ["s3fs>=2024.1.0", "adlfs>=2024.1.0", "gcsfs>=2024.1.0"]
 
 
 [tool.hatch.build.targets.wheel]
@@ -45,3 +52,9 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["sparkparse"]
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
