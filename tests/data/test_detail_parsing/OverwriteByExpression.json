@@ -1,0 +1,10 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 29,
+  "physicalPlanDescription": "== Physical Plan ==\nOverwriteByExpression (3)\n+- AdaptiveSparkPlan (2)\n   +- Range (1)\n\n\n(1) Range\nOutput [1]: [id#219L]\nArguments: Range (20, 24, step=1, splits=Some(2))\n\n(2) AdaptiveSparkPlan\nOutput [1]: [id#219L]\nArguments: isFinalPlan=false\n\n(3) OverwriteByExpression\nInput [1]: [id#219L]\nArguments: org.apache.spark.sql.execution.datasources.v2.DataSourceV2Strategy$$Lambda$5740/0x0000000801f97440@4ef073d, IcebergWrite(table=local.db.overwrite_by_expr, format=PARQUET)\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": []
+  }
+}

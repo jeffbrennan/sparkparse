@@ -1,0 +1,10 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 25,
+  "physicalPlanDescription": "== Physical Plan ==\nAppendData (3)\n+- AdaptiveSparkPlan (2)\n   +- Range (1)\n\n\n(1) Range\nOutput [1]: [id#207L]\nArguments: Range (0, 10, step=1, splits=Some(2))\n\n(2) AdaptiveSparkPlan\nOutput [1]: [id#207L]\nArguments: isFinalPlan=false\n\n(3) AppendData\nInput [1]: [id#207L]\nArguments: org.apache.spark.sql.execution.datasources.v2.DataSourceV2Strategy$$Lambda$5453/0x0000000801d2e440@61b21cd4, IcebergWrite(table=local.db.append_data, format=PARQUET)\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": []
+  }
+}

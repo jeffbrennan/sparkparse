@@ -1,0 +1,94 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 7,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (6)\n+- == Final Plan ==\n   * Project (3)\n   +- ArrowEvalPython (2)\n      +- * Range (1)\n+- == Initial Plan ==\n   Project (5)\n   +- ArrowEvalPython (4)\n      +- Range (1)\n\n\n(1) Range [codegen id : 1]\nOutput [1]: [id#73L]\nArguments: Range (0, 10, step=1, splits=Some(2))\n\n(2) ArrowEvalPython\nInput [1]: [id#73L]\nArguments: [times_two(id#73L)#75L], [pythonUDF0#78L], 200\n\n(3) Project [codegen id : 2]\nOutput [1]: [pythonUDF0#78L AS times_two(id)#76L]\nInput [2]: [id#73L, pythonUDF0#78L]\n\n(4) ArrowEvalPython\nInput [1]: [id#73L]\nArguments: [times_two(id#73L)#75L], [pythonUDF0#78L], 200\n\n(5) Project\nOutput [1]: [pythonUDF0#78L AS times_two(id)#76L]\nInput [2]: [id#73L, pythonUDF0#78L]\n\n(6) AdaptiveSparkPlan\nOutput [1]: [times_two(id)#76L]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": [
+      {
+        "nodeName": "WholeStageCodegen (2)",
+        "simpleString": "WholeStageCodegen (2)",
+        "children": [
+          {
+            "nodeName": "Project",
+            "simpleString": "Project [pythonUDF0#78L AS times_two(id)#76L]",
+            "children": [
+              {
+                "nodeName": "InputAdapter",
+                "simpleString": "InputAdapter",
+                "children": [
+                  {
+                    "nodeName": "ArrowEvalPython",
+                    "simpleString": "ArrowEvalPython [times_two(id#73L)#75L], [pythonUDF0#78L], 200",
+                    "children": [
+                      {
+                        "nodeName": "WholeStageCodegen (1)",
+                        "simpleString": "WholeStageCodegen (1)",
+                        "children": [
+                          {
+                            "nodeName": "Range",
+                            "simpleString": "Range (0, 10, step=1, splits=2)",
+                            "children": [],
+                            "metadata": {},
+                            "metrics": [
+                              {
+                                "name": "number of output rows",
+                                "accumulatorId": 575,
+                                "metricType": "sum"
+                              }
+                            ]
+                          }
+                        ],
+                        "metadata": {},
+                        "metrics": [
+                          {
+                            "name": "duration",
+                            "accumulatorId": 580,
+                            "metricType": "timing"
+                          }
+                        ]
+                      }
+                    ],
+                    "metadata": {},
+                    "metrics": [
+                      {
+                        "name": "data sent to Python workers",
+                        "accumulatorId": 576,
+                        "metricType": "size"
+                      },
+                      {
+                        "name": "data returned from Python workers",
+                        "accumulatorId": 577,
+                        "metricType": "size"
+                      },
+                      {
+                        "name": "number of output rows",
+                        "accumulatorId": 578,
+                        "metricType": "sum"
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {},
+                "metrics": []
+              }
+            ],
+            "metadata": {},
+            "metrics": []
+          }
+        ],
+        "metadata": {},
+        "metrics": [
+          {
+            "name": "duration",
+            "accumulatorId": 579,
+            "metricType": "timing"
+          }
+        ]
+      }
+    ],
+    "metadata": {},
+    "metrics": []
+  }
+}

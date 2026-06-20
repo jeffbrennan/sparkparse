@@ -1,0 +1,64 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 9,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (4)\n+- == Final Plan ==\n   MapInPandas (2)\n   +- * Range (1)\n+- == Initial Plan ==\n   MapInPandas (3)\n   +- Range (1)\n\n\n(1) Range [codegen id : 1]\nOutput [1]: [id#85L]\nArguments: Range (0, 10, step=1, splits=Some(2))\n\n(2) MapInPandas\nInput [1]: [id#85L]\nArguments: map_fn(id#85L)#87, [id#88L], false\n\n(3) MapInPandas\nInput [1]: [id#85L]\nArguments: map_fn(id#85L)#87, [id#88L], false\n\n(4) AdaptiveSparkPlan\nOutput [1]: [id#88L]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": [
+      {
+        "nodeName": "MapInPandas",
+        "simpleString": "MapInPandas map_fn(id#85L)#87, [id#88L], false",
+        "children": [
+          {
+            "nodeName": "WholeStageCodegen (1)",
+            "simpleString": "WholeStageCodegen (1)",
+            "children": [
+              {
+                "nodeName": "Range",
+                "simpleString": "Range (0, 10, step=1, splits=2)",
+                "children": [],
+                "metadata": {},
+                "metrics": [
+                  {
+                    "name": "number of output rows",
+                    "accumulatorId": 675,
+                    "metricType": "sum"
+                  }
+                ]
+              }
+            ],
+            "metadata": {},
+            "metrics": [
+              {
+                "name": "duration",
+                "accumulatorId": 679,
+                "metricType": "timing"
+              }
+            ]
+          }
+        ],
+        "metadata": {},
+        "metrics": [
+          {
+            "name": "data sent to Python workers",
+            "accumulatorId": 676,
+            "metricType": "size"
+          },
+          {
+            "name": "data returned from Python workers",
+            "accumulatorId": 677,
+            "metricType": "size"
+          },
+          {
+            "name": "number of output rows",
+            "accumulatorId": 678,
+            "metricType": "sum"
+          }
+        ]
+      }
+    ],
+    "metadata": {},
+    "metrics": []
+  }
+}

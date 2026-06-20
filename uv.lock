@@ -2124,12 +2124,12 @@ wheels = [
 
 [[package]]
 name = "pyspark"
-version = "3.5.5"
+version = "3.5.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "py4j" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/8f/b616ef710932ccdbabd8511e08890a677482ab2967b7cf276c09a02bc64c/pyspark-3.5.5.tar.gz", hash = "sha256:6effc9ce98edf231f4d683fd14f7270629bf8458c628d6a2620ded4bb34f3cb9", size = 317214975, upload-time = "2025-02-27T09:16:31.75Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/80/5a/3806f44eb47387e8af803508cdd6bbc0df784febf4dc010700be04a1ff89/pyspark-3.5.8.tar.gz", hash = "sha256:54cca0767b21b40e3953ad1d30f8601c53abf9cbda763653289cdcfcac52313c", size = 317817299, upload-time = "2026-01-15T11:46:14.487Z" }
 
 [[package]]
 name = "pytest"
@@ -2397,6 +2397,7 @@ s3 = [
 [package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
+    { name = "pyarrow" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },
@@ -2427,6 +2428,7 @@ provides-extras = ["s3", "azure", "gcs", "cloud", "delta"]
 [package.metadata.requires-dev]
 dev = [
     { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "pyarrow", specifier = ">=10.0.0" },
     { name = "pyrefly", specifier = ">=1.0.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.9.9" },

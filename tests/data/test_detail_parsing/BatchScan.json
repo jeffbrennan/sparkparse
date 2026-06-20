@@ -1,0 +1,157 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 23,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (3)\n+- == Final Plan ==\n   * ColumnarToRow (2)\n   +- BatchScan local.db.batch_scan (1)\n+- == Initial Plan ==\n   BatchScan local.db.batch_scan (1)\n\n\n(1) BatchScan local.db.batch_scan\nOutput [1]: [id#204L]\nlocal.db.batch_scan (branch=null) [filters=, groupedBy=]\n\n(2) ColumnarToRow [codegen id : 1]\nInput [1]: [id#204L]\n\n(3) AdaptiveSparkPlan\nOutput [1]: [id#204L]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": [
+      {
+        "nodeName": "WholeStageCodegen (1)",
+        "simpleString": "WholeStageCodegen (1)",
+        "children": [
+          {
+            "nodeName": "ColumnarToRow",
+            "simpleString": "ColumnarToRow",
+            "children": [
+              {
+                "nodeName": "InputAdapter",
+                "simpleString": "InputAdapter",
+                "children": [
+                  {
+                    "nodeName": "BatchScan local.db.batch_scan",
+                    "simpleString": "BatchScan local.db.batch_scan[id#204L] local.db.batch_scan (branch=null) [filters=, groupedBy=] RuntimeFilters: []",
+                    "children": [],
+                    "metadata": {},
+                    "metrics": [
+                      {
+                        "name": "number of row deletes applied",
+                        "accumulatorId": 2482,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.NumDeletes"
+                      },
+                      {
+                        "name": "number of skipped delete files",
+                        "accumulatorId": 2498,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.SkippedDeleteFiles"
+                      },
+                      {
+                        "name": "number of skipped data files",
+                        "accumulatorId": 2488,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.SkippedDataFiles"
+                      },
+                      {
+                        "name": "total data manifests",
+                        "accumulatorId": 2484,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.TotalDataManifests"
+                      },
+                      {
+                        "name": "total planning duration (ms)",
+                        "accumulatorId": 2483,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.TotalPlanningDuration"
+                      },
+                      {
+                        "name": "total data file size (bytes)",
+                        "accumulatorId": 2489,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.TotalDataFileSize"
+                      },
+                      {
+                        "name": "number of indexed delete files",
+                        "accumulatorId": 2496,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.IndexedDeleteFiles"
+                      },
+                      {
+                        "name": "number of scanned delete manifests",
+                        "accumulatorId": 2491,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.ScannedDeleteManifests"
+                      },
+                      {
+                        "name": "number of positional delete files",
+                        "accumulatorId": 2497,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.PositionalDeleteFiles"
+                      },
+                      {
+                        "name": "number of result delete files",
+                        "accumulatorId": 2494,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.ResultDeleteFiles"
+                      },
+                      {
+                        "name": "number of file splits read",
+                        "accumulatorId": 2481,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.NumSplits"
+                      },
+                      {
+                        "name": "number of output rows",
+                        "accumulatorId": 2480,
+                        "metricType": "sum"
+                      },
+                      {
+                        "name": "total delete file size (bytes)",
+                        "accumulatorId": 2493,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.TotalDeleteFileSize"
+                      },
+                      {
+                        "name": "number of scanned data manifests",
+                        "accumulatorId": 2485,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.ScannedDataManifests"
+                      },
+                      {
+                        "name": "number of skipped delete manifest",
+                        "accumulatorId": 2492,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.SkippedDeleteManifests"
+                      },
+                      {
+                        "name": "total delete manifests",
+                        "accumulatorId": 2490,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.TotalDeleteManifests"
+                      },
+                      {
+                        "name": "number of equality delete files",
+                        "accumulatorId": 2495,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.EqualityDeleteFiles"
+                      },
+                      {
+                        "name": "number of result data files",
+                        "accumulatorId": 2487,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.ResultDataFiles"
+                      },
+                      {
+                        "name": "number of skipped data manifests",
+                        "accumulatorId": 2486,
+                        "metricType": "v2Custom_org.apache.iceberg.spark.source.metrics.SkippedDataManifests"
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {},
+                "metrics": []
+              }
+            ],
+            "metadata": {},
+            "metrics": [
+              {
+                "name": "number of output rows",
+                "accumulatorId": 2500,
+                "metricType": "sum"
+              },
+              {
+                "name": "number of input batches",
+                "accumulatorId": 2501,
+                "metricType": "sum"
+              }
+            ]
+          }
+        ],
+        "metadata": {},
+        "metrics": [
+          {
+            "name": "duration",
+            "accumulatorId": 2499,
+            "metricType": "timing"
+          }
+        ]
+      }
+    ],
+    "metadata": {},
+    "metrics": []
+  }
+}

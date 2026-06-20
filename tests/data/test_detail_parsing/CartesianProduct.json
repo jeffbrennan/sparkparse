@@ -1,0 +1,97 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 3,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (7)\n+- == Final Plan ==\n   CartesianProduct Inner (5)\n   :- * Project (2)\n   :  +- * Range (1)\n   +- * Project (4)\n      +- * Range (3)\n+- == Initial Plan ==\n   CartesianProduct Inner (6)\n   :- Project (2)\n   :  +- Range (1)\n   +- Project (4)\n      +- Range (3)\n\n\n(1) Range [codegen id : 1]\nOutput [1]: [id#10L]\nArguments: Range (0, 10, step=1, splits=Some(2))\n\n(2) Project [codegen id : 1]\nOutput [1]: [id#10L AS a#12L]\nInput [1]: [id#10L]\n\n(3) Range [codegen id : 2]\nOutput [1]: [id#14L]\nArguments: Range (0, 5, step=1, splits=Some(2))\n\n(4) Project [codegen id : 2]\nOutput [1]: [id#14L AS b#16L]\nInput [1]: [id#14L]\n\n(5) CartesianProduct\nJoin type: Inner\nJoin condition: None\n\n(6) CartesianProduct\nJoin type: Inner\nJoin condition: None\n\n(7) AdaptiveSparkPlan\nOutput [2]: [a#12L, b#16L]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": [
+      {
+        "nodeName": "CartesianProduct",
+        "simpleString": "CartesianProduct",
+        "children": [
+          {
+            "nodeName": "WholeStageCodegen (1)",
+            "simpleString": "WholeStageCodegen (1)",
+            "children": [
+              {
+                "nodeName": "Project",
+                "simpleString": "Project [id#10L AS a#12L]",
+                "children": [
+                  {
+                    "nodeName": "Range",
+                    "simpleString": "Range (0, 10, step=1, splits=2)",
+                    "children": [],
+                    "metadata": {},
+                    "metrics": [
+                      {
+                        "name": "number of output rows",
+                        "accumulatorId": 193,
+                        "metricType": "sum"
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {},
+                "metrics": []
+              }
+            ],
+            "metadata": {},
+            "metrics": [
+              {
+                "name": "duration",
+                "accumulatorId": 196,
+                "metricType": "timing"
+              }
+            ]
+          },
+          {
+            "nodeName": "WholeStageCodegen (2)",
+            "simpleString": "WholeStageCodegen (2)",
+            "children": [
+              {
+                "nodeName": "Project",
+                "simpleString": "Project [id#14L AS b#16L]",
+                "children": [
+                  {
+                    "nodeName": "Range",
+                    "simpleString": "Range (0, 5, step=1, splits=2)",
+                    "children": [],
+                    "metadata": {},
+                    "metrics": [
+                      {
+                        "name": "number of output rows",
+                        "accumulatorId": 194,
+                        "metricType": "sum"
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {},
+                "metrics": []
+              }
+            ],
+            "metadata": {},
+            "metrics": [
+              {
+                "name": "duration",
+                "accumulatorId": 197,
+                "metricType": "timing"
+              }
+            ]
+          }
+        ],
+        "metadata": {},
+        "metrics": [
+          {
+            "name": "number of output rows",
+            "accumulatorId": 195,
+            "metricType": "sum"
+          }
+        ]
+      }
+    ],
+    "metadata": {},
+    "metrics": []
+  }
+}
