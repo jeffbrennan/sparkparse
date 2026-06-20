@@ -1,10 +1,28 @@
 name: test
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  workflow_dispatch:
+
+# Branch protection on `main` requires the `test / test` check to pass before
+# merge. Since this workflow only runs on manual dispatch, trigger it on the
+# PR branch from the Actions UI before requesting review:
+#
+#   1. Go to Actions → test → Run workflow → select the PR branch
+#   2. Wait for the run to complete successfully
+#   3. The PR can now be merged
+#
+# To set up branch protection (run once):
+#   gh api -X PUT repos/jeffbrennan/sparkparse/branches/main/protection --input - <<'EOF'
+#   {
+#     "required_status_checks": {
+#       "strict": false,
+#       "contexts": ["test / test"]
+#     },
+#     "enforce_admins": false,
+#     "restrictions": null,
+#     "required_pull_request_reviews": null
+#   }
+#   EOF
 
 jobs:
   test:
@@ -30,7 +48,7 @@ jobs:
         run: uv run ruff format --check sparkparse/ tests/
 
       - name: Type check
-        run: uv run pyrefly check sparkparse/
+        run: uv run pyrefly check sparkparse/ tests/
 
       - name: Unit tests
         run: uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v

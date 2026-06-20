@@ -39,7 +39,7 @@ class Metric(BaseModel):
 
 class NodeType(StrEnum):
     @staticmethod
-    def _generate_next_value_(name, *args) -> str:
+    def _generate_next_value_(name: str, start: int, count: int, last_values: list[Any]) -> str:
         return name
 
     Sort = auto()

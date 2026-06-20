@@ -96,7 +96,9 @@ def _compute_baseline(history: pl.DataFrame, alert: AlertConfig, current_run_id:
         return 0.0
 
     mean_val = hist[alert.metric].mean()
-    return float(mean_val) if mean_val is not None else 0.0
+    if mean_val is not None and isinstance(mean_val, int | float):
+        return float(mean_val)
+    return 0.0
 
 
 def _dispatch(alert: AlertConfig, alert_dict: dict, alert_output_path: str | None) -> None:

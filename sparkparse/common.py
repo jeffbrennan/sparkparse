@@ -1,7 +1,9 @@
 import datetime
 import time
 from functools import wraps
+from io import IOBase
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 from pyspark.sql import SparkSession
@@ -60,14 +62,14 @@ def write_dataframe(
         target = out_path_str + ".json"
         if cloud:
             with open_file(target, "wb") as f:
-                df.write_json(f)
+                df.write_json(cast(IOBase, f))
         else:
             df.write_json(target)
 
 
 def get_spark(log_dir: Path) -> SparkSession:
     return (
-        SparkSession.builder.appName("sparkparse")  # type: ignore
+        SparkSession.builder.appName("sparkparse")
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", log_dir.as_posix())
         .config("spark.history.fs.logDirectory", log_dir.as_posix())
