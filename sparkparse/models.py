@@ -5,11 +5,13 @@ from typing import Annotated, Any
 
 import polars as pl
 from pydantic import (
+    AliasChoices,
     BaseModel,
     BeforeValidator,
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 
@@ -75,6 +77,38 @@ class NodeType(StrEnum):
     ReusedExchange = auto()
     Generate = auto()
     AdaptiveSparkPlan = auto()
+    ObjectHashAggregate = auto()
+    SortAggregate = auto()
+    Expand = auto()
+    ArrowEvalPython = auto()
+    BatchEvalPython = auto()
+    MapInPandas = auto()
+    MapInArrow = auto()
+    PythonMapInArrow = auto()
+    FlatMapGroupsInPandas = auto()
+    FlatMapCoGroupsInPandas = auto()
+    BatchScan = auto()
+    WriteToDataSourceV2 = auto()
+    AppendData = auto()
+    OverwriteByExpression = auto()
+    OverwritePartitionsDynamic = auto()
+    SubqueryExec = auto()
+    ReusedSubqueryExec = auto()
+    SubqueryBroadcast = auto()
+    RepartitionByExpression = auto()
+    Sample = auto()
+    Range = auto()
+    CartesianProduct = auto()
+    ArrowEvalPythonUDTF = auto()
+    BatchEvalPythonUDTF = auto()
+    FlatMapGroupsInArrow = auto()
+    FlatMapCoGroupsInArrow = auto()
+    TransformWithStateExec = auto()
+    TransformWithStateInPandas = auto()
+    TransformWithStateInPySpark = auto()
+    SubqueryAdaptiveBroadcast = auto()
+    ResultQueryStage = auto()
+    Unknown = auto()
 
 
 class Accumulator(BaseModel):
@@ -112,6 +146,14 @@ class QueryFunction(StrEnum):
     COUNT = "count"
     SAVE = "save"
     CREATE_OR_REPLACE_TEMP_VIEW = "createOrReplaceTempView"
+    SHOW = "show"
+    COLLECT = "collect"
+    FIRST = "first"
+    HEAD = "head"
+    TAKE = "take"
+    FOREACH = "foreach"
+    FOREACH_PARTITION = "foreachPartition"
+    TO_LOCAL_ITERATOR = "toLocalIterator"
 
 
 class QueryEvent(BaseModel):
@@ -122,6 +164,10 @@ class QueryEvent(BaseModel):
 
 
 def str_to_list(v: Any) -> list[str] | None:
+    if v is None:
+        return None
+    if isinstance(v, list):
+        return v
     if not isinstance(v, str):
         raise TypeError(f"Expected a string, got {type(v)}")
 
@@ -159,7 +205,11 @@ class ScanDetailLocation(BaseModel):
     location: list[str]
 
 
-class ScanDetail(BaseModel):
+class DetailBaseModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ScanDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
@@ -184,13 +234,13 @@ def deserialize_scan_detail(s: str) -> ScanDetail:
     return ScanDetail.model_construct(**data)
 
 
-class ColumnarToRowDetail(BaseModel):
+class ColumnarToRowDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
 
 
-class ProjectDetail(BaseModel):
+class ProjectDetail(DetailBaseModel):
     input: Annotated[list[str], Field(alias="Input"), BeforeValidator(str_to_list)]
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
@@ -202,7 +252,18 @@ class Function(BaseModel):
     col: str | None
 
 
-class HashAggregateDetail(BaseModel):
+def _parse_function_str(f: str) -> Function:
+    name = f.split("(")[0]
+    args_str = f[len(name) + 1 : -1]
+    args = [arg.strip() for arg in args_str.split(",") if arg.strip()]
+    if not args:
+        return Function(function=name, col=None)
+    if len(args) == 1:
+        return Function(function=name, col=args[0])
+    return Function(function=name, col=args_str)
+
+
+class HashAggregateDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -220,21 +281,37 @@ class HashAggregateDetail(BaseModel):
     @field_validator("functions", mode="before")
     @classmethod
     def parse_hash_aggregate_function_str(cls, value: Any) -> list[Function] | None:
+        if isinstance(value, list):
+            return value
         if value.strip() == "[]":
             return None
 
-        functions_split = value.removeprefix("[").removesuffix("]").split(", ")
-        functions = []
-        for f in functions_split:
-            f_split = f.split("(")
-            function = f_split[0]
-            col = f_split[1].removesuffix(")")
-            functions.append(Function(function=function, col=col))
+        value = value.removeprefix("[").removesuffix("]").strip()
+        functions: list[Function] = []
+        current = ""
+        depth = 0
+        for char in value:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            elif char == "," and depth == 0:
+                if current.strip():
+                    functions.append(_parse_function_str(current.strip()))
+                current = ""
+                continue
+            current += char
+        if current.strip():
+            functions.append(_parse_function_str(current.strip()))
         return functions
 
 
 class ExchangeType(StrEnum):
     ENSURE_REQUIREMENTS = "ENSURE_REQUIREMENTS"
+    REPARTITION_BY_COL = "REPARTITION_BY_COL"
+    REPARTITION_BY_NUM = "REPARTITION_BY_NUM"
+    REPARTITION = "REPARTITION"
+    REQUIRED_BY_STATEFUL_OPERATOR = "REQUIRED_BY_STATEFUL_OPERATOR"
 
 
 class ExchangeArgument(BaseModel):
@@ -244,7 +321,7 @@ class ExchangeArgument(BaseModel):
     plan_identifier: int
 
 
-class ExchangeDetail(BaseModel):
+class ExchangeDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -278,7 +355,14 @@ class ExchangeDetail(BaseModel):
         )
 
 
-class ShuffleQueryStageDetail(BaseModel):
+class ShuffleQueryStageDetail(DetailBaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    stage_order: int = Field(alias="Arguments")
+
+
+class ResultQueryStageDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
@@ -290,7 +374,7 @@ class AQEShuffleReadArgument(StrEnum):
     LOCAL = auto()
 
 
-class AQEShuffleReadDetail(BaseModel):
+class AQEShuffleReadDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -321,7 +405,7 @@ def parse_sort_argument_col_str(col_section: str) -> list[SortArgumentCol]:
     return sort_args
 
 
-class SortDetail(BaseModel):
+class SortDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -351,7 +435,7 @@ class JoinType(StrEnum):
     CROSS = "Cross"
 
 
-class SortMergeJoinDetail(BaseModel):
+class SortMergeJoinDetail(DetailBaseModel):
     left_keys: Annotated[
         list[str] | None, Field(alias="Left keys"), BeforeValidator(str_to_list)
     ]
@@ -379,7 +463,7 @@ class WindowDetailArgument(BaseModel):
     window_specification: WindowSpecification
 
 
-class WindowDetail(BaseModel):
+class WindowDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -444,7 +528,7 @@ class WindowGroupLimitArgument(BaseModel):
     processing_stage: ProcessingStage
 
 
-class WindowGroupLimitDetail(BaseModel):
+class WindowGroupLimitDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -515,14 +599,14 @@ class FilterDetailCondition(BaseModel):
     value: str | int | None
 
 
-class FilterDetail(BaseModel):
+class FilterDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
     condition: str = Field(alias="Condition")
 
 
-class CoalesceDetail(BaseModel):
+class CoalesceDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -550,7 +634,7 @@ class InsertIntoHadoopFsRelationCommandDetailArguments(BaseModel):
     output: list[str] | None
 
 
-class InsertIntoHadoopFsRelationCommandDetail(BaseModel):
+class InsertIntoHadoopFsRelationCommandDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -610,7 +694,7 @@ class LocalTableScanArguments(BaseModel):
     input: list[str] | None
 
 
-class LocalTableScanDetail(BaseModel):
+class LocalTableScanDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
@@ -627,13 +711,13 @@ class LocalTableScanDetail(BaseModel):
         return LocalTableScanArguments(contents=contents, input=input_cols)
 
 
-class WriteFilesDetail(BaseModel):
+class WriteFilesDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
 
 
-class LocalLimitDetail(BaseModel):
+class LocalLimitDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -645,7 +729,7 @@ class GlobalLimitArguments(BaseModel):
     offset: int
 
 
-class GlobalLimitDetail(BaseModel):
+class GlobalLimitDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -672,7 +756,7 @@ class BroadcastExchangeArguments(BaseModel):
     plan_identifier: int
 
 
-class BroadcastExchangeDetail(BaseModel):
+class BroadcastExchangeDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -714,14 +798,14 @@ class BroadcastExchangeDetail(BaseModel):
         )
 
 
-class BroadcastQueryStageDetail(BaseModel):
+class BroadcastQueryStageDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
     stage_order: int = Field(alias="Arguments")
 
 
-class BroadcastHashJoinDetail(BaseModel):
+class BroadcastHashJoinDetail(DetailBaseModel):
     left_keys: Annotated[
         list[str], Field(alias="Left keys"), BeforeValidator(str_to_list)
     ]
@@ -744,7 +828,7 @@ class TakeOrderedAndProjectDetailArguments(BaseModel):
     output: list[str] | None
 
 
-class TakeOrderedAndProjectDetail(BaseModel):
+class TakeOrderedAndProjectDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -765,7 +849,7 @@ class TakeOrderedAndProjectDetail(BaseModel):
         )
 
 
-class BroadcastNestedLoopJoinDetail(BaseModel):
+class BroadcastNestedLoopJoinDetail(DetailBaseModel):
     join_type: JoinType = Field(alias="Join type")
     join_condition: str | None = Field(alias="Join condition", default=None)
 
@@ -776,7 +860,7 @@ class BroadcastNestedLoopJoinDetail(BaseModel):
         return value
 
 
-class ReusedExchangeDetail(BaseModel):
+class ReusedExchangeDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
@@ -789,7 +873,7 @@ class GenerateDetailArguments(BaseModel):
     output: list[str] | None
 
 
-class GenerateDetail(BaseModel):
+class GenerateDetail(DetailBaseModel):
     input: Annotated[
         list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
     ]
@@ -807,25 +891,25 @@ class GenerateDetail(BaseModel):
         )
 
 
-class TableCacheQueryStageDetail(BaseModel):
+class TableCacheQueryStageDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
     stage_order: int = Field(alias="Arguments")
 
 
-class InMemoryTableScanDetail(BaseModel):
+class InMemoryTableScanDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
 
 
-class InMemoryRelationDetail(BaseModel):
+class InMemoryRelationDetail(DetailBaseModel):
     # contains an entire nested plan - won't be parsed
     arguments: str = Field(alias="Arguments")
 
 
-class AdaptiveSparkPlanDetail(BaseModel):
+class AdaptiveSparkPlanDetail(DetailBaseModel):
     output: Annotated[
         list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
     ]
@@ -837,7 +921,348 @@ class AdaptiveSparkPlanDetail(BaseModel):
         return value.split("=")[-1] == "true"
 
 
-class PhysicalPlanDetail(BaseModel):
+class RawDetail(DetailBaseModel):
+    raw: str
+
+
+class ObjectHashAggregateDetail(HashAggregateDetail):
+    pass
+
+
+class SortAggregateDetail(HashAggregateDetail):
+    pass
+
+
+class ExpandDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    projections: list[list[str]] = Field(alias="Arguments")
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def split_combined_arguments(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        args = data.get("Arguments")
+        if args is None or "Output" in data:
+            return data
+
+        args = str(args).strip()
+        # Spark sometimes merges projections and output into Arguments:
+        #   [[...], [...]], [output_col1, output_col2]
+        # Split at the last "]]", [" boundary when an output list follows.
+        boundary = args.rfind("]], [")
+        if boundary != -1:
+            data["Arguments"] = args[: boundary + 2]
+            data["Output"] = args[boundary + 4 :]
+        return data
+
+    @field_validator("projections", mode="before")
+    @classmethod
+    def parse_projections_str(cls, value: Any) -> list[list[str]]:
+        if isinstance(value, list):
+            return value
+
+        value = value.strip()
+        if value.startswith("["):
+            value = value[1:]
+        if value.endswith("]"):
+            value = value[:-1]
+        value = value.strip()
+        if not value:
+            return []
+
+        if value.startswith("List("):
+            raw_projections = value.split("), ")
+            projections = []
+            for i, proj in enumerate(raw_projections):
+                proj = proj.strip()
+                if not proj:
+                    continue
+                if i < len(raw_projections) - 1:
+                    proj = proj + ")"
+                proj = proj.removeprefix("List(").removesuffix(")")
+                projections.append(
+                    [item.strip() for item in proj.split(",") if item.strip()]
+                )
+            return projections
+
+        raw_projections = value.split("], [")
+        return [
+            [
+                item.strip()
+                for item in proj.removeprefix("[").removesuffix("]").split(",")
+                if item.strip()
+            ]
+            for proj in raw_projections
+        ]
+
+
+class ArrowEvalPythonDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    udfs: Annotated[list[str], Field(alias="Arguments"), BeforeValidator(str_to_list)]
+
+
+class BatchEvalPythonDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    udfs: Annotated[list[str], Field(alias="Arguments"), BeforeValidator(str_to_list)]
+
+
+class MapInPandasDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    func: str = Field(alias="Arguments")
+
+
+class MapInArrowDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    func: str = Field(alias="Arguments")
+
+
+class FlatMapGroupsInPandasDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    func: str = Field(alias="Arguments")
+    grouping_keys: Annotated[
+        list[str] | None, Field(alias="GroupingKeys"), BeforeValidator(str_to_list)
+    ] = None
+
+
+class FlatMapCoGroupsInPandasDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    left_output: Annotated[
+        list[str] | None, Field(alias="Left output"), BeforeValidator(str_to_list)
+    ] = None
+    right_output: Annotated[
+        list[str] | None, Field(alias="Right output"), BeforeValidator(str_to_list)
+    ] = None
+    func: str = Field(alias="Arguments")
+
+
+class ArrowEvalPythonUDTFDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    udtf: str = Field(alias="Arguments")
+
+
+class BatchEvalPythonUDTFDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    udtf: str = Field(alias="Arguments")
+
+
+class FlatMapGroupsInArrowDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    func: str = Field(alias="Arguments")
+    grouping_keys: Annotated[
+        list[str] | None, Field(alias="GroupingKeys"), BeforeValidator(str_to_list)
+    ] = None
+
+
+class FlatMapCoGroupsInArrowDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    left_output: Annotated[
+        list[str] | None, Field(alias="Left output"), BeforeValidator(str_to_list)
+    ] = None
+    right_output: Annotated[
+        list[str] | None, Field(alias="Right output"), BeforeValidator(str_to_list)
+    ] = None
+    func: str = Field(alias="Arguments")
+
+
+class TransformWithStateExecDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    arguments: str | None = Field(alias="Arguments", default=None)
+
+
+class TransformWithStateInPandasDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    arguments: str | None = Field(alias="Arguments", default=None)
+
+
+class TransformWithStateInPySparkDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    arguments: str | None = Field(alias="Arguments", default=None)
+
+
+class SubqueryAdaptiveBroadcastDetail(DetailBaseModel):
+    name: str | None = Field(alias="Name", default=None)
+    index: int | None = Field(alias="Index", default=None)
+    indices: Annotated[
+        list[str] | None, Field(alias="Indices"), BeforeValidator(str_to_list)
+    ] = None
+    build_keys: Annotated[
+        list[str] | None, Field(alias="BuildKeys"), BeforeValidator(str_to_list)
+    ] = None
+
+
+class BatchScanDetail(DetailBaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    table: str | None = Field(alias="Table", default=None)
+    filters: Annotated[
+        list[str] | None, Field(alias="Filters"), BeforeValidator(str_to_list)
+    ] = None
+    runtime_filters: Annotated[
+        list[str] | None, Field(alias="RuntimeFilters"), BeforeValidator(str_to_list)
+    ] = None
+
+
+class WriteToDataSourceV2Detail(DetailBaseModel):
+    table: str | None = Field(alias="Table", default=None)
+    write_options: dict[str, str] = Field(alias="WriteOptions", default_factory=dict)
+
+    @field_validator("write_options", mode="before")
+    @classmethod
+    def parse_write_options_str(cls, value: Any) -> dict[str, str]:
+        if isinstance(value, dict):
+            return value
+        value = str(value).strip()
+        if value.startswith("["):
+            value = value[1:]
+        if value.endswith("]"):
+            value = value[:-1]
+        options: dict[str, str] = {}
+        for item in value.split(","):
+            item = item.strip()
+            if "=" in item:
+                key, val = item.split("=", 1)
+                options[key.strip()] = val.strip()
+        return options
+
+
+class AppendDataDetail(DetailBaseModel):
+    table: str | None = Field(alias="Table", default=None)
+    query: str | None = Field(alias="Query", default=None)
+
+
+class OverwriteByExpressionDetail(DetailBaseModel):
+    table: str | None = Field(alias="Table", default=None)
+    delete_condition: str | None = Field(alias="DeleteCondition", default=None)
+
+
+class OverwritePartitionsDynamicDetail(DetailBaseModel):
+    table: str | None = Field(alias="Table", default=None)
+
+
+class SubqueryExecDetail(DetailBaseModel):
+    name: str | None = Field(alias="Name", default=None)
+    child_plan_id: int | None = Field(alias="ChildPlanId", default=None)
+
+
+class ReusedSubqueryExecDetail(DetailBaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    reuses_node_id: int = Field(alias="reuses_node_id")
+
+
+class SubqueryBroadcastDetail(DetailBaseModel):
+    name: str | None = Field(alias="Name", default=None)
+    index: int | None = Field(alias="Index", default=None)
+    build_keys: Annotated[
+        list[str] | None, Field(alias="BuildKeys"), BeforeValidator(str_to_list)
+    ] = None
+
+
+class RepartitionByExpressionDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    partition_exprs: Annotated[
+        list[str] | None,
+        Field(alias="PartitionExpressions"),
+        BeforeValidator(str_to_list),
+    ] = None
+    n_partitions: int | None = Field(alias="NumPartitions", default=None)
+
+
+class SampleDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ]
+    lower_bound: float | None = Field(alias="LowerBound", default=None)
+    upper_bound: float | None = Field(alias="UpperBound", default=None)
+    with_replacement: bool | None = Field(alias="WithReplacement", default=None)
+    seed: int | None = Field(alias="Seed", default=None)
+
+    @field_validator(
+        "lower_bound", "upper_bound", "with_replacement", "seed", mode="before"
+    )
+    @classmethod
+    def parse_sample_argument_str(cls, value: Any) -> float | bool | int | None:
+        if value is None:
+            return None
+        value_str = str(value).strip()
+        if value_str == "":
+            return None
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+        if "." in value_str:
+            return float(value_str)
+        return int(value_str)
+
+
+class RangeDetail(DetailBaseModel):
+    output: Annotated[
+        list[str] | None, Field(alias="Output"), BeforeValidator(str_to_list)
+    ]
+    start: int | None = Field(alias="Start", default=None)
+    end: int | None = Field(alias="End", default=None)
+    step: int | None = Field(alias="Step", default=None)
+    n_partitions: int | None = Field(alias="NumPartitions", default=None)
+
+    @field_validator("start", "end", "step", "n_partitions", mode="before")
+    @classmethod
+    def parse_range_argument_str(cls, value: Any) -> int | None:
+        if value is None:
+            return None
+        return int(str(value).strip())
+
+
+class CartesianProductDetail(DetailBaseModel):
+    input: Annotated[
+        list[str] | None, Field(alias="Input"), BeforeValidator(str_to_list)
+    ] = None
+    join_type: str | None = Field(
+        validation_alias=AliasChoices("Join type", "JoinType"), default=None
+    )
+    join_condition: str | None = Field(
+        validation_alias=AliasChoices("Join condition", "JoinCondition"), default=None
+    )
+
+
+class PhysicalPlanDetail(DetailBaseModel):
     node_id: int
     node_type: NodeType
     detail: (
@@ -845,8 +1270,12 @@ class PhysicalPlanDetail(BaseModel):
         | ColumnarToRowDetail
         | ProjectDetail
         | HashAggregateDetail
+        | ObjectHashAggregateDetail
+        | SortAggregateDetail
+        | ExpandDetail
         | ExchangeDetail
         | ShuffleQueryStageDetail
+        | ResultQueryStageDetail
         | AQEShuffleReadDetail
         | SortDetail
         | SortMergeJoinDetail
@@ -870,6 +1299,33 @@ class PhysicalPlanDetail(BaseModel):
         | InMemoryTableScanDetail
         | InMemoryRelationDetail
         | AdaptiveSparkPlanDetail
+        | RawDetail
+        | ArrowEvalPythonDetail
+        | BatchEvalPythonDetail
+        | MapInPandasDetail
+        | MapInArrowDetail
+        | FlatMapGroupsInPandasDetail
+        | FlatMapCoGroupsInPandasDetail
+        | ArrowEvalPythonUDTFDetail
+        | BatchEvalPythonUDTFDetail
+        | FlatMapGroupsInArrowDetail
+        | FlatMapCoGroupsInArrowDetail
+        | TransformWithStateExecDetail
+        | TransformWithStateInPandasDetail
+        | TransformWithStateInPySparkDetail
+        | SubqueryAdaptiveBroadcastDetail
+        | BatchScanDetail
+        | WriteToDataSourceV2Detail
+        | AppendDataDetail
+        | OverwriteByExpressionDetail
+        | OverwritePartitionsDynamicDetail
+        | SubqueryExecDetail
+        | ReusedSubqueryExecDetail
+        | SubqueryBroadcastDetail
+        | RepartitionByExpressionDetail
+        | SampleDetail
+        | RangeDetail
+        | CartesianProductDetail
         | None
     )
 
@@ -1052,6 +1508,37 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, type[BaseModel]] = {
     NodeType.InMemoryTableScan: InMemoryTableScanDetail,
     NodeType.InMemoryRelation: InMemoryRelationDetail,
     NodeType.AdaptiveSparkPlan: AdaptiveSparkPlanDetail,
+    NodeType.ObjectHashAggregate: ObjectHashAggregateDetail,
+    NodeType.SortAggregate: SortAggregateDetail,
+    NodeType.Expand: ExpandDetail,
+    NodeType.ArrowEvalPython: ArrowEvalPythonDetail,
+    NodeType.BatchEvalPython: BatchEvalPythonDetail,
+    NodeType.MapInPandas: MapInPandasDetail,
+    NodeType.MapInArrow: MapInArrowDetail,
+    NodeType.PythonMapInArrow: MapInArrowDetail,
+    NodeType.FlatMapGroupsInPandas: FlatMapGroupsInPandasDetail,
+    NodeType.FlatMapCoGroupsInPandas: FlatMapCoGroupsInPandasDetail,
+    NodeType.BatchScan: BatchScanDetail,
+    NodeType.WriteToDataSourceV2: WriteToDataSourceV2Detail,
+    NodeType.AppendData: AppendDataDetail,
+    NodeType.OverwriteByExpression: OverwriteByExpressionDetail,
+    NodeType.OverwritePartitionsDynamic: OverwritePartitionsDynamicDetail,
+    NodeType.SubqueryExec: SubqueryExecDetail,
+    NodeType.ReusedSubqueryExec: ReusedSubqueryExecDetail,
+    NodeType.SubqueryBroadcast: SubqueryBroadcastDetail,
+    NodeType.RepartitionByExpression: RepartitionByExpressionDetail,
+    NodeType.Sample: SampleDetail,
+    NodeType.Range: RangeDetail,
+    NodeType.CartesianProduct: CartesianProductDetail,
+    NodeType.ArrowEvalPythonUDTF: ArrowEvalPythonUDTFDetail,
+    NodeType.BatchEvalPythonUDTF: BatchEvalPythonUDTFDetail,
+    NodeType.FlatMapGroupsInArrow: FlatMapGroupsInArrowDetail,
+    NodeType.FlatMapCoGroupsInArrow: FlatMapCoGroupsInArrowDetail,
+    NodeType.TransformWithStateExec: TransformWithStateExecDetail,
+    NodeType.TransformWithStateInPandas: TransformWithStateInPandasDetail,
+    NodeType.TransformWithStateInPySpark: TransformWithStateInPySparkDetail,
+    NodeType.SubqueryAdaptiveBroadcast: SubqueryAdaptiveBroadcastDetail,
+    NodeType.ResultQueryStage: ResultQueryStageDetail,
 }
 
 

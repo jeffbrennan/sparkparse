@@ -1,0 +1,54 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 1,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (3)\n+- == Final Plan ==\n   * Sample (2)\n   +- * Range (1)\n+- == Initial Plan ==\n   Sample (2)\n   +- Range (1)\n\n\n(1) Range [codegen id : 1]\nOutput [1]: [id#2L]\nArguments: Range (0, 100, step=1, splits=Some(2))\n\n(2) Sample [codegen id : 1]\nInput [1]: [id#2L]\nArguments: 0.0, 0.5, false, 42\n\n(3) AdaptiveSparkPlan\nOutput [1]: [id#2L]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": [
+      {
+        "nodeName": "WholeStageCodegen (1)",
+        "simpleString": "WholeStageCodegen (1)",
+        "children": [
+          {
+            "nodeName": "Sample",
+            "simpleString": "Sample 0.0, 0.5, false, 42",
+            "children": [
+              {
+                "nodeName": "Range",
+                "simpleString": "Range (0, 100, step=1, splits=2)",
+                "children": [],
+                "metadata": {},
+                "metrics": [
+                  {
+                    "name": "number of output rows",
+                    "accumulatorId": 39,
+                    "metricType": "sum"
+                  }
+                ]
+              }
+            ],
+            "metadata": {},
+            "metrics": [
+              {
+                "name": "number of output rows",
+                "accumulatorId": 38,
+                "metricType": "sum"
+              }
+            ]
+          }
+        ],
+        "metadata": {},
+        "metrics": [
+          {
+            "name": "duration",
+            "accumulatorId": 40,
+            "metricType": "timing"
+          }
+        ]
+      }
+    ],
+    "metadata": {},
+    "metrics": []
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 4,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (6)\n+- FlatMapGroupsInArrow (5)\n   +- Sort (4)\n      +- Exchange (3)\n         +- Project (2)\n            +- Scan ExistingRDD (1)\n\n\n(1) Scan ExistingRDD\nOutput [3]: [id#10L, name#11, val#12]\nArguments: [id#10L, name#11, val#12], MapPartitionsRDD[22] at applySchemaToPythonRDD at NativeMethodAccessorImpl.java:0, ExistingRDD, UnknownPartitioning(0)\n\n(2) Project\nOutput [4]: [id#10L, id#10L, name#11, val#12]\nInput [3]: [id#10L, name#11, val#12]\n\n(3) Exchange\nInput [4]: [id#10L, id#10L, name#11, val#12]\nArguments: hashpartitioning(id#10L, 200), ENSURE_REQUIREMENTS, [plan_id=40]\n\n(4) Sort\nInput [4]: [id#10L, id#10L, name#11, val#12]\nArguments: [id#10L ASC NULLS FIRST], false, 0\n\n(5) FlatMapGroupsInArrow\nInput [4]: [id#10L, id#10L, name#11, val#12]\nArguments: [id#10L], process_batch(id#10L, name#11, val#12)#13, [id#14L, name#15, val#16, result#17]\n\n(6) AdaptiveSparkPlan\nOutput [4]: [id#14L, name#15, val#16, result#17]\nArguments: isFinalPlan=false\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": []
+  }
+}

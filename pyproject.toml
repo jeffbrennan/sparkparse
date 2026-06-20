@@ -38,6 +38,7 @@ sparkparse = "sparkparse.app:app"
 [tool.uv]
 dev-dependencies = [
     "ipykernel>=6.29.5",
+    "pyarrow>=10.0.0",
     "pyrefly>=1.0.0",
     "pytest>=8.3.5",
     "ruff>=0.9.9",

@@ -1,0 +1,10 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 1,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (6)\n+- == Final Plan ==\n   TransformWithStateInPySpark (5)\n   :- Sort (3)\n   :  +- Exchange (2)\n   :     +- Project (1)\n   :        +- Scan ExistingRDD (0)\n   +- LocalRelation <empty>\n\n\n(0) Scan ExistingRDD\nOutput [1]: [id#0L]\nArguments: [id#0L], MapPartitionsRDD[4] at applySchemaToPythonRDD at NativeMethodAccessorImpl.java:0, ExistingRDD, UnknownPartitioning(0)\n\n(1) Project\nOutput [3]: [id#0L, id#0L, v#1]\nInput [3]: [id#0L, v#1]\n\n(2) Exchange\nInput [3]: [id#0L, id#0L, v#1]\nArguments: hashpartitioning(id#0L, 200), REQUIRED_BY_STATEFUL_OPERATOR, [plan_id=21]\n\n(3) Sort\nInput [3]: [id#0L, id#0L, v#1]\nArguments: [id#0L ASC NULLS FIRST], false, 0\n\n(5) TransformWithStateInPySpark\nInput [3]: [id#0L, id#0L, v#1]\nArguments: transformWithStateUDF(id#0L, v#1)#2, [id#0L], [id#3, v#4], Append, NoTime, state info [ checkpoint = , runId = 09a44841-4e6a-457f-abe4-63c92e8f924b, opId = 0, ver = 0, numPartitions = 200] stateStoreCkptIds = None, 1781998548910, python_row, false, false, [id#0L]\n\n(6) AdaptiveSparkPlan\nOutput [3]: [id#0L, v#1]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": []
+  }
+}

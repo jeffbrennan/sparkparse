@@ -1,0 +1,305 @@
+{
+  "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+  "executionId": 4,
+  "physicalPlanDescription": "== Physical Plan ==\nAdaptiveSparkPlan (10)\n+- == Final Plan ==\n   * HashAggregate (7)\n   +- AQEShuffleRead (6)\n      +- ShuffleQueryStage (5), Statistics(sizeInBytes=256.0 B, rowCount=6)\n         +- Exchange (4)\n            +- * HashAggregate (3)\n               +- * Expand (2)\n                  +- * Scan ExistingRDD (1)\n+- == Initial Plan ==\n   HashAggregate (9)\n   +- Exchange (8)\n      +- HashAggregate (3)\n         +- Expand (2)\n            +- Scan ExistingRDD (1)\n\n\n(1) Scan ExistingRDD [codegen id : 1]\nOutput [2]: [id#20L, v#21]\nArguments: [id#20L, v#21], MapPartitionsRDD[27] at applySchemaToPythonRDD at NativeMethodAccessorImpl.java:0, ExistingRDD, UnknownPartitioning(0)\n\n(2) Expand [codegen id : 1]\nInput [2]: [id#20L, v#21]\nArguments: [[id#20L, v#21, 0], [id#20L, null, 1], [null, null, 3]], [id#31L, v#32, spark_grouping_id#30L]\n\n(3) HashAggregate [codegen id : 1]\nInput [3]: [id#31L, v#32, spark_grouping_id#30L]\nKeys [3]: [id#31L, v#32, spark_grouping_id#30L]\nFunctions [1]: [partial_count(1)]\nAggregate Attributes [1]: [count#36L]\nResults [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\n\n(4) Exchange\nInput [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\nArguments: hashpartitioning(id#31L, v#32, spark_grouping_id#30L, 200), ENSURE_REQUIREMENTS, [plan_id=80]\n\n(5) ShuffleQueryStage\nOutput [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\nArguments: 0\n\n(6) AQEShuffleRead\nInput [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\nArguments: coalesced\n\n(7) HashAggregate [codegen id : 2]\nInput [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\nKeys [3]: [id#31L, v#32, spark_grouping_id#30L]\nFunctions [1]: [count(1)]\nAggregate Attributes [1]: [count(1)#26L]\nResults [3]: [id#31L, v#32, count(1)#26L AS count#27L]\n\n(8) Exchange\nInput [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\nArguments: hashpartitioning(id#31L, v#32, spark_grouping_id#30L, 200), ENSURE_REQUIREMENTS, [plan_id=70]\n\n(9) HashAggregate\nInput [4]: [id#31L, v#32, spark_grouping_id#30L, count#37L]\nKeys [3]: [id#31L, v#32, spark_grouping_id#30L]\nFunctions [1]: [count(1)]\nAggregate Attributes [1]: [count(1)#26L]\nResults [3]: [id#31L, v#32, count(1)#26L AS count#27L]\n\n(10) AdaptiveSparkPlan\nOutput [3]: [id#31L, v#32, count#27L]\nArguments: isFinalPlan=true\n\n",
+  "sparkPlanInfo": {
+    "nodeName": "AdaptiveSparkPlan",
+    "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+    "children": [
+      {
+        "nodeName": "WholeStageCodegen (2)",
+        "simpleString": "WholeStageCodegen (2)",
+        "children": [
+          {
+            "nodeName": "HashAggregate",
+            "simpleString": "HashAggregate(keys=[id#31L, v#32, spark_grouping_id#30L], functions=[count(1)])",
+            "children": [
+              {
+                "nodeName": "InputAdapter",
+                "simpleString": "InputAdapter",
+                "children": [
+                  {
+                    "nodeName": "AQEShuffleRead",
+                    "simpleString": "AQEShuffleRead coalesced",
+                    "children": [
+                      {
+                        "nodeName": "ShuffleQueryStage",
+                        "simpleString": "ShuffleQueryStage 0",
+                        "children": [
+                          {
+                            "nodeName": "Exchange",
+                            "simpleString": "Exchange hashpartitioning(id#31L, v#32, spark_grouping_id#30L, 200), ENSURE_REQUIREMENTS, [plan_id=80]",
+                            "children": [
+                              {
+                                "nodeName": "WholeStageCodegen (1)",
+                                "simpleString": "WholeStageCodegen (1)",
+                                "children": [
+                                  {
+                                    "nodeName": "HashAggregate",
+                                    "simpleString": "HashAggregate(keys=[id#31L, v#32, spark_grouping_id#30L], functions=[partial_count(1)])",
+                                    "children": [
+                                      {
+                                        "nodeName": "Expand",
+                                        "simpleString": "Expand [[id#20L, v#21, 0], [id#20L, null, 1], [null, null, 3]], [id#31L, v#32, spark_grouping_id#30L]",
+                                        "children": [
+                                          {
+                                            "nodeName": "Scan ExistingRDD",
+                                            "simpleString": "Scan ExistingRDD[id#20L,v#21]",
+                                            "children": [],
+                                            "metadata": {},
+                                            "metrics": [
+                                              {
+                                                "name": "number of output rows",
+                                                "accumulatorId": 268,
+                                                "metricType": "sum"
+                                              }
+                                            ]
+                                          }
+                                        ],
+                                        "metadata": {},
+                                        "metrics": [
+                                          {
+                                            "name": "number of output rows",
+                                            "accumulatorId": 267,
+                                            "metricType": "sum"
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "metadata": {},
+                                    "metrics": [
+                                      {
+                                        "name": "spill size",
+                                        "accumulatorId": 263,
+                                        "metricType": "size"
+                                      },
+                                      {
+                                        "name": "time in aggregation build",
+                                        "accumulatorId": 264,
+                                        "metricType": "timing"
+                                      },
+                                      {
+                                        "name": "peak memory",
+                                        "accumulatorId": 262,
+                                        "metricType": "size"
+                                      },
+                                      {
+                                        "name": "number of output rows",
+                                        "accumulatorId": 261,
+                                        "metricType": "sum"
+                                      },
+                                      {
+                                        "name": "number of sort fallback tasks",
+                                        "accumulatorId": 266,
+                                        "metricType": "sum"
+                                      },
+                                      {
+                                        "name": "avg hash probes per key",
+                                        "accumulatorId": 265,
+                                        "metricType": "average"
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "metadata": {},
+                                "metrics": [
+                                  {
+                                    "name": "duration",
+                                    "accumulatorId": 297,
+                                    "metricType": "timing"
+                                  }
+                                ]
+                              }
+                            ],
+                            "metadata": {},
+                            "metrics": [
+                              {
+                                "name": "shuffle records written",
+                                "accumulatorId": 295,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "local merged chunks fetched",
+                                "accumulatorId": 289,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "shuffle write time",
+                                "accumulatorId": 296,
+                                "metricType": "nsTiming"
+                              },
+                              {
+                                "name": "remote merged bytes read",
+                                "accumulatorId": 290,
+                                "metricType": "size"
+                              },
+                              {
+                                "name": "local merged blocks fetched",
+                                "accumulatorId": 287,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "corrupt merged block chunks",
+                                "accumulatorId": 284,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "remote merged reqs duration",
+                                "accumulatorId": 293,
+                                "metricType": "timing"
+                              },
+                              {
+                                "name": "remote merged blocks fetched",
+                                "accumulatorId": 286,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "records read",
+                                "accumulatorId": 283,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "local bytes read",
+                                "accumulatorId": 281,
+                                "metricType": "size"
+                              },
+                              {
+                                "name": "fetch wait time",
+                                "accumulatorId": 282,
+                                "metricType": "timing"
+                              },
+                              {
+                                "name": "remote bytes read",
+                                "accumulatorId": 279,
+                                "metricType": "size"
+                              },
+                              {
+                                "name": "merged fetch fallback count",
+                                "accumulatorId": 285,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "local blocks read",
+                                "accumulatorId": 278,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "remote merged chunks fetched",
+                                "accumulatorId": 288,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "remote blocks read",
+                                "accumulatorId": 277,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "data size",
+                                "accumulatorId": 275,
+                                "metricType": "size"
+                              },
+                              {
+                                "name": "local merged bytes read",
+                                "accumulatorId": 291,
+                                "metricType": "size"
+                              },
+                              {
+                                "name": "number of partitions",
+                                "accumulatorId": 276,
+                                "metricType": "sum"
+                              },
+                              {
+                                "name": "remote reqs duration",
+                                "accumulatorId": 292,
+                                "metricType": "timing"
+                              },
+                              {
+                                "name": "remote bytes read to disk",
+                                "accumulatorId": 280,
+                                "metricType": "size"
+                              },
+                              {
+                                "name": "shuffle bytes written",
+                                "accumulatorId": 294,
+                                "metricType": "size"
+                              }
+                            ]
+                          }
+                        ],
+                        "metadata": {},
+                        "metrics": []
+                      }
+                    ],
+                    "metadata": {},
+                    "metrics": [
+                      {
+                        "name": "number of partitions",
+                        "accumulatorId": 340,
+                        "metricType": "sum"
+                      },
+                      {
+                        "name": "partition data size",
+                        "accumulatorId": 341,
+                        "metricType": "size"
+                      },
+                      {
+                        "name": "number of coalesced partitions",
+                        "accumulatorId": 342,
+                        "metricType": "sum"
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {},
+                "metrics": []
+              }
+            ],
+            "metadata": {},
+            "metrics": [
+              {
+                "name": "spill size",
+                "accumulatorId": 336,
+                "metricType": "size"
+              },
+              {
+                "name": "time in aggregation build",
+                "accumulatorId": 337,
+                "metricType": "timing"
+              },
+              {
+                "name": "peak memory",
+                "accumulatorId": 335,
+                "metricType": "size"
+              },
+              {
+                "name": "number of output rows",
+                "accumulatorId": 334,
+                "metricType": "sum"
+              },
+              {
+                "name": "number of sort fallback tasks",
+                "accumulatorId": 339,
+                "metricType": "sum"
+              },
+              {
+                "name": "avg hash probes per key",
+                "accumulatorId": 338,
+                "metricType": "average"
+              }
+            ]
+          }
+        ],
+        "metadata": {},
+        "metrics": [
+          {
+            "name": "duration",
+            "accumulatorId": 333,
+            "metricType": "timing"
+          }
+        ]
+      }
+    ],
+    "metadata": {},
+    "metrics": []
+  }
+}

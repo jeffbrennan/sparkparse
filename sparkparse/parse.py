@@ -32,7 +32,9 @@ from sparkparse.models import (
     PlanAccumulator,
     QueryEvent,
     QueryFunction,
+    RawDetail,
     ReusedExchangeDetail,
+    ReusedSubqueryExecDetail,
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
@@ -125,7 +127,7 @@ def get_plan_details(
     assert len(plan_details_split) == len(node_map)
 
     details_parsed = []
-    null_detail_types = [NodeType.Union]
+    null_detail_types = [NodeType.Union, NodeType.WholeStageCodegen]
 
     for detail in plan_details_split:
         node_id = re.compile(NODE_ID_PATTERN).search(detail)
@@ -149,7 +151,17 @@ def get_plan_details(
             continue
 
         if node_type not in NODE_TYPE_DETAIL_MAP:
-            raise ValueError(f"Could not find detail model for node type: {node_type}")
+            logger.warning(
+                f"No detail model for node type: {node_type} — storing raw text"
+            )
+            details_parsed.append(
+                PhysicalPlanDetail(
+                    node_id=node_id,
+                    node_type=node_type,
+                    detail=RawDetail(raw=detail),
+                )
+            )
+            continue
 
         detail_model = NODE_TYPE_DETAIL_MAP[node_type]
         detail_dict: dict[str, Any] = {}
@@ -170,7 +182,18 @@ def get_plan_details(
             reused_id = detail_lines[0].split(": ")[-1].removesuffix("]").strip()
             detail_dict["reuses_node_id"] = int(reused_id)
 
-        detail_parsed = detail_model.model_validate(detail_dict)
+        if node_type == NodeType.ReusedSubqueryExec:
+            reused_id = detail_lines[0].split(": ")[-1].removesuffix("]").strip()
+            detail_dict["reuses_node_id"] = int(reused_id)
+
+        try:
+            detail_parsed = detail_model.model_validate(detail_dict)
+        except Exception:
+            logger.warning(
+                f"Failed to parse details for node type: {node_type} — storing raw text"
+            )
+            detail_parsed = RawDetail(raw=detail)
+
         details_parsed.append(
             PhysicalPlanDetail(
                 node_id=node_id,
@@ -215,12 +238,19 @@ def parse_node_accumulators(
             [excluded in node_name for excluded in accumulators_missing_from_tree_nodes]
         )
         if "metrics" in node_info and not is_excluded:
+            if child_index >= len(node_ids):
+                logger.warning(
+                    f"Accumulator child_index {child_index} out of bounds for plan with {len(node_ids)} nodes; skipping accumulators for {node_name}"
+                )
+                return
             node_id = node_ids[child_index]
             expected_node_name = node_map[node_id].node_type
-            assert (
-                node_name.replace("Execute ", "").split(" ")[0]
-                in expected_node_name.value
-            ), print(f"{node_name} not in {expected_node_name.value}")
+            if expected_node_name != NodeType.Unknown:
+                accumulator_node_type = node_name.replace("Execute ", "").split(" ")[0]
+                if accumulator_node_type not in expected_node_name.value:
+                    logger.warning(
+                        f"Accumulator node name mismatch: {node_name} not in {expected_node_name.value}"
+                    )
             metrics_parsed = [
                 PlanAccumulator(
                     node_id=node_id,
@@ -233,8 +263,10 @@ def parse_node_accumulators(
             ]
             accumulators[node_id] = metrics_parsed
 
-        # reusedexchange nodes repeat the metrics of the node they are reusing
-        if "children" in node_info and "ReusedExchange" not in node_name:
+        # reusedexchange/reusedsubquery nodes repeat the metrics of the node they are reusing
+        if "children" in node_info and not any(
+            reused in node_name for reused in ("ReusedExchange", "ReusedSubquery")
+        ):
             for child in node_info["children"]:
                 process_node(child, child_index=len(accumulators))
 
@@ -282,7 +314,13 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         node_type_match = re.search(NODE_TYPE_PATTERN, line.replace("Execute", ""))
 
         if node_type_match:
-            node_type = NodeType(node_type_match.group(1))
+            try:
+                node_type = NodeType(node_type_match.group(1))
+            except ValueError:
+                logger.warning(
+                    f"Unknown node type: {node_type_match.group(1)} — storing as Unknown"
+                )
+                node_type = NodeType.Unknown
         else:
             raise ValueError(f"Could not parse node type from line: {line}")
 
@@ -343,11 +381,33 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
 
     plan_lines = plan_string.split("\n")
     final_plan_indicator = "+- == Final Plan =="
+    current_plan_indicator = "+- == Current Plan =="
     initial_plan_indicator = "+- == Initial Plan =="
+    physical_plan_indicator = "== Physical Plan =="
 
-    # catches top level sections
-    tree_start = plan_lines.index(final_plan_indicator) + 1
-    tree_end = plan_lines.index(initial_plan_indicator)
+    # Adaptive plans expose Final/Initial Plan sections; command-only plans
+    # (e.g. DSv2 writes) have a single tree under "== Physical Plan ==".
+    if final_plan_indicator in plan_lines:
+        tree_start = plan_lines.index(final_plan_indicator) + 1
+    elif current_plan_indicator in plan_lines:
+        tree_start = plan_lines.index(current_plan_indicator) + 1
+    elif physical_plan_indicator in plan_lines:
+        tree_start = plan_lines.index(physical_plan_indicator) + 1
+    else:
+        tree_start = 0
+
+    if initial_plan_indicator in plan_lines:
+        tree_end = plan_lines.index(initial_plan_indicator)
+    else:
+        # Command plans (e.g. DSv2 writes) have a single tree followed by
+        # details and no Initial Plan section. The tree ends at the first
+        # blank line after the tree starts.
+        tree_end = len(plan_lines)
+        for i in range(tree_start, len(plan_lines)):
+            if plan_lines[i].strip() == "":
+                tree_end = i
+                break
+
     tree = "\n".join(plan_lines[tree_start:tree_end])
 
     max_attempts = 3
@@ -357,11 +417,18 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
         # remove initial indicator
         tree_split = tree.split(initial_plan_indicator)
 
-        # remove final indicator
-        tree_split_final = tree_split[0].split(final_plan_indicator)
-        tree = tree_split_final[0].strip() + tree_split_final[1]
+        # remove final/current indicator
+        for indicator in (final_plan_indicator, current_plan_indicator):
+            if indicator in tree_split[0]:
+                tree_split_final = tree_split[0].split(indicator)
+                tree = tree_split_final[0].strip() + tree_split_final[1]
+                break
 
-    if initial_plan_indicator in tree or final_plan_indicator in tree:
+    if (
+        initial_plan_indicator in tree
+        or final_plan_indicator in tree
+        or current_plan_indicator in tree
+    ):
         raise ValueError(
             "could not remove initial plan after", max_attempts, "attempts"
         )
@@ -394,6 +461,15 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
         # reused nodes are the children of the node they are reusing in the spark ui
         if detail.node_type == NodeType.ReusedExchange:
             reused_detail = cast(ReusedExchangeDetail, detail.detail)
+            reuses_node = node_map[reused_detail.reuses_node_id]
+
+            if reuses_node.child_nodes is None:
+                reuses_node.child_nodes = [detail.node_id]
+            else:
+                reuses_node.child_nodes.append(detail.node_id)
+
+        if detail.node_type == NodeType.ReusedSubqueryExec:
+            reused_detail = cast(ReusedSubqueryExecDetail, detail.detail)
             reuses_node = node_map[reused_detail.reuses_node_id]
 
             if reuses_node.child_nodes is None:
@@ -536,12 +612,17 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
                 f"[line {i:04d}] parse skip - unhandled event type {event_type}"
             )
         elif event_type.endswith("SparkListenerSQLExecutionStart"):
+            try:
+                query_function = QueryFunction(line_dict["description"].split(" ")[0])
+            except ValueError:
+                logger.warning(
+                    f"Unknown query function: {line_dict['description'].split(' ')[0]}"
+                )
+                query_function = None
             query_times.append(
                 QueryEvent(
                     query_id=line_dict["executionId"],
-                    query_function=QueryFunction(
-                        line_dict["description"].split(" ")[0]
-                    ),
+                    query_function=query_function,
                     query_time=line_dict["time"],
                     event_type=EventType.start,
                 )
