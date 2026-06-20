@@ -1,5 +1,6 @@
 from typing import Any
 
+
 class _CallbackContext:
     triggered: list[dict[str, Any]]
     triggered_prop_ids: dict[str, Any]
@@ -26,7 +27,9 @@ class _CallbackContext:
         self, name: str, duration: float | None = ..., description: str | None = ...
     ) -> None: ...
 
+
 callback_context: _CallbackContext
+
 
 class Dash:
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
@@ -37,22 +40,30 @@ class Dash:
 
     def run(self, *args: Any, **kwargs: Any) -> None: ...
 
+
 page_container: Any
 
 def register_page(*args: Any, **kwargs: Any) -> None: ...
 
+
 class _ComponentProp:
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def __init__(self, *args: Any, **kwargs: Any) -> ...
+
 
 class Input(_ComponentProp): ...
 class Output(_ComponentProp): ...
 class State(_ComponentProp): ...
 
+
 def callback(*args: Any, **kwargs: Any) -> Any: ...
+
 
 dcc: Any
 html: Any
 dash_table: Any
 
+
 def get_app() -> Dash: ...
+
+
 def set_props(component_id: str | dict, props: dict) -> None: ...
