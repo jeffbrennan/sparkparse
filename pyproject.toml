@@ -62,3 +62,4 @@ project-includes = [
 ]
 project-excludes = ["typings/**"]
 search-path = ["typings"]
+ignore-missing-imports = ["deltalake"]
