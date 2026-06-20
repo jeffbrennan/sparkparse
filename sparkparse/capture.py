@@ -63,7 +63,9 @@ class SparkparseCapture:
         self._last_record: RunRecord | None = None
         self._triggered_alerts: list[dict] = []
 
-    def __call__(self, func: Callable[..., R]) -> Callable[..., tuple[R, "SparkparseCapture"]]:
+    def __call__(
+        self, func: Callable[..., R]
+    ) -> Callable[..., tuple[R, "SparkparseCapture"]]:
         @functools.wraps(func)
         def get_wrapper(*args: Any, **kwargs: Any) -> tuple[R, "SparkparseCapture"]:
             with self:
@@ -88,13 +90,14 @@ class SparkparseCapture:
             ensure_dir(self.temp_dir)
             self._log_dir = self.temp_dir
 
+        orig_conf: dict[str, str] = {}
         if self.spark or SparkSession.getActiveSession():
             self._orig_spark = self.spark
             self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir")
             orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
             self.spark.stop()
 
-        builder = SparkSession.builder.appName("sparkparse")  # type: ignore
+        builder = SparkSession.builder.appName("sparkparse")
         if hasattr(self, "_orig_spark"):
             for key, value in orig_conf.items():
                 if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
@@ -137,6 +140,10 @@ class SparkparseCapture:
 
     def _record_history_and_alerts(self) -> None:
         if self._parsed_logs is None or self._history_path is None:
+            return
+
+        if self._log_dir is None:
+            _log.warning("log directory is not set, skipping history and alerts")
             return
 
         effective_log_name = self._log_name or get_path_name(self._log_dir)
@@ -197,7 +204,11 @@ class SparkparseCapture:
         if self._history_path is not None:
             self._record_history_and_alerts()
 
-        if self._should_cleanup and self._log_dir is not None and path_exists(self._log_dir):
+        if (
+            self._should_cleanup
+            and self._log_dir is not None
+            and path_exists(self._log_dir)
+        ):
             remove_dir(self._log_dir)
 
 
@@ -211,7 +222,7 @@ def capture_context(
     alert_config: str | None = None,
 ) -> SparkparseCapture:
     if spark is None:
-        _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()  # type: ignore
+        _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()
     else:
         _spark = spark
 
@@ -269,7 +280,7 @@ def capture(
         func: Callable[..., R],
     ) -> Callable[..., tuple[Any, SparkparseCapture]]:
         if spark is None:
-            _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()  # type: ignore
+            _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()
         else:
             _spark = spark
 

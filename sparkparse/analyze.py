@@ -199,12 +199,16 @@ def find_largest_scans(dfs: ParsedLogDataFrames, n: int = 10) -> pl.DataFrame:
     )
 
     return (
-        scan_nodes.select("query_id", "node_id", "node_name", "details", "node_duration_minutes")
+        scan_nodes.select(
+            "query_id", "node_id", "node_name", "details", "node_duration_minutes"
+        )
         .join(node_bytes, on=["query_id", "node_name"], how="left")
         .with_columns(
             pl.col("details")
             .map_elements(
-                lambda s: json.loads(s)["detail"]["location"]["location"] if s is not None else [],
+                lambda s: json.loads(s)["detail"]["location"]["location"]
+                if s is not None
+                else [],
                 return_dtype=pl.List(pl.String),
             )
             .alias("paths")

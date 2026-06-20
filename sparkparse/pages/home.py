@@ -20,7 +20,7 @@ from sparkparse.parse import check_if_log_has_queries
 @timeit
 @lru_cache
 def get_available_logs(_) -> list[str]:
-    log_path = resolve_dir(get_app().server.config["LOG_DIR"])
+    log_path = Path(resolve_dir(get_app().server.config["LOG_DIR"]))
     log_files = tuple(log_path.glob("*"))
 
     # filter out logs that don't have queries
@@ -52,6 +52,9 @@ def get_log_duration(log: Path) -> LogDuration:
     with log.open("r") as f:
         lines = f.readlines()
 
+    start_timestamp: datetime.datetime | None = None
+    end_timestamp: datetime.datetime | None = None
+
     # iterate over first few lines until first timestamp found
     for line in lines:
         if "Timestamp" not in line:
@@ -70,7 +73,7 @@ def get_log_duration(log: Path) -> LogDuration:
         end_timestamp = datetime.datetime.fromtimestamp(entry["Timestamp"] / 1000)
         break
 
-    if not start_timestamp or not end_timestamp:
+    if start_timestamp is None or end_timestamp is None:
         raise ValueError("Could not find start and end timestamps in log")
 
     duration_seconds = (end_timestamp - start_timestamp).total_seconds()

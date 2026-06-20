@@ -59,7 +59,7 @@ def open_file(path: str | Path, mode: str = "r") -> IO[Any]:
     path_str = str(path)
     if is_cloud_path(path_str):
         fsspec = _import_fsspec()
-        return fsspec.open(path_str, mode).open()  # type: ignore[no-any-return]
+        return fsspec.open(path_str, mode).open()
     return open(path_str, mode)
 
 
@@ -83,7 +83,7 @@ def append_text(path: str | Path, content: str) -> None:
 def read_text(path: str | Path) -> str:
     """Read and return the full text content of ``path``."""
     with open_file(path, "r") as f:
-        return f.read()  # type: ignore[no-any-return]
+        return f.read()
 
 
 def list_files(path: str | Path, pattern: str = "*") -> list[str]:

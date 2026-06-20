@@ -16,7 +16,9 @@ import datetime
 import importlib.util
 import logging
 import uuid
+from io import IOBase
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 
@@ -78,6 +80,8 @@ def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
     start_ts = dag["query_start_timestamp"].str.to_datetime(format=_TS_FORMAT).min()
     end_ts = dag["query_end_timestamp"].str.to_datetime(format=_TS_FORMAT).max()
     if start_ts is not None and end_ts is not None:
+        assert isinstance(start_ts, datetime.datetime)
+        assert isinstance(end_ts, datetime.datetime)
         duration_s = (end_ts - start_ts).total_seconds()
     else:
         duration_s = 0.0
@@ -94,8 +98,10 @@ def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
     n_cartesian = find_cartesian_joins(dfs).height
 
     max_node_dur = dag["node_duration_minutes"].max()
-    if max_node_dur is None:
-        max_node_dur = 0.0
+    if isinstance(max_node_dur, int | float):
+        max_node_duration_min = float(max_node_dur)
+    else:
+        max_node_duration_min = 0.0
 
     largest_scans = find_largest_scans(dfs, n=1)
     if largest_scans.is_empty():
@@ -121,12 +127,14 @@ def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
         n_stages=combined["stage_id"].n_unique(),
         n_tasks=combined.height,
         n_cartesian_joins=n_cartesian,
-        max_node_duration_min=float(max_node_dur),
+        max_node_duration_min=max_node_duration_min,
         max_scan_bytes=max_scan_bytes,
     )
 
 
-def append(record: RunRecord, history_path: str, format: HistoryFormat = "auto") -> None:
+def append(
+    record: RunRecord, history_path: str, format: HistoryFormat = "auto"
+) -> None:
     """Append a ``RunRecord`` to the history store at ``history_path``.
 
     For Delta, ``history_path`` is a directory. For JSONL, it is a file path.
@@ -169,10 +177,11 @@ def read(
             return pl.DataFrame()
         if is_cloud_path(history_path):
             with open_file(history_path, "rb") as f:
-                df = pl.read_ndjson(f)
+                df = pl.read_ndjson(cast(IOBase, f))
         else:
             df = pl.read_ndjson(history_path)
 
+    assert isinstance(df, pl.DataFrame)
     if df.is_empty():
         return df
 

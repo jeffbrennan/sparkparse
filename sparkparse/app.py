@@ -111,7 +111,9 @@ def analyze(
     ] = None,
     out_file: Annotated[
         str | None,
-        typer.Option(help="Write analysis output to this file (local path or cloud URI)."),
+        typer.Option(
+            help="Write analysis output to this file (local path or cloud URI)."
+        ),
     ] = None,
     format: Annotated[
         AnalysisFormat,
@@ -140,7 +142,9 @@ def analyze(
         lines.append(f"Bytes read: {totals.get('bytes_read', 0):,}")
         lines.append(f"Bytes written: {totals.get('bytes_written', 0):,}")
         lines.append(f"Shuffle bytes read: {totals.get('shuffle_bytes_read', 0):,}")
-        lines.append(f"Shuffle bytes written: {totals.get('shuffle_bytes_written', 0):,}")
+        lines.append(
+            f"Shuffle bytes written: {totals.get('shuffle_bytes_written', 0):,}"
+        )
         lines.append(f"Memory spilled: {totals.get('memory_bytes_spilled', 0):,}")
         lines.append(f"Disk spilled: {totals.get('disk_bytes_spilled', 0):,}")
         for q in summary.get("queries", []):
@@ -202,11 +206,17 @@ def check_alerts_cmd(
     history_path: Annotated[
         str, typer.Argument(help="Path to history store (Delta dir or JSONL file).")
     ],
-    log_name: Annotated[str, typer.Argument(help="Stable job identifier to check alerts for.")],
-    alert_config: Annotated[str, typer.Argument(help="Path to alert configuration TOML file.")],
+    log_name: Annotated[
+        str, typer.Argument(help="Stable job identifier to check alerts for.")
+    ],
+    alert_config: Annotated[
+        str, typer.Argument(help="Path to alert configuration TOML file.")
+    ],
     alert_output_path: Annotated[
         str | None,
-        typer.Option(help="File to write triggered alerts (for on_trigger='file' rules)."),
+        typer.Option(
+            help="File to write triggered alerts (for on_trigger='file' rules)."
+        ),
     ] = None,
 ) -> None:
     """Run alert checks against the latest run in history."""

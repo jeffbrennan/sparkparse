@@ -31,17 +31,18 @@ Spark event log (JSONL)
 
 ## Key files
 
-| File | Purpose |
-|---|---|
-| `sparkparse/models.py` | All Pydantic models. `NodeType` enum (30+ values), `ParsedLog`, `ParsedLogDataFrames`, `NODE_TYPE_DETAIL_MAP` (node type → detail model class) |
-| `sparkparse/parse.py` | `get_parsed_metrics()` is the main entry point. `parse_spark_ui_tree()` converts indented ASCII plans to node graphs. `parse_log()` orchestrates everything. |
-| `sparkparse/clean.py` | `log_to_dag_df()` and `log_to_combined_df()` produce the two output DataFrames. `get_readable_size()` and `get_readable_timing()` are Polars expression helpers. |
-| `sparkparse/app.py` | Typer CLI. `get` → parses and writes output files. `viz` → launches dashboard. |
-| `sparkparse/capture.py` | `SparkparseCapture` context manager/decorator. Stops the active session, restarts it with event logging enabled, then processes logs on `__exit__`. |
+| File                    | Purpose                                                                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sparkparse/models.py`  | All Pydantic models. `NodeType` enum (30+ values), `ParsedLog`, `ParsedLogDataFrames`, `NODE_TYPE_DETAIL_MAP` (node type → detail model class)                   |
+| `sparkparse/parse.py`   | `get_parsed_metrics()` is the main entry point. `parse_spark_ui_tree()` converts indented ASCII plans to node graphs. `parse_log()` orchestrates everything.     |
+| `sparkparse/clean.py`   | `log_to_dag_df()` and `log_to_combined_df()` produce the two output DataFrames. `get_readable_size()` and `get_readable_timing()` are Polars expression helpers. |
+| `sparkparse/app.py`     | Typer CLI. `get` → parses and writes output files. `viz` → launches dashboard.                                                                                   |
+| `sparkparse/capture.py` | `SparkparseCapture` context manager/decorator. Stops the active session, restarts it with event logging enabled, then processes logs on `__exit__`.              |
 
 ## Data model
 
 ### `dag` DataFrame columns (per physical plan node per query)
+
 - `query_id`, `query_function`, `query_header`, `query_start/end_timestamp`, `query_duration_seconds`
 - `node_id`, `node_type`, `node_name`, `child_nodes` (comma-separated string), `whole_stage_codegen_id`
 - `details` — JSON string; deserialize with the appropriate model from `NODE_TYPE_DETAIL_MAP`
@@ -49,6 +50,7 @@ Spark event log (JSONL)
 - `node_duration_minutes`
 
 ### `combined` DataFrame columns (per task)
+
 - `log_name`, `parsed_log_name`, `query_id`, `query_function`
 - `query/job/stage/task` start/end timestamps and duration_seconds
 - `task_id`, `executor_id`, `nodes` (list of physical plan nodes for this task)
@@ -84,6 +86,7 @@ uv run pytest tests/test.py tests/test_capture.py -v
 ```
 
 Test fixtures live in `tests/data/`:
+
 - `tests/data/full_logs/` — three real Spark event logs for end-to-end testing
 - `tests/data/test_*_parsing/` — extracted JSON/TXT fragments for unit testing specific parsing steps
 
@@ -93,57 +96,63 @@ Test fixtures live in `tests/data/`:
 uv sync --dev                          # install including dev deps
 uv run ruff check sparkparse/ tests/   # lint
 uv run ruff format sparkparse/ tests/  # format
-uv run pyrefly check sparkparse/       # type check
+uv run pyrefly check sparkparse/ tests/  # type check
 ```
 
 ## Planned improvements (see IMPLEMENTATION.md for full detail)
 
 ### PR 1 — Tooling modernization
+
 - Move dev deps (`pytest`, `ruff`, `ipykernel`) to `[tool.uv.dev-dependencies]`
 - Add `pyrefly` for type checking
 - Add `[tool.ruff]` config to `pyproject.toml`
 - Add `.github/workflows/test.yml` CI workflow
 
 ### PR 2 — Unit test expansion
+
 - Add `tests/test_clean.py` covering `get_readable_size`, `get_readable_timing`, `clean_jobs`,
   `clean_stages`, `clean_tasks`, `get_job_idle_time`
 
 ### PR 3 — LLM-friendly analysis output
+
 - Add `sparkparse/analyze.py` with two distinct concerns:
-  - `to_plan_summary(dfs, log_name) -> dict` — token-efficient structured plan data for LLM
-    piping; presents raw facts (nodes, durations, bytes, join types, paths) without pre-assigned
-    severity or pre-classified findings; the LLM draws its own conclusions. The value over
-    `df.explain()` is runtime metrics (per-node durations, scan bytes/records) correlated from
-    accumulator updates — plan structure alone is not worth re-encoding.
-  - `find_*()` helpers — programmatic analysis functions for interactive/notebook use
-    (`find_cartesian_joins`, `find_largest_scans`, `find_repeated_scans`, `find_spill`, etc.)
+    - `to_plan_summary(dfs, log_name) -> dict` — token-efficient structured plan data for LLM
+      piping; presents raw facts (nodes, durations, bytes, join types, paths) without pre-assigned
+      severity or pre-classified findings; the LLM draws its own conclusions. The value over
+      `df.explain()` is runtime metrics (per-node durations, scan bytes/records) correlated from
+      accumulator updates — plan structure alone is not worth re-encoding.
+    - `find_*()` helpers — programmatic analysis functions for interactive/notebook use
+      (`find_cartesian_joins`, `find_largest_scans`, `find_repeated_scans`, `find_spill`, etc.)
 - Add `tests/test_analyze.py`
 
 ### PR 4 — CLI improvements
+
 - Add `sparkparse analyze` command (prints JSON findings, pipeable to LLM)
 - Improve help strings on existing commands
 - Add `"analyze"` action to `capture.py`
 - Replace `print()` with `logging` in `capture.py`
 
 ### PR 7 — Complete Pydantic coverage
+
 - Add `NodeType.Unknown` sentinel and `RawDetail` fallback model so unrecognized node types
   degrade gracefully instead of raising (currently `parse_spark_ui_tree` and `get_plan_details`
   both hard-fail on unknown types — see `parse.py:278` and `parse.py:145`)
 - Wrap `NodeType(...)` and `QueryFunction(...)` calls in try/except with warning logs
 - Add detail models for the standard Spark 3.5 operator set not yet covered:
-  - Aggregate variants: `ObjectHashAggregate`, `SortAggregate`, `Expand`
-  - Python/Pandas UDF nodes: `ArrowEvalPython`, `BatchEvalPython`, `MapInPandas`,
-    `MapInArrow`, `FlatMapGroupsInPandas`, `FlatMapCoGroupsInPandas`
-  - DataSource V2: `BatchScanExec`, `WriteToDatasourceV2`, `AppendData`,
-    `OverwriteByExpression`, `OverwritePartitionsDynamic`
-  - Subquery: `SubqueryExec`, `ReusedSubqueryExec`, `SubqueryBroadcast`
-  - Misc: `RepartitionByExpression`, `Sample`, `Range`, `CartesianProduct`
+    - Aggregate variants: `ObjectHashAggregate`, `SortAggregate`, `Expand`
+    - Python/Pandas UDF nodes: `ArrowEvalPython`, `BatchEvalPython`, `MapInPandas`,
+      `MapInArrow`, `FlatMapGroupsInPandas`, `FlatMapCoGroupsInPandas`
+    - DataSource V2: `BatchScanExec`, `WriteToDatasourceV2`, `AppendData`,
+      `OverwriteByExpression`, `OverwritePartitionsDynamic`
+    - Subquery: `SubqueryExec`, `ReusedSubqueryExec`, `SubqueryBroadcast`
+    - Misc: `RepartitionByExpression`, `Sample`, `Range`, `CartesianProduct`
 - Extend `ExchangeType` with `REPARTITION_BY_COL`, `REPARTITION_BY_NUM`, `REPARTITION`
 - Extend `QueryFunction` with `show`, `collect`, `first`, `head`, `take`, etc.
 - Databricks/Photon-specific nodes handled by `Unknown` fallback until real fixtures available
 - Add test fixtures and cases for each new node type in `tests/test_detail_parsing.py`
 
 ### PR 5 — Cloud storage support
+
 - Add `sparkparse/storage.py` with path-agnostic I/O (`open_file`, `write_text`, `list_files`,
   `copy_file`, `remove_dir`) backed by `fsspec` for cloud URIs and stdlib for local paths
 - Update `parse.py`, `common.py`, `capture.py` to route all file I/O through `storage.py`
@@ -154,6 +163,7 @@ uv run pyrefly check sparkparse/       # type check
   cluster termination
 
 ### PR 6 — Performance history and alerts
+
 - Add `sparkparse/history.py` — append-only run history: `record_from_dfs()` derives a compact
   `RunRecord` (duration, bytes, spill, shuffle, cartesian join count, etc.) from
   `ParsedLogDataFrames`; `append()` writes to Delta (primary) or JSONL (fallback); `read()`

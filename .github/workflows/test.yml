@@ -1,10 +1,26 @@
 name: test
 
 on:
-  push:
-    branches: ["main"]
   pull_request:
-    branches: ["main"]
+    types: [opened, reopened]
+  workflow_dispatch:
+
+# Runs automatically when a PR is opened or reopened, but NOT on every push.
+# To re-run after pushing new commits, use "Re-run all checks" in the PR's
+# Checks tab, or trigger manually from Actions → test → Run workflow.
+#
+# Branch protection on `main` requires the `test` check to pass before merge:
+#   gh api -X PUT repos/jeffbrennan/sparkparse/branches/main/protection --input - <<'EOF'
+#   {
+#     "required_status_checks": {
+#       "strict": false,
+#       "contexts": ["test"]
+#     },
+#     "enforce_admins": false,
+#     "restrictions": null,
+#     "required_pull_request_reviews": null
+#   }
+#   EOF
 
 jobs:
   test:
@@ -30,7 +46,7 @@ jobs:
         run: uv run ruff format --check sparkparse/ tests/
 
       - name: Type check
-        run: uv run pyrefly check sparkparse/
+        run: uv run pyrefly check sparkparse/ tests/
 
       - name: Unit tests
         run: uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v

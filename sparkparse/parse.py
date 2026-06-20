@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import polars as pl
 
@@ -152,7 +152,7 @@ def get_plan_details(
             raise ValueError(f"Could not find detail model for node type: {node_type}")
 
         detail_model = NODE_TYPE_DETAIL_MAP[node_type]
-        detail_dict = {}
+        detail_dict: dict[str, Any] = {}
         detail_lines = detail.split("\n")
         for i, detail_line in enumerate(detail_lines):
             if i == 0:
@@ -168,14 +168,14 @@ def get_plan_details(
 
         if node_type == NodeType.ReusedExchange:
             reused_id = detail_lines[0].split(": ")[-1].removesuffix("]").strip()
-            detail_dict.update({"reuses_node_id": int(reused_id)})
+            detail_dict["reuses_node_id"] = int(reused_id)
 
         detail_parsed = detail_model.model_validate(detail_dict)
         details_parsed.append(
             PhysicalPlanDetail(
                 node_id=node_id,
                 node_type=node_type,
-                detail=detail_parsed,  # type: ignore
+                detail=detail_parsed,
             )
         )
 
@@ -417,9 +417,12 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
     target_model_strings = []
 
     for node in parsed_plan.nodes:
-        if node.node_type == NodeType.Scan:
+        if node.node_type == NodeType.Scan and node.details is not None:
             source_model_strings.append(node.details)
-        elif node.node_type == NodeType.InsertIntoHadoopFsRelationCommand:
+        elif (
+            node.node_type == NodeType.InsertIntoHadoopFsRelationCommand
+            and node.details is not None
+        ):
             target_model_strings.append(node.details)
 
     sources = []
@@ -478,11 +481,17 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
         all_contents = f.readlines()
 
     start_point = "SparkListenerApplicationStart"
+    start_index: int | None = None
     for i, line in enumerate(all_contents):
         line_dict = json.loads(line)
         if line_dict["Event"] == start_point:
             start_index = i + 1
             break
+
+    if start_index is None:
+        raise ValueError(
+            f"Could not find '{start_point}' event in log file: {log_path_str}"
+        )
 
     contents_to_parse = all_contents[start_index:]
 
@@ -599,7 +608,7 @@ def get_parsed_metrics(
             log_to_parse = join_path(log_dir_str, log_file)
         log_stem = get_path_stem(log_to_parse)
     else:
-        log_dir_path = resolve_dir(log_dir)
+        log_dir_path = Path(resolve_dir(log_dir))
         if log_file is None:
             log_to_parse = sorted(log_dir_path.glob("*"))[-1]
         else:

@@ -608,7 +608,7 @@ def get_node_box(
 
     fig.update_traces(marker=dict(color=font_color, line=dict(color=bg_color, width=1)))
 
-    for annotation in fig.layout.annotations:  # type: ignore
+    for annotation in fig.layout.annotations:  # type: ignore[attr-defined]
         annotation.font.color = font_color
         metric_name = annotation.text.split("=")[-1].strip()
         metrics = (
