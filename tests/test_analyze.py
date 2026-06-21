@@ -121,7 +121,9 @@ def test_to_plan_summary_totals_non_negative(dfs_nested):
 
 def test_to_plan_summary_node_metrics_structure(dfs_nested):
     summary = to_plan_summary(dfs_nested, "nested_final_plans")
-    nodes_with_metrics = [n for q in summary["queries"] for n in q["nodes"] if n["metrics"]]
+    nodes_with_metrics = [
+        n for q in summary["queries"] for n in q["nodes"] if n["metrics"]
+    ]
     assert len(nodes_with_metrics) > 0
     metric = nodes_with_metrics[0]["metrics"][0]
     assert "name" in metric
@@ -259,7 +261,9 @@ def test_find_spill_columns(dfs_nested):
 def test_find_spill_no_zero_rows(dfs_nested):
     result = find_spill(dfs_nested)
     if result.shape[0] > 0:
-        has_spill = (result["memory_bytes_spilled"] > 0) | (result["disk_bytes_spilled"] > 0)
+        has_spill = (result["memory_bytes_spilled"] > 0) | (
+            result["disk_bytes_spilled"] > 0
+        )
         assert has_spill.all()
 
 

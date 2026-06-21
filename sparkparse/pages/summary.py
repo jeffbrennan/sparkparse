@@ -46,7 +46,9 @@ def get_executor_table_df(data: list[dict], grouping_cols: list[str]) -> pd.Data
     }
 
     timing_conversions = [
-        get_readable_col(pl.col(col).mul(1000), "timing").alias(f"{struct_cols[col]}_struct")
+        get_readable_col(pl.col(col).mul(1000), "timing").alias(
+            f"{struct_cols[col]}_struct"
+        )
         for col in struct_cols.keys()
         if "duration" in col
     ]
@@ -98,7 +100,9 @@ def get_table_df(data: list[dict], grouping_cols: list[str]) -> pd.DataFrame:
     }
 
     timing_conversions = [
-        get_readable_col(pl.col(col).mul(1000), "timing").alias(f"{struct_cols[col]}_struct")
+        get_readable_col(pl.col(col).mul(1000), "timing").alias(
+            f"{struct_cols[col]}_struct"
+        )
         for col in struct_cols.keys()
         if "duration" in col
     ]
@@ -110,7 +114,9 @@ def get_table_df(data: list[dict], grouping_cols: list[str]) -> pd.DataFrame:
     ]
 
     df_final = (
-        df_summary.rename({"stage_start_timestamp": "submitted", "query_function": "query_func"})
+        df_summary.rename(
+            {"stage_start_timestamp": "submitted", "query_function": "query_func"}
+        )
         .with_columns(timing_conversions + size_conversions)
         .with_columns(
             [
@@ -167,7 +173,9 @@ def get_table_cols(df: pd.DataFrame, cols: SummaryCols):
 
     for col in core_df.columns:
         if col not in cols.hidden:
-            tbl_cols.append({**col_mapping[col], "id": col, "name": col.replace("_", " ")})
+            tbl_cols.append(
+                {**col_mapping[col], "id": col, "name": col.replace("_", " ")}
+            )
 
     return core_records, tbl_cols
 
@@ -364,7 +372,9 @@ def get_styled_executor_table(df_data: list[dict], dark_mode: bool):
 def get_stage_timeline(df_data: list[dict], dark_mode: bool):
     df_raw = pl.DataFrame(df_data)
     job_time = (
-        df_raw.select("job_id", "job_start_timestamp", "job_end_timestamp", "job_duration_seconds")
+        df_raw.select(
+            "job_id", "job_start_timestamp", "job_end_timestamp", "job_duration_seconds"
+        )
         .unique()
         .select(
             pl.sum("job_duration_seconds").alias("job_cpu_time_seconds"),
@@ -379,7 +389,9 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             .alias("job_clock_time_ms")
         )
         .with_columns(
-            get_readable_col(pl.col("job_clock_time_ms"), "timing").alias("job_clock_time_struct")
+            get_readable_col(pl.col("job_clock_time_ms"), "timing").alias(
+                "job_clock_time_struct"
+            )
         )
         .with_columns(
             get_readable_col(pl.col("job_cpu_time_seconds").mul(1000), "timing").alias(
@@ -389,8 +401,12 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
         .select(
             pl.col("job_clock_time_ms"),
             pl.col("job_cpu_time_seconds").mul(1000).alias("job_cpu_time_ms"),
-            pl.col("job_cpu_time_struct").struct.field("readable_str").alias("cpu_time_str"),
-            pl.col("job_clock_time_struct").struct.field("readable_str").alias("clock_time_str"),
+            pl.col("job_cpu_time_struct")
+            .struct.field("readable_str")
+            .alias("cpu_time_str"),
+            pl.col("job_clock_time_struct")
+            .struct.field("readable_str")
+            .alias("clock_time_str"),
         )
         .to_dicts()[0]
     )
@@ -408,15 +424,19 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
             "parsed_log_name",
             "job_id",
             "stage_id",
-            pl.col("stage_start_timestamp").cast(pl.Datetime).alias("stage_start_timestamp"),
-            pl.col("stage_end_timestamp").cast(pl.Datetime).alias("stage_end_timestamp"),
+            pl.col("stage_start_timestamp")
+            .cast(pl.Datetime)
+            .alias("stage_start_timestamp"),
+            pl.col("stage_end_timestamp")
+            .cast(pl.Datetime)
+            .alias("stage_end_timestamp"),
             "stage_duration_seconds",
         )
         .unique()
         .with_columns(
-            get_readable_col(pl.col("stage_duration_seconds").mul(1000), "timing").alias(
-                "stage_duration_struct"
-            )
+            get_readable_col(
+                pl.col("stage_duration_seconds").mul(1000), "timing"
+            ).alias("stage_duration_struct")
         )
         .with_columns(
             pl.concat_str(
@@ -470,7 +490,9 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
 )
 def get_records(log_name: str, **kwargs):
     log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
-    dfs = get_parsed_metrics(log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None)
+    dfs = get_parsed_metrics(
+        log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
+    )
     issues = get_issues(dfs)
     return dfs.combined.to_pandas().to_dict("records"), issues
 

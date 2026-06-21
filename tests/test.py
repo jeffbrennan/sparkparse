@@ -7,7 +7,6 @@ import pandas as pd
 import pyspark.sql.functions as F
 from pyspark.sql import Window
 from pyspark.sql.functions import pandas_udf
-from pyspark.sql.types import DoubleType
 
 from sparkparse.common import get_spark
 
@@ -107,7 +106,9 @@ def test_broadcast_join():
     base_df = df.select("id1", "v3")
     broadcast_df = df.limit(10).select("id1", "id2")
     df_after_broadcast = base_df.join(broadcast_df, how="left", on="id1")
-    df_final = df_after_broadcast.groupBy("id2").agg(F.sum("v3").alias("v3")).orderBy("v3")
+    df_final = (
+        df_after_broadcast.groupBy("id2").agg(F.sum("v3").alias("v3")).orderBy("v3")
+    )
 
     output_path = base_dir / "clean" / "broadcast"
     df_final.write.format("csv").mode("overwrite").save(str(output_path), header=True)
@@ -120,9 +121,15 @@ def test_complex_transformation():
     df_large = spark.read.parquet(data_path.as_posix())
 
     df_large_clean = (
-        df_large.withColumn("id1_2_3", F.concat_ws("~", F.col("id1"), F.col("id2"), F.col("id3")))
-        .withColumn("v4", F.when(F.col("v3") > 10, F.col("v3") * 3).otherwise(F.col("v3")))
-        .withColumn("v5", F.when(F.col("v3") > 20, F.col("v3") * 3).otherwise(F.col("v3")))
+        df_large.withColumn(
+            "id1_2_3", F.concat_ws("~", F.col("id1"), F.col("id2"), F.col("id3"))
+        )
+        .withColumn(
+            "v4", F.when(F.col("v3") > 10, F.col("v3") * 3).otherwise(F.col("v3"))
+        )
+        .withColumn(
+            "v5", F.when(F.col("v3") > 20, F.col("v3") * 3).otherwise(F.col("v3"))
+        )
     )
     df_agg = df_large_clean.groupBy("id1_2_3").agg(
         F.sum("v5").alias("v5"),
@@ -137,7 +144,9 @@ def test_complex_transformation():
             on="id1_2_3",
             how="left",
         )
-        .withColumn("rank", F.rank().over(Window.partitionBy("id1").orderBy(F.col("v5").desc())))
+        .withColumn(
+            "rank", F.rank().over(Window.partitionBy("id1").orderBy(F.col("v5").desc()))
+        )
         .withColumn("id3", F.regexp_replace(F.col("id3"), "id", "ID!!"))
         .filter(F.col("rank") < 42)
         .withColumn(
@@ -153,7 +162,9 @@ def test_complex_transformation():
     output_path = base_dir / "clean" / "complex"
 
     print(df_final.count())  # force full computation
-    df_final.limit(1000).write.format("csv").mode("overwrite").save(str(output_path), header=True)
+    df_final.limit(1000).write.format("csv").mode("overwrite").save(
+        str(output_path), header=True
+    )
 
 
 def _test_row_count_explosion_join():
@@ -172,12 +183,16 @@ def _test_row_count_explosion_join():
     df_exploded = df.join(duplicated_df, how="left", on="id1")
     post_join_count = df_exploded.count()
 
-    print(f"post join count {post_join_count:,} [increase: {post_join_count / initial_count:.2f}x]")
+    print(
+        f"post join count {post_join_count:,} [increase: {post_join_count / initial_count:.2f}x]"
+    )
 
     df_final = df_exploded.groupBy("id1").agg(F.sum("v3").alias("v3")).orderBy("v3")
 
     output_path = base_dir / "clean" / "exploded"
-    df_final.limit(10).write.format("csv").mode("overwrite").save(str(output_path), header=True)
+    df_final.limit(10).write.format("csv").mode("overwrite").save(
+        str(output_path), header=True
+    )
 
 
 def _test_basic_transformation():
@@ -288,7 +303,7 @@ def test_python_udf():
     """Pandas UDF applied to data — exercises ArrowEvalPython nodes."""
     spark, data_path, _ = config("small")
 
-    @pandas_udf(DoubleType())
+    @pandas_udf("double")  # type: ignore[no-matching-overload]
     def scale_v3(s: pd.Series) -> pd.Series:
         return s * 1.5
 
@@ -313,7 +328,9 @@ def test_dpp_query():
         )
 
         fact = spark.read.parquet(tmp)
-        dim = spark.createDataFrame([(0, "a"), (1, "b"), (2, "c")], ["part_key", "label"])
+        dim = spark.createDataFrame(
+            [(0, "a"), (1, "b"), (2, "c")], ["part_key", "label"]
+        )
 
         # This join on the partition key should trigger DPP
         result = fact.join(dim.hint("broadcast"), on="part_key", how="inner")

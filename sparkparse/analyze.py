@@ -199,12 +199,16 @@ def find_largest_scans(dfs: ParsedLogDataFrames, n: int = 10) -> pl.DataFrame:
     )
 
     return (
-        scan_nodes.select("query_id", "node_id", "node_name", "details", "node_duration_minutes")
+        scan_nodes.select(
+            "query_id", "node_id", "node_name", "details", "node_duration_minutes"
+        )
         .join(node_bytes, on=["query_id", "node_name"], how="left")
         .with_columns(
             pl.col("details")
             .map_elements(
-                lambda s: json.loads(s)["detail"]["location"]["location"] if s is not None else [],
+                lambda s: json.loads(s)["detail"]["location"]["location"]
+                if s is not None
+                else [],
                 return_dtype=pl.List(pl.String),
             )
             .alias("paths")
@@ -277,7 +281,9 @@ def find_spill(dfs: ParsedLogDataFrames) -> pl.DataFrame:
     )
 
 
-def find_skewed_tasks(dfs: ParsedLogDataFrames, skew_ratio: float = 5.0) -> pl.DataFrame:
+def find_skewed_tasks(
+    dfs: ParsedLogDataFrames, skew_ratio: float = 5.0
+) -> pl.DataFrame:
     """
     Return stages where the longest task exceeds ``skew_ratio`` × the median task duration.
 
@@ -292,13 +298,17 @@ def find_skewed_tasks(dfs: ParsedLogDataFrames, skew_ratio: float = 5.0) -> pl.D
             pl.max("task_duration_seconds").alias("max_task_s"),
         )
         .filter(pl.col("median_task_s") > 0)
-        .with_columns((pl.col("max_task_s") / pl.col("median_task_s")).alias("skew_ratio"))
+        .with_columns(
+            (pl.col("max_task_s") / pl.col("median_task_s")).alias("skew_ratio")
+        )
         .filter(pl.col("skew_ratio") >= skew_ratio)
         .sort("skew_ratio", descending=True)
     )
 
 
-def find_shuffle_heavy_stages(dfs: ParsedLogDataFrames, threshold_bytes: int = 0) -> pl.DataFrame:
+def find_shuffle_heavy_stages(
+    dfs: ParsedLogDataFrames, threshold_bytes: int = 0
+) -> pl.DataFrame:
     """
     Return stages with total shuffle I/O above ``threshold_bytes``.
 
@@ -321,7 +331,9 @@ def find_shuffle_heavy_stages(dfs: ParsedLogDataFrames, threshold_bytes: int = 0
     )
 
 
-def find_long_running_nodes(dfs: ParsedLogDataFrames, threshold_min: float = 1.0) -> pl.DataFrame:
+def find_long_running_nodes(
+    dfs: ParsedLogDataFrames, threshold_min: float = 1.0
+) -> pl.DataFrame:
     """
     Return DAG nodes whose measured duration exceeds ``threshold_min`` minutes.
     """
@@ -330,7 +342,9 @@ def find_long_running_nodes(dfs: ParsedLogDataFrames, threshold_min: float = 1.0
             pl.col("node_duration_minutes").is_not_null()
             & (pl.col("node_duration_minutes") >= threshold_min)
         )
-        .select("query_id", "node_id", "node_type", "node_name", "node_duration_minutes")
+        .select(
+            "query_id", "node_id", "node_type", "node_name", "node_duration_minutes"
+        )
         .sort("node_duration_minutes", descending=True)
     )
 
@@ -338,7 +352,12 @@ def find_long_running_nodes(dfs: ParsedLogDataFrames, threshold_min: float = 1.0
 def _fmt_bytes(n: int | None) -> str:
     if n is None:
         return "0 B"
-    for unit, threshold in [("TiB", 2**40), ("GiB", 2**30), ("MiB", 2**20), ("KiB", 2**10)]:
+    for unit, threshold in [
+        ("TiB", 2**40),
+        ("GiB", 2**30),
+        ("MiB", 2**20),
+        ("KiB", 2**10),
+    ]:
         if n >= threshold:
             return f"{n / threshold:.1f} {unit}"
     return f"{n} B"
