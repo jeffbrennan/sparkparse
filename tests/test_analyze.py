@@ -6,8 +6,12 @@ import pytest
 from sparkparse.analyze import (
     find_cartesian_joins,
     find_largest_scans,
+    find_long_running_nodes,
     find_repeated_scans,
+    find_shuffle_heavy_stages,
+    find_skewed_tasks,
     find_spill,
+    get_issues,
     to_plan_summary,
 )
 from sparkparse.clean import log_to_combined_df, log_to_dag_df
@@ -261,3 +265,153 @@ def test_find_spill_no_zero_rows(dfs_nested):
             result["disk_bytes_spilled"] > 0
         )
         assert has_spill.all()
+
+
+def test_find_skewed_tasks_returns_dataframe(dfs_complex):
+    result = find_skewed_tasks(dfs_complex)
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_find_skewed_tasks_columns(dfs_complex):
+    result = find_skewed_tasks(dfs_complex)
+    assert set(result.columns) >= {
+        "query_id",
+        "stage_id",
+        "task_count",
+        "median_task_s",
+        "max_task_s",
+        "skew_ratio",
+    }
+
+
+def test_find_skewed_tasks_ratio_above_threshold(dfs_complex):
+    threshold = 3.0
+    result = find_skewed_tasks(dfs_complex, skew_ratio=threshold)
+    if result.shape[0] > 0:
+        assert (result["skew_ratio"] >= threshold).all()
+
+
+def test_find_skewed_tasks_sorted_descending(dfs_complex):
+    result = find_skewed_tasks(dfs_complex, skew_ratio=0.0)
+    if result.shape[0] > 1:
+        ratios = result["skew_ratio"].to_list()
+        assert ratios == sorted(ratios, reverse=True)
+
+
+def test_find_skewed_tasks_high_threshold_returns_empty(dfs_complex):
+    result = find_skewed_tasks(dfs_complex, skew_ratio=1e9)
+    assert result.shape[0] == 0
+
+
+def test_find_shuffle_heavy_stages_returns_dataframe(dfs_complex):
+    result = find_shuffle_heavy_stages(dfs_complex)
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_find_shuffle_heavy_stages_columns(dfs_complex):
+    result = find_shuffle_heavy_stages(dfs_complex)
+    assert set(result.columns) >= {
+        "query_id",
+        "stage_id",
+        "shuffle_write_bytes",
+        "shuffle_read_bytes",
+        "total_shuffle_bytes",
+    }
+
+
+def test_find_shuffle_heavy_stages_total_is_sum(dfs_complex):
+    result = find_shuffle_heavy_stages(dfs_complex)
+    if result.shape[0] > 0:
+        computed = result["shuffle_write_bytes"] + result["shuffle_read_bytes"]
+        assert (computed == result["total_shuffle_bytes"]).all()
+
+
+def test_find_shuffle_heavy_stages_above_threshold(dfs_complex):
+    result = find_shuffle_heavy_stages(dfs_complex, threshold_bytes=0)
+    if result.shape[0] > 0:
+        assert (result["total_shuffle_bytes"] > 0).all()
+
+
+def test_find_shuffle_heavy_stages_sorted_descending(dfs_complex):
+    result = find_shuffle_heavy_stages(dfs_complex, threshold_bytes=0)
+    if result.shape[0] > 1:
+        totals = result["total_shuffle_bytes"].to_list()
+        assert totals == sorted(totals, reverse=True)
+
+
+def test_find_shuffle_heavy_stages_high_threshold_returns_empty(dfs_complex):
+    result = find_shuffle_heavy_stages(dfs_complex, threshold_bytes=2**63 - 1)
+    assert result.shape[0] == 0
+
+
+def test_find_long_running_nodes_returns_dataframe(dfs_complex):
+    result = find_long_running_nodes(dfs_complex)
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_find_long_running_nodes_columns(dfs_complex):
+    result = find_long_running_nodes(dfs_complex)
+    assert set(result.columns) >= {
+        "query_id",
+        "node_id",
+        "node_type",
+        "node_name",
+        "node_duration_minutes",
+    }
+
+
+def test_find_long_running_nodes_threshold_zero_returns_rows(dfs_complex):
+    result = find_long_running_nodes(dfs_complex, threshold_min=0.0)
+    assert result.shape[0] > 0
+
+
+def test_find_long_running_nodes_threshold_filters(dfs_complex):
+    result = find_long_running_nodes(dfs_complex, threshold_min=0.0)
+    if result.shape[0] > 0:
+        assert (result["node_duration_minutes"] >= 0.0).all()
+
+
+def test_find_long_running_nodes_sorted_descending(dfs_complex):
+    result = find_long_running_nodes(dfs_complex, threshold_min=0.0)
+    if result.shape[0] > 1:
+        durations = result["node_duration_minutes"].to_list()
+        assert durations == sorted(durations, reverse=True)
+
+
+def test_find_long_running_nodes_high_threshold_returns_empty(dfs_complex):
+    result = find_long_running_nodes(dfs_complex, threshold_min=1e9)
+    assert result.shape[0] == 0
+
+
+def test_get_issues_returns_list(dfs_complex):
+    result = get_issues(dfs_complex)
+    assert isinstance(result, list)
+
+
+def test_get_issues_valid_severity_values(dfs_complex):
+    result = get_issues(dfs_complex)
+    allowed = {"critical", "warning"}
+    for issue in result:
+        assert issue["severity"] in allowed
+
+
+def test_get_issues_required_keys(dfs_complex):
+    result = get_issues(dfs_complex)
+    required = {"severity", "category", "message", "query_id", "stage_id"}
+    for issue in result:
+        assert required.issubset(issue.keys())
+
+
+def test_get_issues_cartesian_join_fixture(dfs_loop_join):
+    result = get_issues(dfs_loop_join)
+    categories = [i["category"] for i in result]
+    assert "Cartesian Join" in categories
+    critical = [i for i in result if i["category"] == "Cartesian Join"]
+    assert all(i["severity"] == "critical" for i in critical)
+
+
+def test_get_issues_messages_are_strings(dfs_complex):
+    result = get_issues(dfs_complex)
+    for issue in result:
+        assert isinstance(issue["message"], str)
+        assert len(issue["message"]) > 0

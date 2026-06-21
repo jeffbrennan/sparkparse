@@ -1,8 +1,12 @@
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
+import pandas as pd
 import pyspark.sql.functions as F
 from pyspark.sql import Window
+from pyspark.sql.functions import pandas_udf
 
 from sparkparse.common import get_spark
 
@@ -66,7 +70,7 @@ def test_nested_final_plans():
 
     query = """
     select id1, v3 FROM cached_union
-    union 
+    union
     select id1, v3 FROM cached_union
     """
     result_df = spark.sql(query)
@@ -206,3 +210,130 @@ def _test_basic_transformation():
 
     output_path = base_dir / "clean" / "basic"
     df_clean.write.format("csv").mode("overwrite").save(str(output_path), header=True)
+
+
+def test_skewed_join():
+    """SortMergeJoin on skewed data — exercises find_skewed_tasks."""
+    spark, data_path, _ = config("small")
+
+    df = spark.read.parquet(data_path.as_posix()).limit(3000)
+
+    # 90% of rows land on hot_key → self-join produces ~7M rows for that partition
+    skewed = df.withColumn(
+        "skew_key",
+        F.when(F.rand() < 0.9, F.lit("hot_key")).otherwise(F.col("id1")),
+    )
+
+    spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
+
+    result = skewed.join(
+        skewed.select("skew_key", F.col("v3").alias("v3_r")), on="skew_key", how="inner"
+    )
+    result.agg(F.sum("v3")).show()
+
+    spark.conf.unset("spark.sql.autoBroadcastJoinThreshold")
+
+
+def test_multi_join_star():
+    """3-way BroadcastHashJoin star schema — exercises multi-scan and join chain."""
+    spark, data_path, _ = config("small")
+
+    fact = spark.read.parquet(data_path.as_posix())
+    dim1 = fact.select("id1", "id2").distinct().limit(50)
+    dim2 = fact.select("id1", "id3").distinct().limit(50)
+
+    result = (
+        fact.join(dim1.hint("broadcast"), on="id1", how="left")
+        .join(dim2.hint("broadcast"), on="id1", how="left")
+        .groupBy("id2", "id3")
+        .agg(F.sum("v3").alias("v3_sum"))
+    )
+    result.count()
+
+
+def test_repeated_scan():
+    """Same parquet file read twice in separate queries — exercises find_repeated_scans."""
+    spark, data_path, _ = config("small")
+
+    df = spark.read.parquet(data_path.as_posix())
+
+    # First query
+    count1 = df.filter(F.col("v3") > 5).count()
+
+    # Second query on the same path (no cache)
+    count2 = df.groupBy("id1").agg(F.sum("v3").alias("total")).count()
+
+    print(f"count1={count1}, count2={count2}")
+
+
+def test_spill_heavy():
+    """Large sort-merge join sized to exceed executor memory and trigger spill."""
+    spark, data_path, _ = config("small")
+
+    spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
+    spark.conf.set("spark.sql.shuffle.partitions", "2")
+    spark.conf.set("spark.memory.fraction", "0.3")
+    spark.conf.set("spark.memory.storageFraction", "0.1")
+
+    # id1 has 100 distinct values; 50K rows → ~500 per group → 500×500×100=25M explosion
+    df = spark.read.parquet(data_path.as_posix()).limit(50000)
+
+    result = df.join(df.select("id1", F.col("v3").alias("v3_r")), on="id1", how="inner")
+    result.agg(F.sum("v3")).show()
+
+    spark.conf.unset("spark.sql.autoBroadcastJoinThreshold")
+    spark.conf.unset("spark.sql.shuffle.partitions")
+    spark.conf.unset("spark.memory.fraction")
+    spark.conf.unset("spark.memory.storageFraction")
+
+
+def test_cube_rollup():
+    """GROUP BY CUBE — exercises Expand → ObjectHashAggregate chain."""
+    spark, data_path, _ = config("small")
+
+    df = spark.read.parquet(data_path.as_posix()).limit(50_000)
+    result = df.cube("id1", "id2").agg(
+        F.sum("v3").alias("v3_sum"),
+        F.count("*").alias("cnt"),
+    )
+    result.count()
+
+
+def test_python_udf():
+    """Pandas UDF applied to data — exercises ArrowEvalPython nodes."""
+    spark, data_path, _ = config("small")
+
+    @pandas_udf("double")  # type: ignore[no-matching-overload]
+    def scale_v3(s: pd.Series) -> pd.Series:
+        return s * 1.5
+
+    df = spark.read.parquet(data_path.as_posix()).limit(10_000)
+    result = df.withColumn("v3_scaled", scale_v3(F.col("v3")))
+    result.agg(F.sum("v3_scaled")).show()
+
+
+def test_dpp_query():
+    """Partition-pruned join — exercises SubqueryBroadcast / DPP nodes."""
+    spark, data_path, _ = config("small")
+    tmp = tempfile.mkdtemp(prefix="sparkparse_dpp_")
+    try:
+        df = spark.read.parquet(data_path.as_posix()).limit(100_000)
+
+        # Write a partitioned table so Spark can apply DPP
+        (
+            df.withColumn("part_key", (F.col("v3") % 5).cast("int"))
+            .write.partitionBy("part_key")
+            .mode("overwrite")
+            .parquet(tmp)
+        )
+
+        fact = spark.read.parquet(tmp)
+        dim = spark.createDataFrame(
+            [(0, "a"), (1, "b"), (2, "c")], ["part_key", "label"]
+        )
+
+        # This join on the partition key should trigger DPP
+        result = fact.join(dim.hint("broadcast"), on="part_key", how="inner")
+        result.count()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

@@ -5,6 +5,7 @@ import polars as pl
 from dash import Input, Output, callback, dash_table, dcc, get_app, html
 from pydantic import BaseModel
 
+from sparkparse.analyze import get_issues
 from sparkparse.clean import get_job_idle_time, get_readable_col
 from sparkparse.common import resolve_dir, timeit
 from sparkparse.parse import get_parsed_metrics
@@ -484,24 +485,59 @@ def get_stage_timeline(df_data: list[dict], dark_mode: bool):
 
 
 @callback(
-    Output("summary-metrics-df", "data"),
+    [Output("summary-metrics-df", "data"), Output("issues-data", "data")],
     Input("log-name", "data"),
 )
 def get_records(log_name: str, **kwargs):
     log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
-    df = get_parsed_metrics(
+    dfs = get_parsed_metrics(
         log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
-    ).combined
-    return df.to_pandas().to_dict("records")
+    )
+    issues = get_issues(dfs)
+    return dfs.combined.to_pandas().to_dict("records"), issues
+
+
+@callback(
+    Output("issues-panel", "children"),
+    Input("issues-data", "data"),
+)
+def render_issues_panel(issues: list[dict]):
+    if not issues:
+        return []
+
+    severity_color = {"critical": "danger", "warning": "warning"}
+
+    rows = [
+        dbc.ListGroupItem(
+            [
+                dbc.Badge(
+                    issue["category"],
+                    color=severity_color.get(issue["severity"], "secondary"),
+                    className="me-2",
+                ),
+                issue["message"],
+            ],
+            color=severity_color.get(issue["severity"], "secondary"),
+        )
+        for issue in issues
+    ]
+
+    return [
+        html.H5(f"Issues ({len(issues)} found)", className="table-title"),
+        dbc.ListGroup(rows, flush=True),
+        html.Br(),
+    ]
 
 
 def layout(log_name: str, **kwargs):
     return [
         dcc.Store("log-name", data=log_name),
         dcc.Store("summary-metrics-df"),
+        dcc.Store("issues-data"),
         dbc.Fade(
             id="metrics-graph-fade",
             children=[
+                html.Div(id="issues-panel"),
                 dcc.Graph(
                     "stage-timeline",
                     style={"visibility": "hidden"},
