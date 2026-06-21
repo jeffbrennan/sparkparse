@@ -201,15 +201,14 @@ def test_skewed_join():
     """SortMergeJoin on skewed data — exercises find_skewed_tasks."""
     spark, data_path, _ = config("small")
 
-    df = spark.read.parquet(data_path.as_posix())
+    df = spark.read.parquet(data_path.as_posix()).limit(3000)
 
-    # Create a heavily skewed dataset: 90% of rows share the same join key
+    # 90% of rows land on hot_key → self-join produces ~7M rows for that partition
     skewed = df.withColumn(
         "skew_key",
         F.when(F.rand() < 0.9, F.lit("hot_key")).otherwise(F.col("id1")),
     )
 
-    # Disable broadcast join to force a sort-merge join
     spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
 
     result = skewed.join(
@@ -257,17 +256,20 @@ def test_spill_heavy():
     spark, data_path, _ = config("small")
 
     spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
-    # Reduce shuffle partitions so each partition is larger, increasing spill pressure
     spark.conf.set("spark.sql.shuffle.partitions", "2")
+    spark.conf.set("spark.memory.fraction", "0.3")
+    spark.conf.set("spark.memory.storageFraction", "0.1")
 
-    df = spark.read.parquet(data_path.as_posix())
+    # id1 has 100 distinct values; 50K rows → ~500 per group → 500×500×100=25M explosion
+    df = spark.read.parquet(data_path.as_posix()).limit(50000)
 
-    # Self-join forces a full shuffle on both sides
     result = df.join(df.select("id1", F.col("v3").alias("v3_r")), on="id1", how="inner")
     result.agg(F.sum("v3")).show()
 
     spark.conf.unset("spark.sql.autoBroadcastJoinThreshold")
     spark.conf.unset("spark.sql.shuffle.partitions")
+    spark.conf.unset("spark.memory.fraction")
+    spark.conf.unset("spark.memory.storageFraction")
 
 
 def test_cube_rollup():
