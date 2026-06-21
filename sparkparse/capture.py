@@ -93,8 +93,15 @@ class SparkparseCapture:
         orig_conf: dict[str, str] = {}
         if self.spark or SparkSession.getActiveSession():
             self._orig_spark = self.spark
-            self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir")
-            orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
+            try:
+                self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir", None)
+                orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
+            except Exception as exc:
+                raise RuntimeError(
+                    "SparkparseCapture requires a classic cluster. "
+                    "The current environment does not support reading SparkContext "
+                    "config or restarting the SparkSession (serverless is not supported)."
+                ) from exc
             self.spark.stop()
 
         builder = SparkSession.builder.appName("sparkparse")
