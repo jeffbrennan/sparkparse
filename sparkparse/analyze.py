@@ -199,16 +199,12 @@ def find_largest_scans(dfs: ParsedLogDataFrames, n: int = 10) -> pl.DataFrame:
     )
 
     return (
-        scan_nodes.select(
-            "query_id", "node_id", "node_name", "details", "node_duration_minutes"
-        )
+        scan_nodes.select("query_id", "node_id", "node_name", "details", "node_duration_minutes")
         .join(node_bytes, on=["query_id", "node_name"], how="left")
         .with_columns(
             pl.col("details")
             .map_elements(
-                lambda s: json.loads(s)["detail"]["location"]["location"]
-                if s is not None
-                else [],
+                lambda s: json.loads(s)["detail"]["location"]["location"] if s is not None else [],
                 return_dtype=pl.List(pl.String),
             )
             .alias("paths")
@@ -279,3 +275,153 @@ def find_spill(dfs: ParsedLogDataFrames) -> pl.DataFrame:
         )
         .sort("memory_bytes_spilled", descending=True)
     )
+
+
+def find_skewed_tasks(dfs: ParsedLogDataFrames, skew_ratio: float = 5.0) -> pl.DataFrame:
+    """
+    Return stages where the longest task exceeds ``skew_ratio`` × the median task duration.
+
+    A high ratio indicates data skew — one partition is much larger than the rest,
+    creating a straggler task that holds up the entire stage.
+    """
+    return (
+        dfs.combined.group_by("query_id", "stage_id")
+        .agg(
+            pl.len().alias("task_count"),
+            pl.median("task_duration_seconds").alias("median_task_s"),
+            pl.max("task_duration_seconds").alias("max_task_s"),
+        )
+        .filter(pl.col("median_task_s") > 0)
+        .with_columns((pl.col("max_task_s") / pl.col("median_task_s")).alias("skew_ratio"))
+        .filter(pl.col("skew_ratio") >= skew_ratio)
+        .sort("skew_ratio", descending=True)
+    )
+
+
+def find_shuffle_heavy_stages(dfs: ParsedLogDataFrames, threshold_bytes: int = 0) -> pl.DataFrame:
+    """
+    Return stages with total shuffle I/O above ``threshold_bytes``.
+
+    High shuffle volume points to expensive data redistributions that may benefit
+    from partitioning strategies, bucketing, or broadcast joins.
+    """
+    return (
+        dfs.combined.group_by("query_id", "stage_id")
+        .agg(
+            pl.sum("shuffle_bytes_written").alias("shuffle_write_bytes"),
+            pl.sum("shuffle_bytes_read").alias("shuffle_read_bytes"),
+        )
+        .with_columns(
+            (pl.col("shuffle_write_bytes") + pl.col("shuffle_read_bytes")).alias(
+                "total_shuffle_bytes"
+            )
+        )
+        .filter(pl.col("total_shuffle_bytes") > threshold_bytes)
+        .sort("total_shuffle_bytes", descending=True)
+    )
+
+
+def find_long_running_nodes(dfs: ParsedLogDataFrames, threshold_min: float = 1.0) -> pl.DataFrame:
+    """
+    Return DAG nodes whose measured duration exceeds ``threshold_min`` minutes.
+    """
+    return (
+        dfs.dag.filter(
+            pl.col("node_duration_minutes").is_not_null()
+            & (pl.col("node_duration_minutes") >= threshold_min)
+        )
+        .select("query_id", "node_id", "node_type", "node_name", "node_duration_minutes")
+        .sort("node_duration_minutes", descending=True)
+    )
+
+
+def _fmt_bytes(n: int | None) -> str:
+    if n is None:
+        return "0 B"
+    for unit, threshold in [("TiB", 2**40), ("GiB", 2**30), ("MiB", 2**20), ("KiB", 2**10)]:
+        if n >= threshold:
+            return f"{n / threshold:.1f} {unit}"
+    return f"{n} B"
+
+
+def get_issues(dfs: ParsedLogDataFrames) -> list[dict[str, Any]]:
+    """
+    Run all find_* helpers and return a flat list of issue dicts.
+
+    Each issue has keys: severity ("critical" | "warning"), category, message,
+    query_id (int | None), stage_id (int | None).
+
+    Severity mapping:
+    - critical: cartesian joins, spill
+    - warning: repeated scans, task skew, heavy shuffle (>= 1 GiB)
+    """
+    issues: list[dict[str, Any]] = []
+
+    for row in find_cartesian_joins(dfs).to_dicts():
+        issues.append(
+            {
+                "severity": "critical",
+                "category": "Cartesian Join",
+                "message": f"{row['node_type']} in query {row['query_id']}",
+                "query_id": row["query_id"],
+                "stage_id": None,
+            }
+        )
+
+    for row in find_spill(dfs).to_dicts():
+        total = row["memory_bytes_spilled"] + row["disk_bytes_spilled"]
+        issues.append(
+            {
+                "severity": "critical",
+                "category": "Spill",
+                "message": (
+                    f"{_fmt_bytes(total)} spilled in query {row['query_id']}"
+                    f" stage {row['stage_id']}"
+                ),
+                "query_id": row["query_id"],
+                "stage_id": row["stage_id"],
+            }
+        )
+
+    for row in find_repeated_scans(dfs).to_dicts():
+        path = row["path"]
+        short = path.rstrip("/").split("/")[-1] or path
+        issues.append(
+            {
+                "severity": "warning",
+                "category": "Repeated Scan",
+                "message": f"'{short}' scanned {row['scan_count']}× — consider caching",
+                "query_id": None,
+                "stage_id": None,
+            }
+        )
+
+    for row in find_skewed_tasks(dfs).to_dicts():
+        issues.append(
+            {
+                "severity": "warning",
+                "category": "Task Skew",
+                "message": (
+                    f"Skew {row['skew_ratio']:.1f}× in query {row['query_id']}"
+                    f" stage {row['stage_id']}"
+                ),
+                "query_id": row["query_id"],
+                "stage_id": row["stage_id"],
+            }
+        )
+
+    for row in find_shuffle_heavy_stages(dfs, threshold_bytes=2**30).to_dicts():
+        issues.append(
+            {
+                "severity": "warning",
+                "category": "Heavy Shuffle",
+                "message": (
+                    f"{_fmt_bytes(row['total_shuffle_bytes'])} shuffle in query"
+                    f" {row['query_id']} stage {row['stage_id']}"
+                ),
+                "query_id": row["query_id"],
+                "stage_id": row["stage_id"],
+            }
+        )
+
+    return issues
