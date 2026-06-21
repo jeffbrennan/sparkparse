@@ -1,3 +1,5 @@
+export JAVA_HOME := `/usr/libexec/java_home -v 17 2>/dev/null || echo /opt/homebrew/opt/openjdk@17`
+
 ci:
     uv run ruff check sparkparse/ tests/
     uv run ruff format --check sparkparse/ tests/
@@ -29,3 +31,16 @@ live:
 
 history:
     ($SPARK_HOME/sbin/start-history-server.sh || open http://localhost:18080/)
+
+# Generate synthetic parquet files used by Spark integration tests.
+# Produces data/raw/G1_1e7_1e7_100_0.parquet (small, ~0.5 GB) and
+# data/raw/G1_1e8_1e8_100_0.parquet (medium, ~5 GB). Large (50 GB) is
+# omitted — only test_complex_transformation needs medium, most tests use small.
+gen-data:
+    mkdir -p data/raw
+    uv run falsa groupby --path-prefix data/raw --size SMALL  --k 100 --nas 0 --data-format PARQUET
+    uv run falsa groupby --path-prefix data/raw --size MEDIUM --k 100 --nas 0 --data-format PARQUET
+
+# Delete the generated parquet files (leaves other data/raw/ output dirs intact).
+clean-data:
+    rm -f data/raw/G1_*.parquet

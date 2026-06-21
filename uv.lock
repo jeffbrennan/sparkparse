@@ -2366,7 +2366,6 @@ dependencies = [
     { name = "dash-ag-grid" },
     { name = "dash-bootstrap-components" },
     { name = "dash-cytoscape" },
-    { name = "falsa" },
     { name = "fsspec" },
     { name = "pandas" },
     { name = "plotly" },
@@ -2396,6 +2395,7 @@ s3 = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "falsa" },
     { name = "ipykernel" },
     { name = "pyarrow" },
     { name = "pyrefly" },
@@ -2411,7 +2411,6 @@ requires-dist = [
     { name = "dash-bootstrap-components", specifier = ">=1.6.0,<2" },
     { name = "dash-cytoscape", specifier = ">=1.0.2" },
     { name = "deltalake", marker = "extra == 'delta'", specifier = ">=0.25" },
-    { name = "falsa", specifier = ">=0.0.3" },
     { name = "fsspec", specifier = ">=2024.1.0" },
     { name = "gcsfs", marker = "extra == 'cloud'", specifier = ">=2024.1.0" },
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2024.1.0" },
@@ -2427,6 +2426,7 @@ provides-extras = ["s3", "azure", "gcs", "cloud", "delta"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "falsa", specifier = ">=0.0.3" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "pyarrow", specifier = ">=10.0.0" },
     { name = "pyrefly", specifier = ">=1.0.0" },
