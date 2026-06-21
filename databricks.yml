@@ -1,0 +1,37 @@
+bundle:
+  name: sparkparse
+
+# Force-sync the pre-built wheel even if dist/ is gitignored.
+# Run `uv build --wheel` before `databricks bundle deploy`.
+sync:
+  include:
+    - "dist/*.whl"
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+resources:
+  jobs:
+    sparkparse_demo:
+      name: "[dev ${workspace.current_user.userName}] sparkparse-demo"
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/dist/sparkparse-0.1.0-py3-none-any.whl
+              - "polars>=1.24.0"
+              - "pydantic>=2.10.6"
+              - "dash-bootstrap-components>=1.6.0,<2"
+              - "plotly>=6.0.0"
+              - "dash-cytoscape>=1.0.2"
+              - "dash-ag-grid>=31.3.0"
+              - "pandas>=2.2.3"
+              - "fsspec>=2024.1.0"
+      tasks:
+        - task_key: run_demo
+          notebook_task:
+            notebook_path: ./notebooks/sparkparse_demo.py
+          environment_key: default
