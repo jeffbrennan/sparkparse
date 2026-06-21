@@ -5,10 +5,10 @@ import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import plotly.express as px
 import polars as pl
-from dash import Input, Output, State, callback, callback_context, dcc, html
+from dash import Input, Output, State, callback, callback_context, dcc, get_app, html
 from plotly.graph_objs import Figure
 
-from sparkparse.common import create_header, timeit
+from sparkparse.common import create_header, resolve_dir, timeit
 from sparkparse.models import NodeType
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
@@ -371,8 +371,9 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
     Input("log-name", "data"),
 )
 def initialize_dropdown(log_name: str):
+    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
     df = get_parsed_metrics(
-        log_file=log_name, out_dir=None, out_format=None
+        log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
     ).dag.filter(pl.col("node_type").is_not_null())
 
     query_records = (
@@ -433,8 +434,9 @@ def hotspot_picker(df_data: list[dict[str, Any]]):
 )
 @timeit
 def get_records(log_name: str, query_id: int):
+    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
     df = get_parsed_metrics(
-        log_file=log_name, out_dir=None, out_format=None
+        log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
     ).dag.filter(pl.col("node_type").is_not_null())
 
     filtered_df = df.filter(pl.col("query_id").eq(query_id))

@@ -212,7 +212,9 @@ def test_skewed_join():
     # Disable broadcast join to force a sort-merge join
     spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
 
-    result = skewed.join(skewed.select("skew_key", "v3"), on="skew_key", how="inner")
+    result = skewed.join(
+        skewed.select("skew_key", F.col("v3").alias("v3_r")), on="skew_key", how="inner"
+    )
     result.agg(F.sum("v3")).show()
 
     spark.conf.unset("spark.sql.autoBroadcastJoinThreshold")
@@ -261,7 +263,7 @@ def test_spill_heavy():
     df = spark.read.parquet(data_path.as_posix())
 
     # Self-join forces a full shuffle on both sides
-    result = df.join(df.select("id1", "v3"), on="id1", how="inner")
+    result = df.join(df.select("id1", F.col("v3").alias("v3_r")), on="id1", how="inner")
     result.agg(F.sum("v3")).show()
 
     spark.conf.unset("spark.sql.autoBroadcastJoinThreshold")
