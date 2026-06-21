@@ -48,10 +48,16 @@ dev-dependencies = [
 target-version = "py311"
 line-length = 88
 exclude = ["typings/**"]
+# Databricks notebook globals injected by the runtime — ruff can't see them
+builtins = ["dbutils", "display", "displayHTML", "spark"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks have a mandatory wheel-install cell before sparkparse can be imported
+"notebooks/**" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["sparkparse"]

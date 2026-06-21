@@ -1,14 +1,23 @@
 # Databricks notebook source
 
+# stdlib imports + Databricks runtime globals for type checking.
+# Must precede wheel-install code so dbutils is declared before first use.
+import glob
+import json
+import pathlib
+import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # typings/databricks/__init__.pyi provides these stubs.
+    # At runtime, Databricks injects dbutils/display/displayHTML/spark as globals.
+    from databricks import dbutils, display, displayHTML, spark  # noqa: F401
+
 # COMMAND ----------
 
 # Install the sparkparse wheel bundled alongside this notebook.
 # Walks up ancestor directories to find dist/*.whl — version-agnostic.
 # For scheduled job runs the wheel is already injected via databricks.yml environments.
-import glob
-import pathlib
-import subprocess
-
 _p = pathlib.PurePosixPath(
     dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 )
@@ -26,14 +35,29 @@ else:
 
 # COMMAND ----------
 
+import polars as pl
+
+from sparkparse.analyze import (
+    find_largest_scans,
+    find_shuffle_heavy_stages,
+    find_skewed_tasks,
+    find_spill,
+    get_issues,
+    to_plan_summary,
+)
+from sparkparse.capture import SparkparseCapture
+from sparkparse.parse import get_parsed_metrics
+from sparkparse.viz import plot_dag
+
+# COMMAND ----------
+
 # Locate sample log — works regardless of whether DAB syncs under files/ or bundle root
-import pathlib
-
-p = pathlib.PurePosixPath(dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get())
-
+_nb_path = pathlib.PurePosixPath(
+    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+)
 sample_log_dir = next(
     f"/Workspace{ancestor}/tests/data/full_logs"
-    for ancestor in p.parents
+    for ancestor in _nb_path.parents
     if pathlib.Path(f"/Workspace{ancestor}/tests/data/full_logs").exists()
 )
 sample_log_file = "complex_transformation_medium"
@@ -44,11 +68,12 @@ print(f"log: {sample_log_dir}/{sample_log_file}")
 # Set OUT_DIR to save parsed outputs alongside the log; None to skip.
 # Unity Catalog volume example: "/Volumes/main/default/sparkparse_demo"
 # DBFS example: "/dbfs/tmp/sparkparse_demo"
-OUT_DIR = None
+OUT_DIR: str | None = None
+
+# Change to a Volumes path to persist the event log after the cluster terminates (classic only).
+CAPTURE_LOG_DIR = "/tmp/sparkparse_nyctaxi"
 
 # COMMAND ----------
-
-from sparkparse.parse import get_parsed_metrics
 
 dfs = get_parsed_metrics(log_dir=sample_log_dir, log_file=sample_log_file, out_dir=OUT_DIR)
 print(f"dag:      {dfs.dag.shape}")
@@ -57,8 +82,6 @@ print(f"combined: {dfs.combined.shape}")
 # COMMAND ----------
 
 # Physical plan nodes: one row per (query, node)
-import polars as pl
-
 display(
     dfs.dag.select(
         "query_id",
@@ -88,20 +111,11 @@ display(
 
 # COMMAND ----------
 
-from sparkparse.analyze import get_issues
-
 issues = get_issues(dfs)
 print(f"{len(issues)} issue(s) found")
 display(pl.DataFrame(issues))
 
 # COMMAND ----------
-
-from sparkparse.analyze import (
-    find_largest_scans,
-    find_shuffle_heavy_stages,
-    find_skewed_tasks,
-    find_spill,
-)
 
 display(find_spill(dfs))
 
@@ -120,10 +134,6 @@ display(find_shuffle_heavy_stages(dfs))
 # COMMAND ----------
 
 # LLM-friendly plan summary: raw facts, no pre-assigned severity
-import json
-
-from sparkparse.analyze import to_plan_summary
-
 summary = to_plan_summary(dfs, log_name="demo")
 print("totals:")
 print(json.dumps(summary["totals"], indent=2, default=str))
@@ -137,8 +147,6 @@ for node in summary["queries"][0]["nodes"]:
 # Interactive DAG with hotspot coloring — runs inline on serverless, no Dash server needed.
 # metric can be "node_duration_minutes" or any accumulator name (e.g. "number of output rows").
 # `sparkparse viz --log-dir <path>` launches the full interactive dashboard locally.
-from sparkparse.viz import plot_dag
-
 displayHTML(plot_dag(dfs))
 
 # COMMAND ----------
@@ -151,11 +159,6 @@ displayHTML(plot_dag(dfs))
 # MAGIC - **Serverless**: captures plan-level metrics via Spark Connect without restarting the session. `cap.spark` is the same session.
 
 # COMMAND ----------
-
-from sparkparse.capture import SparkparseCapture
-
-# Change to a Volumes path to persist the event log after the cluster terminates (classic only).
-CAPTURE_LOG_DIR = "/tmp/sparkparse_nyctaxi"
 
 with SparkparseCapture(
     action="analyze",
@@ -172,6 +175,7 @@ with SparkparseCapture(
     display(result.limit(20))
 
 dfs_taxi = cap._parsed_logs
+assert dfs_taxi is not None
 print(f"dag:      {dfs_taxi.dag.shape}")
 print(f"combined: {dfs_taxi.combined.shape}")
 
