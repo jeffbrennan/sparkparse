@@ -196,7 +196,7 @@ def plot_dag(
                 }
             )
 
-    # Node elements
+    # Node elements (with hover tooltip)
     for row in df_data:
         if row["node_id"] >= codegen_threshold:
             continue
@@ -214,6 +214,7 @@ def plot_dag(
             "id": node_id_str,
             "label": row["node_name"],
             "color": node_color,
+            "tooltip": _build_tooltip(row),
         }
         wsc_id = row.get("whole_stage_codegen_id")
         if wsc_id is not None and not (isinstance(wsc_id, float) and pd.isna(wsc_id)):
@@ -236,7 +237,10 @@ def plot_dag(
             if target:
                 elements.append({"data": {"source": source, "target": target}})
 
-    bg_color, text_color = get_site_colors(dark_mode, contrast=False)
+    # Stylesheet: contrast=True matches the dashboard's update_stylesheet callback, giving
+    # visible dark edges/borders in light mode and light ones in dark mode.
+    style_bg, style_text = get_site_colors(dark_mode, contrast=True)
+    bg_color, _ = get_site_colors(dark_mode, contrast=False)
 
     stylesheet = [
         {
@@ -247,11 +251,11 @@ def plot_dag(
                 "text-valign": "top",
                 "text-halign": "center",
                 "background-color": "data(color)",
-                "border-color": bg_color,
+                "border-color": style_bg,
                 "border-width": "1px",
                 "font-size": "10px",
-                "color": text_color,
-                "text-background-color": bg_color,
+                "color": style_text,
+                "text-background-color": style_bg,
                 "text-background-opacity": 1,
                 "text-background-shape": "round-rectangle",
                 "text-background-padding": "4px",
@@ -262,7 +266,7 @@ def plot_dag(
             "style": {
                 "background-color": "data(color)",
                 "border-width": "2px",
-                "border-color": bg_color,
+                "border-color": style_bg,
                 "shape": "round-rectangle",
                 "padding": "5px",
                 "text-valign": "top",
@@ -270,7 +274,7 @@ def plot_dag(
                 "font-size": "12px",
                 "text-background-color": "rgb(255,255,255)",
                 "text-background-opacity": 0,
-                "color": bg_color,
+                "color": style_bg,
             },
         },
         {
@@ -278,17 +282,21 @@ def plot_dag(
             "style": {
                 "curve-style": "bezier",
                 "target-arrow-shape": "triangle",
-                "target-arrow-color": bg_color,
-                "line-color": bg_color,
+                "target-arrow-color": style_bg,
+                "line-color": style_bg,
             },
         },
     ]
 
     container_id = f"cy-{uuid.uuid4().hex[:8]}"
+    tooltip_id = f"tt-{container_id}"
     elements_json = json.dumps(elements)
     stylesheet_json = json.dumps(stylesheet)
 
-    return f"""<div id="{container_id}" style="width:100%;height:650px;background:{bg_color};border:2px solid {text_color};border-radius:10px;overflow:hidden"></div>
+    return f"""<div style="position:relative">
+<div id="{container_id}" style="width:100%;height:650px;background:{bg_color};border:2px solid {style_bg};border-radius:10px;overflow:hidden"></div>
+<div id="{tooltip_id}" style="display:none;position:fixed;background:{style_bg};color:{style_text};padding:10px;border:1px solid {style_text};border-radius:5px;z-index:9999;font-size:12px;white-space:pre;max-width:420px;max-height:70vh;overflow:auto;font-family:monospace;pointer-events:none"></div>
+</div>
 <script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
 <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
@@ -304,8 +312,57 @@ def plot_dag(
     userZoomingEnabled: true,
     userPanningEnabled: true,
   }});
+  var tt = document.getElementById('{tooltip_id}');
+  cy.on('mouseover', 'node', function(evt) {{
+    var d = evt.target.data();
+    if (d.tooltip) {{ tt.textContent = d.tooltip; tt.style.display = 'block'; }}
+  }});
+  cy.on('mouseout', 'node', function() {{ tt.style.display = 'none'; }});
+  document.getElementById('{container_id}').addEventListener('mousemove', function(e) {{
+    tt.style.left = (e.clientX + 16) + 'px';
+    tt.style.top  = (e.clientY - 10) + 'px';
+  }});
 }})();
 </script>"""
+
+
+def _build_tooltip(row: dict[str, Any]) -> str:
+    from sparkparse.common import create_header
+
+    header_length = 30
+    tooltip = row["node_name"] + "\n"
+    if row.get("child_nodes"):
+        tooltip += f"Child Nodes: {row['child_nodes']}\n"
+
+    if row.get("accumulator_totals") is not None:
+        tooltip += "\n"
+        seen_types: list[str] = []
+        for metric in row["accumulator_totals"]:
+            if metric["metric_type"] not in seen_types:
+                tooltip += (
+                    create_header(header_length, metric["metric_type"].title(), center=True, spacer="-")
+                    + "\n"
+                )
+                seen_types.append(metric["metric_type"])
+            rv = metric.get("readable_value")
+            ru = metric.get("readable_unit", "")
+            try:
+                tooltip += f"{metric['metric_name']}: {rv:,} {ru}\n"
+            except (TypeError, ValueError):
+                tooltip += f"{metric['metric_name']}: {rv} {ru}\n"
+
+    details_str = row.get("details")
+    if details_str is not None:
+        try:
+            detail = json.loads(details_str).get("detail")
+            if detail is not None:
+                tooltip += create_header(header_length, "Details", center=True, spacer="-") + "\n"
+                tooltip += json.dumps(detail, indent=1)
+                tooltip += "\n" + create_header(header_length, "", center=False, spacer="-")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    return tooltip
 
 
 def _resolve_edge_target(
