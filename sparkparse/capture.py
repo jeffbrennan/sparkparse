@@ -62,6 +62,7 @@ class SparkparseCapture:
         self._alert_config = alert_config
         self._last_record: RunRecord | None = None
         self._triggered_alerts: list[dict] = []
+        self._connect_cap: Any = None
 
     def __call__(
         self, func: Callable[..., R]
@@ -84,6 +85,20 @@ class SparkparseCapture:
                 "No active SparkSession found - please create one before using this context manager."
             )
 
+        # Detect Spark Connect (Databricks serverless): sparkContext raises on Connect
+        try:
+            self.spark.sparkContext
+        except Exception:
+            from sparkparse.connect import SparkConnectCapture
+
+            _log.info("Serverless runtime detected — using SparkConnectCapture")
+            self._connect_cap = SparkConnectCapture(
+                spark=self.spark, log_name=self._log_name
+            )
+            self._connect_cap.__enter__()
+            return self
+
+        # Classic cluster: restart session with event logging enabled
         if self.temp_dir is None:
             self._log_dir = tempfile.mkdtemp(prefix="sparkparse_")
         else:
@@ -91,24 +106,15 @@ class SparkparseCapture:
             self._log_dir = self.temp_dir
 
         orig_conf: dict[str, str] = {}
-        if self.spark or SparkSession.getActiveSession():
-            self._orig_spark = self.spark
-            try:
-                self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir", None)
-                orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
-            except Exception as exc:
-                raise RuntimeError(
-                    "SparkparseCapture requires a classic cluster. "
-                    "The current environment does not support reading SparkContext "
-                    "config or restarting the SparkSession (serverless is not supported)."
-                ) from exc
-            self.spark.stop()
+        self._orig_spark = self.spark
+        self._orig_log_dir = self._orig_spark.conf.get("spark.eventLog.dir", None)
+        orig_conf = dict(self._orig_spark.sparkContext._conf.getAll())
+        self.spark.stop()
 
         builder = SparkSession.builder.appName("sparkparse")
-        if hasattr(self, "_orig_spark"):
-            for key, value in orig_conf.items():
-                if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
-                    builder = builder.config(key, value)
+        for key, value in orig_conf.items():
+            if key not in ["spark.eventLog.enabled", "spark.eventLog.dir"]:
+                builder = builder.config(key, value)
 
         builder = (
             builder.config("spark.eventLog.enabled", "true")
@@ -174,7 +180,13 @@ class SparkparseCapture:
                     effective_log_name,
                 )
 
-    def __exit__(self, exc_type, *args):
+    def __exit__(self, exc_type, *_):
+        if self._connect_cap is not None:
+            self._connect_cap.__exit__(exc_type)
+            if not exc_type:
+                self._parsed_logs = self._connect_cap.dfs
+            return
+
         self.spark.stop()
         self.spark = self._orig_spark
 

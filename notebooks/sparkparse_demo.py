@@ -146,53 +146,32 @@ displayHTML(plot_dag(dfs))
 # MAGIC %md
 # MAGIC ## Live capture: NYC taxi data
 # MAGIC
-# MAGIC Auto-detects classic vs serverless:
-# MAGIC - **Classic cluster**: restarts SparkSession to enable event logging (resets in-memory DataFrames).
-# MAGIC - **Serverless**: captures plan-level metrics via Spark Connect without restarting the session.
+# MAGIC `SparkparseCapture` auto-detects the runtime:
+# MAGIC - **Classic cluster**: restarts the SparkSession to enable event logging (resets in-memory DataFrames). Use `cap.spark` inside the block.
+# MAGIC - **Serverless**: captures plan-level metrics via Spark Connect without restarting the session. `cap.spark` is the same session.
 
 # COMMAND ----------
 
-try:
-    spark.sparkContext  # raises on Spark Connect / serverless
-    _is_serverless = False
-except Exception:
-    _is_serverless = True
+from sparkparse.capture import SparkparseCapture
 
 # Change to a Volumes path to persist the event log after the cluster terminates (classic only).
 CAPTURE_LOG_DIR = "/tmp/sparkparse_nyctaxi"
 
-if _is_serverless:
-    from sparkparse.connect import SparkConnectCapture
+with SparkparseCapture(
+    action="analyze",
+    spark=spark,
+    temp_dir=CAPTURE_LOG_DIR,
+    log_name="nyctaxi_demo",
+) as cap:
+    trips = cap.spark.read.table("samples.nyctaxi.trips")
+    result = (
+        trips.groupBy("pickup_zip")
+        .agg({"fare_amount": "avg", "trip_distance": "sum"})
+        .orderBy("avg(fare_amount)", ascending=False)
+    )
+    display(result.limit(20))
 
-    with SparkConnectCapture(spark=spark, log_name="nyctaxi_demo") as cap:
-        trips = spark.read.table("samples.nyctaxi.trips")
-        result = (
-            trips.groupBy("pickup_zip")
-            .agg({"fare_amount": "avg", "trip_distance": "sum"})
-            .orderBy("avg(fare_amount)", ascending=False)
-        )
-        display(result.limit(20))
-
-    dfs_taxi = cap.dfs
-else:
-    from sparkparse.capture import SparkparseCapture
-
-    with SparkparseCapture(
-        action="analyze",
-        spark=spark,
-        temp_dir=CAPTURE_LOG_DIR,
-        log_name="nyctaxi_demo",
-    ) as cap:
-        trips = cap.spark.read.table("samples.nyctaxi.trips")
-        result = (
-            trips.groupBy("pickup_zip")
-            .agg({"fare_amount": "avg", "trip_distance": "sum"})
-            .orderBy("avg(fare_amount)", ascending=False)
-        )
-        display(result.limit(20))
-
-    dfs_taxi = cap._parsed_logs
-
+dfs_taxi = cap._parsed_logs
 print(f"dag:      {dfs_taxi.dag.shape}")
 print(f"combined: {dfs_taxi.combined.shape}")
 
