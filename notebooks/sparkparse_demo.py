@@ -2,6 +2,30 @@
 
 # COMMAND ----------
 
+# Install the sparkparse wheel bundled alongside this notebook.
+# Walks up ancestor directories to find dist/*.whl — version-agnostic.
+# For scheduled job runs the wheel is already injected via databricks.yml environments.
+import glob
+import pathlib
+import subprocess
+
+_p = pathlib.PurePosixPath(
+    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+)
+_whl = next(
+    (whl for ancestor in _p.parents for whl in glob.glob(f"/Workspace{ancestor}/dist/*.whl")),
+    None,
+)
+if _whl:
+    subprocess.check_call(["pip", "install", "--quiet", _whl])
+    print(f"sparkparse installed from: {_whl}")
+else:
+    print(
+        "WARNING: sparkparse whl not found — run `uv build --wheel && databricks bundle deploy` first"
+    )
+
+# COMMAND ----------
+
 # Locate sample log — works regardless of whether DAB syncs under files/ or bundle root
 import pathlib
 
@@ -17,9 +41,16 @@ print(f"log: {sample_log_dir}/{sample_log_file}")
 
 # COMMAND ----------
 
+# Set OUT_DIR to save parsed outputs alongside the log; None to skip.
+# Unity Catalog volume example: "/Volumes/main/default/sparkparse_demo"
+# DBFS example: "/dbfs/tmp/sparkparse_demo"
+OUT_DIR = None
+
+# COMMAND ----------
+
 from sparkparse.parse import get_parsed_metrics
 
-dfs = get_parsed_metrics(log_dir=sample_log_dir, log_file=sample_log_file, out_dir=None)
+dfs = get_parsed_metrics(log_dir=sample_log_dir, log_file=sample_log_file, out_dir=OUT_DIR)
 print(f"dag:      {dfs.dag.shape}")
 print(f"combined: {dfs.combined.shape}")
 
@@ -103,5 +134,53 @@ for node in summary["queries"][0]["nodes"]:
 
 # COMMAND ----------
 
+# Interactive DAG with hotspot coloring — runs inline on serverless, no Dash server needed.
+# metric can be "node_duration_minutes" or any accumulator name (e.g. "number of output rows").
+# `sparkparse viz --log-dir <path>` launches the full interactive dashboard locally.
+from sparkparse.viz import plot_dag
+
+displayHTML(plot_dag(dfs))
+
+# COMMAND ----------
+
 # MAGIC %md
-# MAGIC `sparkparse viz --log-dir <path>` launches an interactive Dash dashboard locally; not available on Databricks serverless.
+# MAGIC ## Live capture: NYC taxi data
+# MAGIC
+# MAGIC **Note:** The cell below restarts the SparkSession (required to enable event logging).
+# MAGIC All in-memory DataFrames from above will be reset. Run this section independently.
+# MAGIC Requires a **classic cluster** — SparkSession restart is not available on serverless.
+
+# COMMAND ----------
+
+from sparkparse.capture import SparkparseCapture
+
+# Change to a Volumes path to persist the event log after the cluster terminates.
+CAPTURE_LOG_DIR = "/tmp/sparkparse_nyctaxi"
+
+with SparkparseCapture(
+    action="analyze",
+    spark=spark,
+    temp_dir=CAPTURE_LOG_DIR,
+    log_name="nyctaxi_demo",
+) as cap:
+    trips = cap.spark.read.table("samples.nyctaxi.trips")
+    result = (
+        trips.groupBy("pickup_zip")
+        .agg({"fare_amount": "avg", "trip_distance": "sum"})
+        .orderBy("avg(fare_amount)", ascending=False)
+    )
+    display(result.limit(20))
+
+dfs_taxi = cap._parsed_logs
+print(f"dag:      {dfs_taxi.dag.shape}")
+print(f"combined: {dfs_taxi.combined.shape}")
+
+# COMMAND ----------
+
+issues_taxi = get_issues(dfs_taxi)
+print(f"{len(issues_taxi)} issue(s) found")
+display(pl.DataFrame(issues_taxi))
+
+# COMMAND ----------
+
+displayHTML(plot_dag(dfs_taxi))
