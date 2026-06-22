@@ -19,10 +19,18 @@ if TYPE_CHECKING:
 # Walks up ancestor directories to find dist/*.whl — version-agnostic.
 # For scheduled job runs the wheel is already injected via databricks.yml environments.
 _p = pathlib.PurePosixPath(
-    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    dbutils.notebook.entry_point.getDbutils()
+    .notebook()
+    .getContext()
+    .notebookPath()
+    .get()
 )
 _whl = next(
-    (whl for ancestor in _p.parents for whl in glob.glob(f"/Workspace{ancestor}/dist/*.whl")),
+    (
+        whl
+        for ancestor in _p.parents
+        for whl in glob.glob(f"/Workspace{ancestor}/dist/*.whl")
+    ),
     None,
 )
 if _whl:
@@ -53,7 +61,11 @@ from sparkparse.viz import plot_dag
 
 # Locate sample log — works regardless of whether DAB syncs under files/ or bundle root
 _nb_path = pathlib.PurePosixPath(
-    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    dbutils.notebook.entry_point.getDbutils()
+    .notebook()
+    .getContext()
+    .notebookPath()
+    .get()
 )
 sample_log_dir = next(
     f"/Workspace{ancestor}/tests/data/full_logs"
@@ -75,7 +87,9 @@ CAPTURE_LOG_DIR = "/tmp/sparkparse_nyctaxi"
 
 # COMMAND ----------
 
-dfs = get_parsed_metrics(log_dir=sample_log_dir, log_file=sample_log_file, out_dir=OUT_DIR)
+dfs = get_parsed_metrics(
+    log_dir=sample_log_dir, log_file=sample_log_file, out_dir=OUT_DIR
+)
 print(f"dag:      {dfs.dag.shape}")
 print(f"combined: {dfs.combined.shape}")
 
@@ -139,7 +153,9 @@ print("totals:")
 print(json.dumps(summary["totals"], indent=2, default=str))
 print(f"\n{len(summary['queries'])} queries — first query nodes:")
 for node in summary["queries"][0]["nodes"]:
-    duration = f"{node['duration_minutes']:.2f} min" if node["duration_minutes"] else "—"
+    duration = (
+        f"{node['duration_minutes']:.2f} min" if node["duration_minutes"] else "—"
+    )
     print(f"  [{node['node_id']:3d}] {node['node_type']:30s}  {duration:>12}")
 
 # COMMAND ----------

@@ -137,7 +137,9 @@ def _convert_metric(
         readable_unit = ""
 
     readable_str = (
-        f"{readable_value} {readable_unit}".strip() if readable_unit else str(readable_value)
+        f"{readable_value} {readable_unit}".strip()
+        if readable_unit
+        else str(readable_value)
     )
     return norm_type, value, float(readable_value), readable_unit, readable_str
 
@@ -178,8 +180,8 @@ class SparkConnectCapture:
         self._dfs: ParsedLogDataFrames | None = None
         self._orig_build_metrics: Any = None
 
-    def __enter__(self) -> "SparkConnectCapture":
-        client = self.spark._client
+    def __enter__(self) -> SparkConnectCapture:
+        client: Any = getattr(self.spark, "_client")
         orig = client._build_metrics
         self._orig_build_metrics = orig
         captured_queries = self._captured_queries
@@ -194,7 +196,8 @@ class SparkConnectCapture:
         return self
 
     def __exit__(self, exc_type: Any, *_: Any) -> None:
-        self.spark._client._build_metrics = self._orig_build_metrics
+        client: Any = getattr(self.spark, "_client")
+        client._build_metrics = self._orig_build_metrics
         if exc_type:
             return
         self._dfs = self._build_dataframes()
