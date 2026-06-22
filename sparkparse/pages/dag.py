@@ -220,7 +220,7 @@ def create_elements(
             node_data["parent"] = f"codegen_{row['whole_stage_codegen_id']}"
         elements.append({"data": node_data})
 
-    # add edges
+    # add edges (data flows from child to parent, so source = child, target = parent)
     for row in df_data:
         if not row["child_nodes"]:
             continue
@@ -229,10 +229,12 @@ def create_elements(
         if row["node_id"] >= codegen_id_adjustment:
             continue
 
-        source_formatted = f"query_{row['query_id']}_{row['node_id']}"
+        target_formatted = f"query_{row['query_id']}_{row['node_id']}"
         children = [int(i) for i in row["child_nodes"].split(", ")]
         for child in children:
-            target_formatted = get_node_target(row, node_map, child, nodes_to_exclude)
+            source_formatted = get_node_target(row, node_map, child, nodes_to_exclude)
+            if source_formatted is None:
+                continue
             elements.append(
                 {
                     "data": {

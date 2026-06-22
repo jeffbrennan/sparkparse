@@ -289,21 +289,46 @@ def parse_node_accumulators(
     return accumulators
 
 
-def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
-    step = 3
-    n_expected_roots = 1
-    empty_leading_lines = 0
+def _get_tree_indentation(line: str) -> int:
+    """Return the column of the node's branch marker.
 
+    Spark plan trees use ASCII art like::
+
+        +- Node            <- branch marker '+-'
+        :- Node            <- branch marker ':-'
+        :  +- Child        <- ':' verticals + '+-' child marker
+        :  :  +- Grandchild
+
+    The logical indentation of a node is the column where its '+-' or ':-'
+    marker starts. Everything before that marker is branch art or leading
+    spaces. For the root line (no marker), the content column is returned.
+    """
+    for i in range(len(line) - 1):
+        two = line[i : i + 2]
+        if two in ("+-", ":-"):
+            prefix = line[:i]
+            if all(c == " " or c == ":" for c in prefix):
+                return i
+    # Root line with no branch marker (may be indented inside a larger dump).
+    return len(line) - len(line.lstrip())
+
+
+def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
+    """Parse a Spark ASCII plan tree into a node_id -> node map.
+
+    ``PhysicalPlanNode.child_nodes`` contains the node's actual children in
+    execution order (data flows from children to parent).
+    """
+    step = 3
     lines = tree.split("\n")
 
     node_map: dict[int, PhysicalPlanNode] = {}
-    all_child_nodes = []
-    indentation_history = []
-    branch_history = []
+    # Stack of (relative_indentation, node_id) for currently open parent nodes.
+    stack: list[tuple[int, int]] = []
+    root_content_col: int | None = None
 
-    for i, line in enumerate(lines):
-        if line == "":
-            empty_leading_lines += 1
+    for line in lines:
+        if not line.strip():
             continue
 
         match = re.compile(NODE_ID_PATTERN).search(line)
@@ -324,6 +349,20 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         else:
             raise ValueError(f"Could not parse node type from line: {line}")
 
+        raw_indentation = _get_tree_indentation(line)
+        if root_content_col is None:
+            # The first node line is the root. Its content column anchors the tree.
+            root_content_col = raw_indentation
+            indentation_level = 0
+        else:
+            # Child markers are aligned with the parent's content column, so a
+            # marker at the root's content column is level 1.
+            indentation_level = (raw_indentation - root_content_col) // step + 1
+
+        if indentation_level < 0:
+            logger.warning(f"Negative indentation {indentation_level} for line: {line}")
+            continue
+
         node = PhysicalPlanNode(
             node_id=node_id,
             node_type=node_type,
@@ -332,46 +371,26 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
         )
         node_map[node_id] = node
 
-        # remove leading spaces and nested indentation after :
-        line_strip = line.lstrip().replace(": ", "").lstrip()
-        indentation_level = len(line) - len(line_strip)
-        assert indentation_level % step == 0
+        # Pop the stack until we find the parent at the next lower level.
+        while stack and stack[-1][0] >= indentation_level:
+            stack.pop()
 
-        # first non-empty line is always the leaf node
-        if i == 0 + empty_leading_lines:
-            indentation_history.append((indentation_level, node_id))
-            continue
+        if stack:
+            parent_id = stack[-1][1]
+            parent = node_map[parent_id]
+            if parent.child_nodes is None:
+                parent.child_nodes = []
+            parent.child_nodes.append(node_id)
 
-        # appears one line after a new branch
-        branch_start_indicator = ":-"
-        if i < len(lines) - 1 and branch_start_indicator in lines[i + 1]:
-            # handle nested loop case where branch start is missing standard indentation
-            if "+-" not in line and ":-" not in line:
-                indentation_level -= step
-            branch_history.append((indentation_level, node_id))
+        stack.append((indentation_level, node_id))
 
-        prev_indentation = indentation_history[-1]
-        if prev_indentation[0] > indentation_level:
-            n_expected_roots += 1
-            child_nodes = [
-                i[1] for i in branch_history if i[0] == indentation_level - step
-            ]
-
-            if child_nodes:
-                assert all(i > node_id for i in child_nodes)
-                node_map[node_id].child_nodes = child_nodes
-                all_child_nodes.extend(child_nodes)
-            indentation_history.append((indentation_level, node_id))
-            continue
-
-        child_nodes = [prev_indentation[1]]
-
-        node_map[node_id].child_nodes = child_nodes
-        indentation_history.append((indentation_level, node_id))
-        all_child_nodes.extend(child_nodes)
-
+    all_child_nodes = {
+        child_id for node in node_map.values() for child_id in (node.child_nodes or [])
+    }
     roots = [node_id for node_id in node_map.keys() if node_id not in all_child_nodes]
-    assert len(roots) == n_expected_roots
+    assert len(roots) == 1, (
+        f"Expected exactly one root node, found {len(roots)}: {roots}"
+    )
     return node_map
 
 

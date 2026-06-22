@@ -8,6 +8,7 @@ from sparkparse.analyze import (
     find_largest_scans,
     find_long_running_nodes,
     find_repeated_scans,
+    find_row_count_explosions,
     find_shuffle_heavy_stages,
     find_skewed_tasks,
     find_spill,
@@ -415,3 +416,78 @@ def test_get_issues_messages_are_strings(dfs_complex):
     for issue in result:
         assert isinstance(issue["message"], str)
         assert len(issue["message"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# find_row_count_explosions
+# ---------------------------------------------------------------------------
+
+
+def test_find_row_count_explosions_returns_dataframe(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join)
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_find_row_count_explosions_columns(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join)
+    assert set(result.columns) >= {
+        "query_id",
+        "node_id",
+        "node_type",
+        "join_type",
+        "left_keys",
+        "right_keys",
+        "output_rows",
+        "left_input_rows",
+        "right_input_rows",
+        "ratio",
+        "left_scan_paths",
+        "right_scan_paths",
+    }
+
+
+def test_find_row_count_explosions_detects_bnlj(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join)
+    assert result.shape[0] > 0
+    assert (
+        result.filter(pl.col("node_type") == NodeType.BroadcastNestedLoopJoin).shape[0]
+        > 0
+    )
+
+
+def test_find_row_count_explosions_above_threshold(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join, ratio_threshold=1.1)
+    if result.shape[0] > 0:
+        assert (result["ratio"] >= 1.1).all()
+
+
+def test_find_row_count_explosions_sorted_descending(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join, ratio_threshold=0.0)
+    if result.shape[0] > 1:
+        ratios = result["ratio"].to_list()
+        assert ratios == sorted(ratios, reverse=True)
+
+
+def test_find_row_count_explosions_high_threshold_returns_empty(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join, ratio_threshold=1e9)
+    assert result.shape[0] == 0
+
+
+def test_find_row_count_explosions_scan_paths_are_lists(dfs_loop_join):
+    result = find_row_count_explosions(dfs_loop_join)
+    if result.shape[0] > 0:
+        assert result["left_scan_paths"].dtype == pl.List(pl.String)
+        assert result["right_scan_paths"].dtype == pl.List(pl.String)
+
+
+def test_get_issues_row_count_explosion_message_includes_details(dfs_loop_join):
+    result = get_issues(dfs_loop_join)
+    explosion_issues = [
+        i for i in result if i["category"] in ("Cartesian Join", "Row Count Explosion")
+    ]
+    assert len(explosion_issues) > 0
+    for issue in explosion_issues:
+        message = issue["message"]
+        assert "rows" in message
+        assert "×" in message
+        assert "scans:" in message or "left:" in message

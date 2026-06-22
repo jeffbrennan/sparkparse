@@ -239,11 +239,11 @@ def plot_dag(
         if row["node_id"] >= codegen_threshold:
             continue
 
-        source = f"query_{query_id}_{row['node_id']}"
+        target = f"query_{query_id}_{row['node_id']}"
         children = [int(i) for i in str(row["child_nodes"]).split(", ") if i]
         for child_id in children:
-            target = _resolve_edge_target(row, node_map, child_id, nodes_to_exclude)
-            if target:
+            source = _resolve_edge_target(row, node_map, child_id, nodes_to_exclude)
+            if source:
                 elements.append({"data": {"source": source, "target": target}})
 
     # Stylesheet: contrast=True matches the dashboard's update_stylesheet callback, giving
