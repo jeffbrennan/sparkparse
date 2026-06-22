@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 from plotly.graph_objs import Figure
@@ -80,7 +80,7 @@ def get_node_color(
     node_value: float | None, min_value: float, max_value: float, dark_mode: bool
 ) -> str:
     """Return an rgb color interpolated between background and accent red by metric value."""
-    if node_value is None:
+    if node_value is None or pd.isna(node_value):
         normalized = 0
     else:
         if min_value == max_value:
@@ -137,8 +137,9 @@ def plot_dag(
     if query_id is None:
         query_id = dag.select("query_id").unique().sort("query_id").item(0, 0)
 
-    df_data: list[dict[str, Any]] = (
-        dag.filter(pl.col("query_id") == query_id).to_pandas().to_dict("records")
+    df_data: list[dict[str, Any]] = cast(
+        list[dict[str, Any]],
+        dag.filter(pl.col("query_id") == query_id).to_pandas().to_dict("records"),
     )
     node_map = {row["node_id"]: row for row in df_data}
 
@@ -150,11 +151,13 @@ def plot_dag(
         for row in df_data:
             if row["accumulator_totals"] is None:
                 continue
-            matches = [i for i in row["accumulator_totals"] if i["metric_name"] == metric]
+            matches = [
+                i for i in row["accumulator_totals"] if i["metric_name"] == metric
+            ]
             if matches:
                 hotspot_map[row["node_id"]] = matches[0]["value"]
 
-    valid_values = [v for v in hotspot_map.values() if v is not None]
+    valid_values = [v for v in hotspot_map.values() if v is not None and not pd.isna(v)]
     min_val = float(min(valid_values)) if valid_values else 0.0
     max_val = float(max(valid_values)) if valid_values else 1.0
 
@@ -176,13 +179,16 @@ def plot_dag(
             row["node_duration_minutes"]
             for row in codegen_rows
             if row["node_duration_minutes"] is not None
+            and not pd.isna(row["node_duration_minutes"])
         ]
         min_c = float(min(codegen_durations)) if codegen_durations else 0.0
         max_c = float(max(codegen_durations)) if codegen_durations else 1.0
         for row in codegen_rows:
             cg_id = row["node_id_adj"]
             container_value = (
-                row["node_duration_minutes"] if metric == "node_duration_minutes" else None
+                row["node_duration_minutes"]
+                if metric == "node_duration_minutes"
+                else None
             )
             color = get_node_color(container_value, min_c, max_c, dark_mode)
             elements.append(
@@ -223,7 +229,10 @@ def plot_dag(
 
     # Edge elements
     for row in df_data:
-        if not row["child_nodes"]:
+        child_nodes_val = row["child_nodes"]
+        if not child_nodes_val or (
+            isinstance(child_nodes_val, float) and pd.isna(child_nodes_val)
+        ):
             continue
         if row["node_type"] in nodes_to_exclude:
             continue
@@ -340,7 +349,12 @@ def _build_tooltip(row: dict[str, Any]) -> str:
         for metric in row["accumulator_totals"]:
             if metric["metric_type"] not in seen_types:
                 tooltip += (
-                    create_header(header_length, metric["metric_type"].title(), center=True, spacer="-")
+                    create_header(
+                        header_length,
+                        metric["metric_type"].title(),
+                        center=True,
+                        spacer="-",
+                    )
                     + "\n"
                 )
                 seen_types.append(metric["metric_type"])
@@ -356,9 +370,14 @@ def _build_tooltip(row: dict[str, Any]) -> str:
         try:
             detail = json.loads(details_str).get("detail")
             if detail is not None:
-                tooltip += create_header(header_length, "Details", center=True, spacer="-") + "\n"
+                tooltip += (
+                    create_header(header_length, "Details", center=True, spacer="-")
+                    + "\n"
+                )
                 tooltip += json.dumps(detail, indent=1)
-                tooltip += "\n" + create_header(header_length, "", center=False, spacer="-")
+                tooltip += "\n" + create_header(
+                    header_length, "", center=False, spacer="-"
+                )
         except (json.JSONDecodeError, AttributeError):
             pass
 
