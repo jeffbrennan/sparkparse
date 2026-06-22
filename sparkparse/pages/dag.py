@@ -12,39 +12,7 @@ from sparkparse.common import create_header, resolve_dir, timeit
 from sparkparse.models import NodeType
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
-
-
-def get_node_color(
-    node_value: float | None, min_value: float, max_value: float, dark_mode: bool
-) -> str:
-    """Generate a color between gray and red based on duration."""
-    if node_value is None:
-        normalized = 0
-    else:
-        if min_value == max_value:
-            normalized = 0.5
-        else:
-            normalized = (node_value - min_value) / (max_value - min_value)
-
-    bg_color, _ = get_site_colors(dark_mode, contrast=False)
-    base_rgb = bg_color.removeprefix("rgb(").removesuffix(")")
-    base_r, base_g, base_b = [int(x) for x in base_rgb.split(",")]
-
-    accent_r, accent_g, accent_b = 247, 111, 83
-    r_adj = normalized * abs(base_r - accent_r)
-    g_adj = normalized * abs(base_g - accent_g)
-    b_adj = normalized * abs(base_b - accent_b)
-
-    if dark_mode:
-        r = int(base_r + r_adj)
-        g = int(base_g + g_adj)
-        b = int(base_b + b_adj)
-    else:
-        r = int(base_r - r_adj)
-        g = int(base_g - g_adj)
-        b = int(base_b - b_adj)
-
-    return f"rgb({r},{g},{b})"
+from sparkparse.viz import get_node_color
 
 
 def get_codegen_elements(
