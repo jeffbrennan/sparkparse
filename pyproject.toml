@@ -62,6 +62,12 @@ ignore = ["E501"]
 [tool.ruff.lint.isort]
 known-first-party = ["sparkparse"]
 
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py", "test.py"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
 [tool.pyrefly]
 project-includes = [
     "**/*.py*",

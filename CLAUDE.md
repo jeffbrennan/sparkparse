@@ -79,10 +79,10 @@ detail = detail_cls.model_validate(json.loads(row["details"])["detail"])
 
 ```bash
 # fast unit tests (no Spark needed)
-uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
+just ci
 
 # full integration tests (requires a local JVM + PySpark)
-uv run pytest tests/test.py tests/test_capture.py -v
+just ci-full
 ```
 
 Test fixtures live in `tests/data/`:

@@ -74,13 +74,13 @@ def clean_plan(
         plan = pl.concat(
             [
                 plan,
-                pl.DataFrame(query.nodes).with_columns(
+                pl.DataFrame([node.model_dump() for node in query.nodes]).with_columns(
                     pl.lit(query.query_id).alias("query_id")
                 ),
             ]
         )
 
-    query_times_df = pl.DataFrame(query_times)
+    query_times_df = pl.DataFrame([qt.model_dump() for qt in query_times])
     query_times_pivoted = (
         (
             query_times_df.pivot("event_type", index="query_id", values="query_time")
