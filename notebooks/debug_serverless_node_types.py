@@ -94,31 +94,97 @@ for row in dfs.dag.sort("node_id").to_dicts():
 
 # COMMAND ----------
 
-# Probe the Databricks SQL history API to find query IDs for this job run,
-# then attempt to fetch the photonExplain plan graph (join keys etc.) via
-# the GraphQL endpoint the SQL UI uses.
+# Probe the Databricks SQL history API and call the GraphQL plan endpoint
+# the SQL UI uses (POST /graphql/HistoryStatementPlanById).
 
+import base64 as _b64
 import json as _json
+import urllib.request as _req
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import QueryFilter, QueryStatus
 
 _w = WorkspaceClient()
-print(f"host: {_w.config.host}")
+_host = _w.config.host
+_token = _w.config.token
+print(f"host: {_host}")
 
-# List recent queries for this run filtered by status
-_queries = list(
-    _w.query_history.list(
-        filter_by=QueryFilter(statuses=[QueryStatus.FINISHED]),
-        max_results=25,
+
+def _graphql(operation: str, variables: dict) -> dict:
+    body = _json.dumps(
+        {
+            "operationName": operation,
+            "variables": variables,
+            "query": "",
+        }
+    ).encode()
+    r = _req.Request(
+        f"https://{_host}/graphql/{operation}",
+        data=body,
+        headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
+        method="POST",
     )
-)
-print(f"SQL history queries found: {len(_queries)}")
-for q in _queries:
-    print(f"  id={q.query_id}  status={q.status}  text={str(q.query_text or '')[:80]}")
+    return _json.loads(_req.urlopen(r).read())
+
+
+def _build_lookup_key(query_id: str, start_ms: int, endpoint_id: str, user_id: int) -> str:
+    def _vi(n: int) -> bytes:
+        out = b""
+        while n > 0x7F:
+            out += bytes([(n & 0x7F) | 0x80])
+            n >>= 7
+        return out + bytes([n])
+
+    def _ld(f: int, b: bytes) -> bytes:
+        return _vi((f << 3) | 2) + _vi(len(b)) + b
+
+    proto = (
+        _ld(1, query_id.encode())
+        + _vi(2 << 3)
+        + _vi(start_ms)
+        + _ld(3, endpoint_id.encode())
+        + _vi(4 << 3)
+        + _vi(user_id)
+    )
+    return _b64.b64encode(proto).decode().rstrip("=")
+
+
+# Get recent finished queries — handle both iterator and ListQueriesResponse return types
+_raw = _w.query_history.list(max_results=10)
+_queries = getattr(_raw, "res", None)
+if _queries is None:
+    try:
+        _queries = list(_raw)
+    except TypeError:
+        _queries = []
+_queries = _queries or []
+
+print(f"queries found: {len(_queries)}")
+if _queries:
+    print("first query fields:")
+    print(_json.dumps(_queries[0].as_dict(), indent=2)[:1500])
+
+# Try the GraphQL plan endpoint for the first query once we know field names
 print()
-print("raw first result:")
-print(_json.dumps(_queries[0].as_dict() if _queries else {}, indent=2)[:1200])
+for q in _queries[:1]:
+    d = q.as_dict()
+    query_id = d.get("query_id") or d.get("statement_id") or d.get("id")
+    start_ms = d.get("query_start_time_ms") or d.get("start_time_ms") or 0
+    endpoint_id = d.get("warehouse_id") or d.get("endpoint_id") or "0000000000000000"
+    user_id = (
+        (d.get("user") or {}).get("id") or d.get("user_id") or d.get("executed_as_user_id") or 0
+    )
+    if isinstance(user_id, str):
+        user_id = int(user_id)
+    print(f"query_id={query_id}  start_ms={start_ms}  endpoint_id={endpoint_id}  user_id={user_id}")
+    lk = _build_lookup_key(
+        query_id=query_id, start_ms=start_ms, endpoint_id=endpoint_id, user_id=user_id
+    )
+    print(f"lookupKey: {lk}")
+    try:
+        result = _graphql("HistoryStatementPlanById", {"lookupKey": lk})
+        print(_json.dumps(result, indent=2)[:1000])
+    except Exception as e:
+        print(f"error: {e}")
 
 # COMMAND ----------
 
