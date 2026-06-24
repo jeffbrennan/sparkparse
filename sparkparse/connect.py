@@ -33,6 +33,7 @@ _PHOTON_NODE_TYPE_MAP: dict[str, NodeType] = {
     "PhotonTopK": NodeType.TakeOrderedAndProject,
     "PhotonWindow": NodeType.Window,
     "PhotonShuffleMapStage": NodeType.Exchange,
+    "PhotonResultStage": NodeType.ResultQueryStage,
     "PhotonColumnarToRow": NodeType.ColumnarToRow,
     # Standard Spark / AQE nodes
     "AdaptiveSparkPlan": NodeType.AdaptiveSparkPlan,
