@@ -329,7 +329,7 @@ def plot_dag(
   cy.on('mouseout', 'node', function() {{ tt.style.display = 'none'; }});
   document.getElementById('{container_id}').addEventListener('mousemove', function(e) {{
     tt.style.left = (e.clientX + 16) + 'px';
-    tt.style.top  = (e.clientY - 10) + 'px';
+    tt.style.top  = Math.max(0, e.clientY - tt.offsetHeight - 10) + 'px';
   }});
 }})();
 </script>"""

@@ -45,8 +45,14 @@ def _get_metric_value(acc_totals: list[dict] | None, metric_name: str) -> int | 
 
 
 def _get_output_rows(acc_totals: list[dict] | None) -> int | None:
-    """Return 'number of output rows' from accumulator totals."""
-    return _get_metric_value(acc_totals, "number of output rows")
+    """Return output row count from accumulator totals.
+
+    Checks both the event-log name ('number of output rows') and the
+    Spark Connect / Photon name ('numOutputRows').
+    """
+    return _get_metric_value(acc_totals, "number of output rows") or _get_metric_value(
+        acc_totals, "numOutputRows"
+    )
 
 
 def _get_scan_paths(details_str: str | None) -> list[str]:

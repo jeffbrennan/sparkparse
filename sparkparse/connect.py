@@ -298,7 +298,7 @@ class SparkConnectCapture:
                         node_duration_minutes = m.value / 60_000_000_000
 
                 node_type_str = str(node_type)
-                node_name = f"[{node_id}] {node_type_str}"
+                node_name = node.name or f"[{node_id}] {node_type_str}"
 
                 rows.append(
                     {
