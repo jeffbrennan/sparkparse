@@ -96,29 +96,28 @@ for row in dfs.dag.sort("node_id").to_dicts():
 
 # Probe the Databricks SQL history API and call the GraphQL plan endpoint
 # the SQL UI uses (POST /graphql/HistoryStatementPlanById).
+#
+# Call sequence:
+#   1. HistoryStatementPlanMetadata(query_id) → planMetadata.id
+#   2. HistoryStatementPlanById(planMetadata.id, queryStartTimeMs) → graph nodes
 
-import base64 as _b64
 import json as _json
 import urllib.request as _req
 
 from databricks.sdk import WorkspaceClient
 
 _w = WorkspaceClient()
-_host = _w.config.host
+_host = _w.config.host.rstrip("/")  # already includes https://
 _token = _w.config.token
 print(f"host: {_host}")
 
 
-def _graphql(operation: str, variables: dict) -> dict:
+def _graphql(operation: str, variables: dict, query: str = "") -> dict:
     body = _json.dumps(
-        {
-            "operationName": operation,
-            "variables": variables,
-            "query": "",
-        }
+        {"operationName": operation, "variables": variables, "query": query}
     ).encode()
     r = _req.Request(
-        f"https://{_host}/graphql/{operation}",
+        f"{_host}/graphql/{operation}",  # _host already has https://
         data=body,
         headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
         method="POST",
@@ -126,30 +125,31 @@ def _graphql(operation: str, variables: dict) -> dict:
     return _json.loads(_req.urlopen(r).read())
 
 
-def _build_lookup_key(query_id: str, start_ms: int, endpoint_id: str, user_id: int) -> str:
-    def _vi(n: int) -> bytes:
-        out = b""
-        while n > 0x7F:
-            out += bytes([(n & 0x7F) | 0x80])
-            n >>= 7
-        return out + bytes([n])
+# Full inline query captured from browser network tab for the plan graph endpoint.
+_PLAN_BY_ID_QUERY = (
+    'query HistoryStatementPlanById($input: SqlgatewayHistoryGetQueryPlanInput!) '
+    '@component(name: "DBSQLX.QueryHistory") {\n'
+    '  sqlgatewayHistoryGetQueryPlan(input: $input) {\n'
+    '    apiError { code message helpUrl traceId __typename }\n'
+    '    plans {\n'
+    '      nodes {\n'
+    '        id name tag hidden collapsed stageLinks subgraphParent insightIds\n'
+    '        metadata { key label value values insightIds metaValues { value insightIds __typename } __typename }\n'
+    '        metrics { label key metricType value hidden insightTypes __typename }\n'
+    '        keyMetrics { durationMs peakMemoryBytes rowsNum __typename }\n'
+    '        __typename\n'
+    '      }\n'
+    '      edges { fromId toId __typename }\n'
+    '      executionId errorMessage missingReason source sparkUiUrl timeCompletedMs timeSubmittedMs\n'
+    '      __typename\n'
+    '    }\n'
+    '    __typename\n'
+    '  }\n'
+    '}'
+)
 
-    def _ld(f: int, b: bytes) -> bytes:
-        return _vi((f << 3) | 2) + _vi(len(b)) + b
-
-    proto = (
-        _ld(1, query_id.encode())
-        + _vi(2 << 3)
-        + _vi(start_ms)
-        + _ld(3, endpoint_id.encode())
-        + _vi(4 << 3)
-        + _vi(user_id)
-    )
-    return _b64.b64encode(proto).decode().rstrip("=")
-
-
-# Get recent finished queries — handle both iterator and ListQueriesResponse return types
-_raw = _w.query_history.list(max_results=10)
+# Get recent finished queries — handle both iterator and ListQueriesResponse return types.
+_raw = _w.query_history.list(max_results=20)
 _queries = getattr(_raw, "res", None)
 if _queries is None:
     try:
@@ -159,30 +159,45 @@ if _queries is None:
 _queries = _queries or []
 
 print(f"queries found: {len(_queries)}")
+_with_plans = [q for q in _queries if q.as_dict().get("plans_state") == "EXISTS"]
+print(f"queries with plans_state=EXISTS: {len(_with_plans)}")
 if _queries:
     print("first query fields:")
     print(_json.dumps(_queries[0].as_dict(), indent=2)[:1500])
 
-# Try the GraphQL plan endpoint for the first query once we know field names
 print()
-for q in _queries[:1]:
+for q in _with_plans[:1]:
     d = q.as_dict()
-    query_id = d.get("query_id") or d.get("statement_id") or d.get("id")
-    start_ms = d.get("query_start_time_ms") or d.get("start_time_ms") or 0
-    endpoint_id = d.get("warehouse_id") or d.get("endpoint_id") or "0000000000000000"
-    user_id = (
-        (d.get("user") or {}).get("id") or d.get("user_id") or d.get("executed_as_user_id") or 0
-    )
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-    print(f"query_id={query_id}  start_ms={start_ms}  endpoint_id={endpoint_id}  user_id={user_id}")
-    lk = _build_lookup_key(
-        query_id=query_id, start_ms=start_ms, endpoint_id=endpoint_id, user_id=user_id
-    )
-    print(f"lookupKey: {lk}")
+    query_id = d.get("query_id") or d.get("id")
+    start_ms = d.get("query_start_time_ms") or 0
+    print(f"query_id={query_id}  start_ms={start_ms}  plans_state={d.get('plans_state')}")
+
+    # Step 1: fetch plan metadata to get the planMetadata.id required by HistoryStatementPlanById.
+    print("\n--- HistoryStatementPlanMetadata ---")
     try:
-        result = _graphql("HistoryStatementPlanById", {"lookupKey": lk})
-        print(_json.dumps(result, indent=2)[:1000])
+        meta = _graphql("HistoryStatementPlanMetadata", {"id": query_id})
+        print(_json.dumps(meta, indent=2)[:2000])
+    except Exception as e:
+        print(f"error: {e}")
+
+    # Step 2: call HistoryStatementById to see the full query object shape.
+    print("\n--- HistoryStatementById ---")
+    try:
+        stmt = _graphql("HistoryStatementById", {"id": query_id})
+        print(_json.dumps(stmt, indent=2)[:2000])
+    except Exception as e:
+        print(f"error: {e}")
+
+    # Step 3: call HistoryStatementPlanById.
+    # input.id is planMetadata.id (not query_id) — update once Step 1 reveals the correct field.
+    print("\n--- HistoryStatementPlanById (using query_id as id — may need planMetadata.id) ---")
+    try:
+        graph = _graphql(
+            "HistoryStatementPlanById",
+            {"input": {"id": query_id, "queryStartTimeMs": str(start_ms), "includeRawPlans": False}},
+            _PLAN_BY_ID_QUERY,
+        )
+        print(_json.dumps(graph, indent=2)[:3000])
     except Exception as e:
         print(f"error: {e}")
 
