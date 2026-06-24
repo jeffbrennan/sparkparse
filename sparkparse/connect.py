@@ -306,7 +306,7 @@ class SparkConnectCapture:
                     children[node.parent_plan_id].append(node.plan_id)
 
             child_nodes_map = {
-                nid: ", ".join(str(c) for c in sorted(cs))
+                nid: ", ".join(str(c) for c in sorted(cs, reverse=True))
                 for nid, cs in children.items()
             }
 

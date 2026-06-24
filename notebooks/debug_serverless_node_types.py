@@ -75,6 +75,21 @@ display(
 
 # COMMAND ----------
 
+import json
+
+print("raw join + scan node names (for key/path parsing):")
+for row in dfs.dag.to_dicts():
+    if row["node_type"] in ("broadcasthashjoin", "sortmergejoin", "broadcastnestedloopjoin", "cartesianproduct", "scan"):
+        detail = json.loads(row["details"]).get("detail", {}) or {}
+        print(f"  [{row['node_id']}] type={row['node_type']}")
+        print(f"       raw_name   = {detail.get('raw_name')!r}")
+        print(f"       left_keys  = {detail.get('left_keys')}")
+        print(f"       right_keys = {detail.get('right_keys')}")
+        print(f"       location   = {detail.get('location')}")
+        print(f"       child_nodes= {row['child_nodes']}")
+
+# COMMAND ----------
+
 display(find_row_count_explosions(dfs, ratio_threshold=1.1))
 
 # COMMAND ----------
