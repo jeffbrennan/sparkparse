@@ -94,13 +94,17 @@ for row in dfs.dag.sort("node_id").to_dicts():
 
 # COMMAND ----------
 
-# Probe the Databricks SQL history API and call the GraphQL plan endpoint
-# the SQL UI uses (POST /graphql/HistoryStatementPlanById).
+# Probe the Databricks SQL history API and call the GraphQL plan endpoint.
+#
+# Auth flow: PAT bearer → GET /auth/session/info → csrfToken
+#   Then pass X-CSRF-Token + session cookie to all /graphql/* calls.
 #
 # Call sequence:
 #   1. HistoryStatementPlanMetadata(query_id) → planMetadata.id
-#   2. HistoryStatementPlanById(planMetadata.id, queryStartTimeMs) → graph nodes
+#   2. HistoryStatementById(query_id)         → full query object
+#   3. HistoryStatementPlanById(planMetadata.id, queryStartTimeMs) → graph nodes + stats
 
+import gzip as _gzip
 import json as _json
 import urllib.request as _req
 
@@ -111,58 +115,75 @@ _host = _w.config.host.rstrip("/")  # already includes https://
 _token = _w.config.token
 print(f"host: {_host}")
 
+# Step 0: bootstrap CSRF token from /auth/session/info (supports PAT auth).
+_r = _req.Request(
+    f"{_host}/auth/session/info",
+    headers={"Authorization": f"Bearer {_token}", "Accept-Encoding": "gzip, deflate"},
+    method="GET",
+)
+_sr = _req.urlopen(_r)
+_raw = _gzip.decompress(_sr.read()) if _sr.headers.get("Content-Encoding") == "gzip" else _sr.read()
+_session = _json.loads(_raw)
+print(f"session/info response: {_json.dumps(_session, indent=2)}")
+_csrf = _session.get("csrfToken", "")
+_session_id = _session.get("sessionId", "")
+print(f"\ncsrfToken: {_csrf!r}  sessionId: {_session_id!r}")
+
 
 def _graphql(operation: str, variables: dict, query: str = "") -> dict:
-    import gzip as _gzip
     body = _json.dumps(
         {"operationName": operation, "variables": variables, "query": query}
     ).encode()
+    headers = {
+        "Authorization": f"Bearer {_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip, deflate",
+        "X-CSRF-Token": _csrf,
+    }
+    if _session_id:
+        headers["Cookie"] = f"DBAUTH={_session_id}"
     r = _req.Request(
-        f"{_host}/graphql/{operation}",  # _host already has https://
+        f"{_host}/graphql/{operation}",
         data=body,
-        headers={
-            "Authorization": f"Bearer {_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Accept-Encoding": "gzip, deflate",
-        },
+        headers=headers,
         method="POST",
     )
     try:
         resp = _req.urlopen(r)
     except _req.HTTPError as e:
         raw = e.read()
+        raw = _gzip.decompress(raw) if e.headers.get("Content-Encoding") == "gzip" else raw
         print(f"  HTTP {e.code} {e.reason}  body={raw[:500]!r}")
         raise
     raw = resp.read()
-    enc = resp.headers.get("Content-Encoding", "")
-    if enc == "gzip":
+    if resp.headers.get("Content-Encoding") == "gzip":
         raw = _gzip.decompress(raw)
-    print(f"  HTTP {resp.status}  Content-Encoding={enc!r}  body_len={len(raw)}  preview={raw[:300]!r}")
+    print(f"  HTTP {resp.status}  body_len={len(raw)}  preview={raw[:200]!r}")
     return _json.loads(raw)
 
 
 # Full inline query captured from browser network tab for the plan graph endpoint.
 _PLAN_BY_ID_QUERY = (
-    'query HistoryStatementPlanById($input: SqlgatewayHistoryGetQueryPlanInput!) '
+    "query HistoryStatementPlanById($input: SqlgatewayHistoryGetQueryPlanInput!) "
     '@component(name: "DBSQLX.QueryHistory") {\n'
-    '  sqlgatewayHistoryGetQueryPlan(input: $input) {\n'
-    '    apiError { code message helpUrl traceId __typename }\n'
-    '    plans {\n'
-    '      nodes {\n'
-    '        id name tag hidden collapsed stageLinks subgraphParent insightIds\n'
-    '        metadata { key label value values insightIds metaValues { value insightIds __typename } __typename }\n'
-    '        metrics { label key metricType value hidden insightTypes __typename }\n'
-    '        keyMetrics { durationMs peakMemoryBytes rowsNum __typename }\n'
-    '        __typename\n'
-    '      }\n'
-    '      edges { fromId toId __typename }\n'
-    '      executionId errorMessage missingReason source sparkUiUrl timeCompletedMs timeSubmittedMs\n'
-    '      __typename\n'
-    '    }\n'
-    '    __typename\n'
-    '  }\n'
-    '}'
+    "  sqlgatewayHistoryGetQueryPlan(input: $input) {\n"
+    "    apiError { code message helpUrl traceId __typename }\n"
+    "    plans {\n"
+    "      nodes {\n"
+    "        id name tag hidden collapsed stageLinks subgraphParent insightIds\n"
+    "        metadata { key label value values insightIds metaValues { value insightIds __typename } __typename }\n"
+    "        metrics { label key metricType value hidden insightTypes __typename }\n"
+    "        keyMetrics { durationMs peakMemoryBytes rowsNum __typename }\n"
+    "        __typename\n"
+    "      }\n"
+    "      edges { fromId toId __typename }\n"
+    "      executionId errorMessage missingReason source sparkUiUrl timeCompletedMs timeSubmittedMs\n"
+    "      __typename\n"
+    "    }\n"
+    "    __typename\n"
+    "  }\n"
+    "}"
 )
 
 # Get recent finished queries — handle both iterator and ListQueriesResponse return types.
@@ -211,7 +232,13 @@ for q in _with_plans[:1]:
     try:
         graph = _graphql(
             "HistoryStatementPlanById",
-            {"input": {"id": query_id, "queryStartTimeMs": str(start_ms), "includeRawPlans": False}},
+            {
+                "input": {
+                    "id": query_id,
+                    "queryStartTimeMs": str(start_ms),
+                    "includeRawPlans": False,
+                }
+            },
             _PLAN_BY_ID_QUERY,
         )
         print(_json.dumps(graph, indent=2)[:3000])
