@@ -16,12 +16,45 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 _PHOTON_NODE_TYPE_MAP: dict[str, NodeType] = {
+    # Photon execution nodes
     "PhotonScan": NodeType.Scan,
     "PhotonGroupingAgg": NodeType.HashAggregate,
     "PhotonSort": NodeType.Sort,
     "PhotonShuffleExchangeSink": NodeType.Exchange,
     "PhotonShuffleExchangeSource": NodeType.Exchange,
+    "PhotonBroadcastHashJoin": NodeType.BroadcastHashJoin,
+    "PhotonSortMergeJoin": NodeType.SortMergeJoin,
+    "PhotonBroadcastNestedLoopJoin": NodeType.BroadcastNestedLoopJoin,
+    "PhotonProject": NodeType.Project,
+    "PhotonFilter": NodeType.Filter,
+    "PhotonBroadcastExchange": NodeType.BroadcastExchange,
+    "PhotonUnion": NodeType.Union,
+    "PhotonExpand": NodeType.Expand,
+    "PhotonTopK": NodeType.TakeOrderedAndProject,
+    "PhotonWindow": NodeType.Window,
+    "PhotonShuffleMapStage": NodeType.Exchange,
+    "PhotonColumnarToRow": NodeType.ColumnarToRow,
+    # Standard Spark / AQE nodes
     "AdaptiveSparkPlan": NodeType.AdaptiveSparkPlan,
+    "ResultQueryStage": NodeType.ResultQueryStage,
+    "ShuffleQueryStage": NodeType.ShuffleQueryStage,
+    "BroadcastQueryStage": NodeType.BroadcastQueryStage,
+    "TableCacheQueryStage": NodeType.TableCacheQueryStage,
+    "AQEShuffleRead": NodeType.AQEShuffleRead,
+    "CollectLimit": NodeType.CollectLimit,
+    "GlobalLimit": NodeType.GlobalLimit,
+    "LocalLimit": NodeType.LocalLimit,
+    "Project": NodeType.Project,
+    "Filter": NodeType.Filter,
+    "Sort": NodeType.Sort,
+    "Exchange": NodeType.Exchange,
+    "BroadcastExchange": NodeType.BroadcastExchange,
+    "BroadcastHashJoin": NodeType.BroadcastHashJoin,
+    "SortMergeJoin": NodeType.SortMergeJoin,
+    "HashAggregate": NodeType.HashAggregate,
+    "Union": NodeType.Union,
+    "Coalesce": NodeType.Coalesce,
+    "ReusedExchange": NodeType.ReusedExchange,
 }
 
 _ACCUM_TOTALS_STRUCT = pl.Struct(
