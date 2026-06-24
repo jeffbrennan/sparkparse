@@ -21,9 +21,6 @@ _PHOTON_NODE_TYPE_MAP: dict[str, NodeType] = {
     "PhotonSort": NodeType.Sort,
     "PhotonShuffleExchangeSink": NodeType.Exchange,
     "PhotonShuffleExchangeSource": NodeType.Exchange,
-    "PhotonShuffleMapStage": NodeType.Unknown,
-    "PhotonResultQueryStage": NodeType.Unknown,
-    "PhotonColumnarToRow": NodeType.Unknown,
     "AdaptiveSparkPlan": NodeType.AdaptiveSparkPlan,
 }
 
@@ -86,7 +83,13 @@ _COMBINED_SCHEMA: dict[str, pl.PolarsDataType] = {
 
 def _map_node_type(name: str) -> NodeType:
     prefix = name.split()[0] if name else ""
-    return _PHOTON_NODE_TYPE_MAP.get(prefix, NodeType.Unknown)
+    mapped = _PHOTON_NODE_TYPE_MAP.get(prefix)
+    if mapped is None:
+        raise ValueError(
+            f"Unmapped Spark Connect node type: {name!r} (prefix={prefix!r}). "
+            "Add it to _PHOTON_NODE_TYPE_MAP in sparkparse/connect.py."
+        )
+    return mapped
 
 
 def _readable_size(bytes_val: float) -> tuple[float, str]:
