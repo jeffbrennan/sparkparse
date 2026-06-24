@@ -118,17 +118,38 @@ _COMBINED_SCHEMA: dict[str, pl.PolarsDataType] = {
 }
 
 
-_JOIN_NODE_TYPES: frozenset[NodeType] = frozenset({
-    NodeType.BroadcastHashJoin,
-    NodeType.SortMergeJoin,
-    NodeType.BroadcastNestedLoopJoin,
-    NodeType.CartesianProduct,
-})
+_JOIN_NODE_TYPES: frozenset[NodeType] = frozenset(
+    {
+        NodeType.BroadcastHashJoin,
+        NodeType.SortMergeJoin,
+        NodeType.BroadcastNestedLoopJoin,
+        NodeType.CartesianProduct,
+    }
+)
 
-_JOIN_TYPES: frozenset[str] = frozenset({
-    "Inner", "LeftOuter", "RightOuter", "FullOuter",
-    "LeftSemi", "LeftAnti", "Cross",
-})
+_JOIN_TYPES: frozenset[str] = frozenset(
+    {
+        "Inner",
+        "LeftOuter",
+        "RightOuter",
+        "FullOuter",
+        "LeftSemi",
+        "LeftAnti",
+        "Cross",
+    }
+)
+
+# Spark Connect JoinType proto enum → display string.
+# Values from spark/connect/proto/relations.proto.
+_PROTO_JOIN_TYPE: dict[int, str] = {
+    1: "Inner",
+    2: "FullOuter",
+    3: "LeftOuter",
+    4: "RightOuter",
+    5: "LeftAnti",
+    6: "LeftSemi",
+    7: "Cross",
+}
 
 _BRACKET_RE = re.compile(r"\[([^\]]*)\]")
 _EXPR_ID_RE = re.compile(r"#\w+")
@@ -139,11 +160,47 @@ def _map_node_type(name: str) -> NodeType | None:
     return _PHOTON_NODE_TYPE_MAP.get(prefix)
 
 
-def _parse_join_details(name: str) -> dict[str, Any]:
-    """Extract left/right keys and join type from a join node name.
+def _extract_join_info(relation: Any) -> list[dict[str, Any]]:
+    """DFS walk of a Spark Connect Relation proto, returning join info in encounter order.
 
-    Spark Connect join names look like:
-        PhotonBroadcastHashJoin [left_col#id], [right_col#id], Inner, BuildRight
+    Each entry has keys: join_type, left_keys, right_keys.
+    using_columns (equi-join) populates both left_keys and right_keys identically.
+    Non-equi joins with a join_condition expression produce empty key lists.
+    """
+    results: list[dict[str, Any]] = []
+    try:
+        which = relation.WhichOneof("rel_type")
+    except Exception:
+        return results
+
+    if which == "join":
+        j = relation.join
+        using_cols = list(j.using_columns)
+        results.append(
+            {
+                "join_type": _PROTO_JOIN_TYPE.get(j.join_type, ""),
+                "left_keys": using_cols,
+                "right_keys": using_cols,
+            }
+        )
+        results.extend(_extract_join_info(j.left))
+        results.extend(_extract_join_info(j.right))
+    elif which:
+        inner = getattr(relation, which, None)
+        if inner is not None:
+            for field_name in ("input", "child", "left", "right"):
+                child = getattr(inner, field_name, None)
+                if child is not None and hasattr(child, "WhichOneof"):
+                    results.extend(_extract_join_info(child))
+    return results
+
+
+def _parse_join_details(name: str) -> dict[str, Any]:
+    """Extract left/right keys and join type from an OSS Spark node name string.
+
+    OSS Spark names look like:
+        BroadcastHashJoin [left_col#id], [right_col#id], Inner, BuildRight
+    Photon node names on Databricks carry no key info — use _extract_join_info instead.
     """
     groups = _BRACKET_RE.findall(name)
 
@@ -252,32 +309,61 @@ class SparkConnectCapture:
         self.spark = spark
         self._log_name = log_name or "sparkconnect"
         self._captured_queries: list[list[Any]] = []
+        # One entry per to_table() call: proto Relation or None if capture failed.
+        # Indexes align with _captured_queries when display()/count()/collect() each
+        # trigger exactly one to_table → _build_metrics round-trip.
+        self._captured_plans: list[Any] = []
         self._dfs: ParsedLogDataFrames | None = None
         self._orig_build_metrics: Any = None
+        self._orig_to_table: Any = None
 
     def __enter__(self) -> SparkConnectCapture:
         client: Any = getattr(self.spark, "_client")
-        orig = client._build_metrics
-        self._orig_build_metrics = orig
+
+        # Patch _build_metrics to capture per-node physical-plan metrics.
+        orig_build_metrics = client._build_metrics
+        self._orig_build_metrics = orig_build_metrics
         captured_queries = self._captured_queries
 
-        def _patched(metrics_proto: Any) -> Any:
-            result = orig(metrics_proto)
+        def _patched_build_metrics(metrics_proto: Any) -> Any:
+            result = orig_build_metrics(metrics_proto)
             if result:
                 captured_queries.append(list(result))
             return result
 
-        client._build_metrics = _patched
+        client._build_metrics = _patched_build_metrics
+
+        # Patch to_table to capture the logical plan proto for join-key extraction.
+        # Photon physical node names don't carry key info; the logical plan does.
+        orig_to_table = getattr(client, "to_table", None)
+        self._orig_to_table = orig_to_table
+        if orig_to_table is not None:
+            captured_plans = self._captured_plans
+
+            def _patched_to_table(plan: Any, *args: Any, **kwargs: Any) -> Any:
+                try:
+                    # plan.plan(client) converts the Python LogicalPlan to a proto Relation.
+                    captured_plans.append(plan.plan(client))
+                except Exception:
+                    captured_plans.append(None)
+                return orig_to_table(plan, *args, **kwargs)
+
+            client.to_table = _patched_to_table
+
         return self
 
     def __exit__(self, exc_type: Any, *_: Any) -> None:
         client: Any = getattr(self.spark, "_client")
         client._build_metrics = self._orig_build_metrics
+        if self._orig_to_table is not None:
+            client.to_table = self._orig_to_table
         if exc_type:
             return
         self._dfs = self._build_dataframes()
         _log.info(
-            "SparkConnectCapture: captured %d quer(y/ies)", len(self._captured_queries)
+            "SparkConnectCapture: captured %d quer(y/ies), %d plan(s)",
+            len(self._captured_queries),
+            len(self._captured_plans),
         )
 
     @property
@@ -296,6 +382,21 @@ class SparkConnectCapture:
     def _build_dag_df(self) -> pl.DataFrame:
         if not self._captured_queries:
             return pl.DataFrame(schema=_DAG_SCHEMA)
+
+        # Collect join info from all captured logical plans and deduplicate by signature.
+        # Multiple to_table() calls for the same query (count + display) produce the same
+        # logical plan, so deduplication keeps one entry per distinct join shape.
+        _seen_join_sigs: set[tuple[Any, ...]] = set()
+        _logical_joins: list[dict[str, Any]] = []
+        for proto_rel in self._captured_plans:
+            if proto_rel is None:
+                continue
+            for ji in _extract_join_info(proto_rel):
+                sig = (ji.get("join_type"), tuple(ji.get("left_keys", [])))
+                if sig not in _seen_join_sigs:
+                    _seen_join_sigs.add(sig)
+                    _logical_joins.append(ji)
+        _log.debug("logical join info from captured plans: %s", _logical_joins)
 
         rows: list[dict[str, Any]] = []
         unmapped: dict[str, str] = {}  # raw name -> prefix, for error reporting
@@ -323,6 +424,10 @@ class SparkConnectCapture:
                         query_duration_seconds = round(m.value / 1_000_000_000, 2)
                         break
 
+            # Track join index within this query so each physical join node gets its
+            # corresponding logical join's key info (matched by encounter order in DFS).
+            _join_idx = 0
+
             for node in plan_metrics:
                 node_id = node.plan_id
                 node_type = _map_node_type(node.name)
@@ -345,7 +450,13 @@ class SparkConnectCapture:
 
                 detail_data: dict[str, Any] = {"raw_name": node.name}
                 if node_type in _JOIN_NODE_TYPES:
-                    detail_data.update(_parse_join_details(node.name))
+                    if _logical_joins and _join_idx < len(_logical_joins):
+                        # Prefer logical plan keys (Photon names carry no key info).
+                        detail_data.update(_logical_joins[_join_idx])
+                        _join_idx += 1
+                    else:
+                        # Fallback: try parsing from node name (works for OSS Spark).
+                        detail_data.update(_parse_join_details(node.name))
                 if node_type == NodeType.Scan:
                     # node.name is like "PhotonScan parquet catalog.schema.table [col, ...]"
                     parts = node.name.split() if node.name else []

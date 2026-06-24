@@ -92,158 +92,21 @@ for row in dfs.dag.sort("node_id").to_dicts():
 
 # COMMAND ----------
 
-# COMMAND ----------
+# Debug: show logical plans captured from to_table() intercept and extracted join info.
+from sparkparse.connect import _extract_join_info
 
-# Probe the Databricks SQL history API and call the GraphQL plan endpoint.
-#
-# Auth flow: PAT bearer → GET /auth/session/info → csrfToken
-#   Then pass X-CSRF-Token + session cookie to all /graphql/* calls.
-#
-# Call sequence:
-#   1. HistoryStatementPlanMetadata(query_id) → planMetadata.id
-#   2. HistoryStatementById(query_id)         → full query object
-#   3. HistoryStatementPlanById(planMetadata.id, queryStartTimeMs) → graph nodes + stats
-
-import gzip as _gzip
-import json as _json
-import urllib.request as _req
-
-from databricks.sdk import WorkspaceClient
-
-_w = WorkspaceClient()
-_host = _w.config.host.rstrip("/")  # already includes https://
-_token = _w.config.token
-print(f"host: {_host}")
-
-# Step 0: bootstrap CSRF token from /auth/session/info (supports PAT auth).
-_r = _req.Request(
-    f"{_host}/auth/session/info",
-    headers={"Authorization": f"Bearer {_token}", "Accept-Encoding": "gzip, deflate"},
-    method="GET",
-)
-_sr = _req.urlopen(_r)
-_raw = _gzip.decompress(_sr.read()) if _sr.headers.get("Content-Encoding") == "gzip" else _sr.read()
-_session = _json.loads(_raw)
-print(f"session/info response: {_json.dumps(_session, indent=2)}")
-_csrf = _session.get("csrfToken", "")
-_session_id = _session.get("sessionId", "")
-print(f"\ncsrfToken: {_csrf!r}  sessionId: {_session_id!r}")
-
-
-def _graphql(operation: str, variables: dict, query: str = "") -> dict:
-    body = _json.dumps(
-        {"operationName": operation, "variables": variables, "query": query}
-    ).encode()
-    headers = {
-        "Authorization": f"Bearer {_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip, deflate",
-        "X-CSRF-Token": _csrf,
-    }
-    if _session_id:
-        headers["Cookie"] = f"DBAUTH={_session_id}"
-    r = _req.Request(
-        f"{_host}/graphql/{operation}",
-        data=body,
-        headers=headers,
-        method="POST",
-    )
+print(f"captured plans:   {len(cap._captured_plans)}")
+print(f"captured queries: {len(cap._captured_queries)}")
+for i, proto_rel in enumerate(cap._captured_plans):
+    if proto_rel is None:
+        print(f"  plan[{i}]: None (capture failed)")
+        continue
     try:
-        resp = _req.urlopen(r)
-    except _req.HTTPError as e:
-        raw = e.read()
-        raw = _gzip.decompress(raw) if e.headers.get("Content-Encoding") == "gzip" else raw
-        print(f"  HTTP {e.code} {e.reason}  body={raw[:500]!r}")
-        raise
-    raw = resp.read()
-    if resp.headers.get("Content-Encoding") == "gzip":
-        raw = _gzip.decompress(raw)
-    print(f"  HTTP {resp.status}  body_len={len(raw)}  preview={raw[:200]!r}")
-    return _json.loads(raw)
-
-
-# Full inline query captured from browser network tab for the plan graph endpoint.
-_PLAN_BY_ID_QUERY = (
-    "query HistoryStatementPlanById($input: SqlgatewayHistoryGetQueryPlanInput!) "
-    '@component(name: "DBSQLX.QueryHistory") {\n'
-    "  sqlgatewayHistoryGetQueryPlan(input: $input) {\n"
-    "    apiError { code message helpUrl traceId __typename }\n"
-    "    plans {\n"
-    "      nodes {\n"
-    "        id name tag hidden collapsed stageLinks subgraphParent insightIds\n"
-    "        metadata { key label value values insightIds metaValues { value insightIds __typename } __typename }\n"
-    "        metrics { label key metricType value hidden insightTypes __typename }\n"
-    "        keyMetrics { durationMs peakMemoryBytes rowsNum __typename }\n"
-    "        __typename\n"
-    "      }\n"
-    "      edges { fromId toId __typename }\n"
-    "      executionId errorMessage missingReason source sparkUiUrl timeCompletedMs timeSubmittedMs\n"
-    "      __typename\n"
-    "    }\n"
-    "    __typename\n"
-    "  }\n"
-    "}"
-)
-
-# Get recent finished queries — handle both iterator and ListQueriesResponse return types.
-_raw = _w.query_history.list(max_results=20)
-_queries = getattr(_raw, "res", None)
-if _queries is None:
-    try:
-        _queries = list(_raw)
-    except TypeError:
-        _queries = []
-_queries = _queries or []
-
-print(f"queries found: {len(_queries)}")
-_with_plans = [q for q in _queries if q.as_dict().get("plans_state") == "EXISTS"]
-print(f"queries with plans_state=EXISTS: {len(_with_plans)}")
-if _queries:
-    print("first query fields:")
-    print(_json.dumps(_queries[0].as_dict(), indent=2)[:1500])
-
-print()
-for q in _with_plans[:1]:
-    d = q.as_dict()
-    query_id = d.get("query_id") or d.get("id")
-    start_ms = d.get("query_start_time_ms") or 0
-    print(f"query_id={query_id}  start_ms={start_ms}  plans_state={d.get('plans_state')}")
-
-    # Step 1: fetch plan metadata to get the planMetadata.id required by HistoryStatementPlanById.
-    print("\n--- HistoryStatementPlanMetadata ---")
-    try:
-        meta = _graphql("HistoryStatementPlanMetadata", {"id": query_id})
-        print(_json.dumps(meta, indent=2)[:2000])
+        rel_type = proto_rel.WhichOneof("rel_type")
+        joins = _extract_join_info(proto_rel)
+        print(f"  plan[{i}]: rel_type={rel_type!r}  joins={joins}")
     except Exception as e:
-        print(f"error: {e}")
-
-    # Step 2: call HistoryStatementById to see the full query object shape.
-    print("\n--- HistoryStatementById ---")
-    try:
-        stmt = _graphql("HistoryStatementById", {"id": query_id})
-        print(_json.dumps(stmt, indent=2)[:2000])
-    except Exception as e:
-        print(f"error: {e}")
-
-    # Step 3: call HistoryStatementPlanById.
-    # input.id is planMetadata.id (not query_id) — update once Step 1 reveals the correct field.
-    print("\n--- HistoryStatementPlanById (using query_id as id — may need planMetadata.id) ---")
-    try:
-        graph = _graphql(
-            "HistoryStatementPlanById",
-            {
-                "input": {
-                    "id": query_id,
-                    "queryStartTimeMs": str(start_ms),
-                    "includeRawPlans": False,
-                }
-            },
-            _PLAN_BY_ID_QUERY,
-        )
-        print(_json.dumps(graph, indent=2)[:3000])
-    except Exception as e:
-        print(f"error: {e}")
+        print(f"  plan[{i}]: error reading proto — {e}")
 
 # COMMAND ----------
 

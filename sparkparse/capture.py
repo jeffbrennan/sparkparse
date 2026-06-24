@@ -13,8 +13,8 @@ from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_plan_summary
-from sparkparse.parse import get_parsed_metrics
 from sparkparse.models import ParsedLogDataFrames, RunRecord
+from sparkparse.parse import get_parsed_metrics
 from sparkparse.storage import (
     copy_file,
     ensure_dir,
