@@ -97,7 +97,6 @@ for row in dfs.dag.sort("node_id").to_dicts():
 from sparkparse.connect import _extract_join_info
 
 _inner = cap._connect_cap  # SparkConnectCapture instance
-print(f"_connect_cap type: {type(_inner)}")
 print(f"captured plans:   {len(_inner._captured_plans)}")
 print(f"captured queries: {len(_inner._captured_queries)}")
 for i, proto_rel in enumerate(_inner._captured_plans):
@@ -107,32 +106,9 @@ for i, proto_rel in enumerate(_inner._captured_plans):
     try:
         rel_type = proto_rel.WhichOneof("rel_type")
         joins = _extract_join_info(proto_rel)
-        print(f"  plan[{i}]: type={type(proto_rel).__name__!r}  rel_type={rel_type!r}  joins={joins}")
+        print(f"  plan[{i}]: rel_type={rel_type!r}  joins={joins}")
     except Exception as e:
-        print(f"  plan[{i}]: type={type(proto_rel).__name__!r}  error reading proto — {e}")
-
-# Also probe what the plan object looks like so we know the right attribute to call.
-# Temporarily re-patch to_table just to inspect the plan argument type.
-_probe_info: list = []
-_orig = _inner.spark._client.to_table if hasattr(_inner.spark._client, "to_table") else None
-if _orig:
-    def _probe_to_table(plan, *args, **kwargs):
-        _probe_info.append({
-            "plan_type": type(plan).__name__,
-            "plan_module": type(plan).__module__,
-            "plan_attrs": [a for a in dir(plan) if not a.startswith("__")],
-        })
-        return _orig(plan, *args, **kwargs)
-    _inner.spark._client.to_table = _probe_to_table
-    try:
-        # Run a trivial query to trigger to_table
-        _inner.spark.range(1).count()
-    finally:
-        _inner.spark._client.to_table = _orig
-    if _probe_info:
-        p = _probe_info[0]
-        print(f"\nplan object: type={p['plan_type']}  module={p['plan_module']}")
-        print(f"  attrs: {p['plan_attrs']}")
+        print(f"  plan[{i}]: error — {e}")
 
 # COMMAND ----------
 
