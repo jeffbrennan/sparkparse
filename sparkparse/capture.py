@@ -13,7 +13,7 @@ from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_plan_summary
-from sparkparse.app import get
+from sparkparse.parse import get_parsed_metrics
 from sparkparse.models import ParsedLogDataFrames, RunRecord
 from sparkparse.storage import (
     copy_file,
@@ -213,12 +213,12 @@ class SparkparseCapture:
         elif self.action == "get":
             if self._log_dir is None:
                 raise ValueError("log directory is not set")
-            result = get(log_dir=self._log_dir, strict=self._strict)
+            result = get_parsed_metrics(log_dir=self._log_dir, strict=self._strict)
             self._parsed_logs = result
         elif self.action == "analyze":
             if self._log_dir is None:
                 raise ValueError("log directory is not set")
-            result = get(log_dir=self._log_dir, strict=self._strict)
+            result = get_parsed_metrics(log_dir=self._log_dir, strict=self._strict)
             self._parsed_logs = result
             log_name = get_path_name(self._log_dir)
             self._analysis = to_plan_summary(result, log_name)
