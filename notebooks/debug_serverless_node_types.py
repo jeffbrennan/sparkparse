@@ -14,35 +14,35 @@ from sparkparse.viz import plot_dag
 
 # COMMAND ----------
 
-# Create two small tables with a non-unique key so the join produces M:N row explosion.
-spark.sql("CREATE CATALOG IF NOT EXISTS sparkparse_demo")
-spark.sql("CREATE SCHEMA IF NOT EXISTS sparkparse_demo.test")
+# # Create two small tables with a non-unique key so the join produces M:N row explosion.
+# spark.sql("CREATE CATALOG IF NOT EXISTS sparkparse_demo")
+# spark.sql("CREATE SCHEMA IF NOT EXISTS sparkparse_demo.test")
 
-_top_zip = spark.sql("""
-  SELECT pickup_zip
-  FROM samples.nyctaxi.trips
-  WHERE pickup_zip IS NOT NULL
-  GROUP BY pickup_zip
-  ORDER BY COUNT(*) DESC
-  LIMIT 1
-""").collect()[0]["pickup_zip"]
+# _top_zip = spark.sql("""
+#   SELECT pickup_zip
+#   FROM samples.nyctaxi.trips
+#   WHERE pickup_zip IS NOT NULL
+#   GROUP BY pickup_zip
+#   ORDER BY COUNT(*) DESC
+#   LIMIT 1
+# """).collect()[0]["pickup_zip"]
 
-_trips = spark.read.table("samples.nyctaxi.trips").filter(f"pickup_zip = {_top_zip}")
+# _trips = spark.read.table("samples.nyctaxi.trips").filter(f"pickup_zip = {_top_zip}")
 
-left = _trips.select("pickup_zip", "trip_distance", "fare_amount").limit(1000)
-if not spark.catalog.tableExists("sparkparse_demo.test.left_trips"):
-    left.write.mode("overwrite").saveAsTable("sparkparse_demo.test.left_trips")
+# left = _trips.select("pickup_zip", "trip_distance", "fare_amount").limit(1000)
+# if not spark.catalog.tableExists("sparkparse_demo.test.left_trips"):
+#     left.write.mode("overwrite").saveAsTable("sparkparse_demo.test.left_trips")
 
-right = (
-    _trips.select("pickup_zip", "trip_distance", "fare_amount")
-    .withColumnRenamed("trip_distance", "trip_distance_b")
-    .withColumnRenamed("fare_amount", "fare_amount_b")
-    .limit(1000)
-)
-if not spark.catalog.tableExists("sparkparse_demo.test.right_trips"):
-    right.write.mode("overwrite").saveAsTable("sparkparse_demo.test.right_trips")
+# right = (
+#     _trips.select("pickup_zip", "trip_distance", "fare_amount")
+#     .withColumnRenamed("trip_distance", "trip_distance_b")
+#     .withColumnRenamed("fare_amount", "fare_amount_b")
+#     .limit(1000)
+# )
+# if not spark.catalog.tableExists("sparkparse_demo.test.right_trips"):
+#     right.write.mode("overwrite").saveAsTable("sparkparse_demo.test.right_trips")
 
-print(f"pickup_zip: {_top_zip}")
+# print(f"pickup_zip: {_top_zip}")
 
 # COMMAND ----------
 
