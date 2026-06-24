@@ -88,6 +88,10 @@ def get(
         OutputFormat | None, typer.Option(help="Output file format.")
     ] = OutputFormat.csv,
     verbose: Annotated[bool, typer.Option(help="Print extra parsing details.")] = False,
+    strict: Annotated[
+        bool,
+        typer.Option(help="Hard-fail on unrecognized node types or detail models."),
+    ] = False,
 ) -> ParsedLogDataFrames:
     """Parse Spark event logs and write structured DataFrames to disk."""
     return get_parsed_metrics(
@@ -97,6 +101,7 @@ def get(
         out_name=out_name,
         out_format=out_format,
         verbose=verbose,
+        strict=strict,
     )
 
 

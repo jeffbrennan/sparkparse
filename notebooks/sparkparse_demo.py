@@ -47,6 +47,7 @@ import polars as pl
 
 from sparkparse.analyze import (
     find_largest_scans,
+    find_row_count_explosions,
     find_shuffle_heavy_stages,
     find_skewed_tasks,
     find_spill,
@@ -204,3 +205,70 @@ display(pl.DataFrame(issues_taxi))
 # COMMAND ----------
 
 displayHTML(plot_dag(dfs_taxi))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Row-count explosion demo
+# MAGIC
+# MAGIC Create two small tables from the NYC taxi data that share a non-unique key (`pickup_zip`),
+# MAGIC then join them to produce an M:N row explosion. `find_row_count_explosions` should flag
+# MAGIC the join because its output rows exceed the largest input side.
+
+# COMMAND ----------
+
+spark.sql("CREATE CATALOG IF NOT EXISTS sparkparse_demo")
+spark.sql("CREATE SCHEMA IF NOT EXISTS sparkparse_demo.test")
+
+# Use the most common pickup_zip so we have plenty of duplicate-key rows.
+_top_zip = spark.sql("""
+  SELECT pickup_zip
+  FROM samples.nyctaxi.trips
+  WHERE pickup_zip IS NOT NULL
+  GROUP BY pickup_zip
+  ORDER BY COUNT(*) DESC
+  LIMIT 1
+""").collect()[0]["pickup_zip"]
+
+_trips = spark.read.table("samples.nyctaxi.trips").filter(f"pickup_zip = {_top_zip}")
+
+left = _trips.select("pickup_zip", "trip_distance", "fare_amount").limit(1000)
+left.write.mode("overwrite").saveAsTable("sparkparse_demo.test.left_trips")
+
+right = (
+    _trips.select("pickup_zip", "trip_distance", "fare_amount")
+    .withColumnRenamed("trip_distance", "trip_distance_b")
+    .withColumnRenamed("fare_amount", "fare_amount_b")
+    .limit(1000)
+)
+right.write.mode("overwrite").saveAsTable("sparkparse_demo.test.right_trips")
+
+print(f"Using pickup_zip {_top_zip}")
+print("Created sparkparse_demo.test.left_trips and sparkparse_demo.test.right_trips")
+
+# COMMAND ----------
+
+with SparkparseCapture(
+    action="analyze",
+    spark=spark,
+    temp_dir=CAPTURE_LOG_DIR,
+    log_name="nyctaxi_explosion_demo",
+) as cap:
+    left_df = cap.spark.read.table("sparkparse_demo.test.left_trips")
+    right_df = cap.spark.read.table("sparkparse_demo.test.right_trips")
+    exploded = left_df.join(right_df, on="pickup_zip", how="inner")
+    display(exploded.limit(20))
+    print(f"exploded row count: {exploded.count():,}")
+
+dfs_explosion = cap._parsed_logs
+assert dfs_explosion is not None
+print(f"dag:      {dfs_explosion.dag.shape}")
+print(f"combined: {dfs_explosion.combined.shape}")
+
+# COMMAND ----------
+
+display(find_row_count_explosions(dfs_explosion, ratio_threshold=1.1))
+
+# COMMAND ----------
+
+displayHTML(plot_dag(dfs_explosion))

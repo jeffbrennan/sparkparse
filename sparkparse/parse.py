@@ -115,6 +115,7 @@ def get_plan_details(
     plan_lines: list[str],
     tree_end: int,
     node_map: dict[int, PhysicalPlanNode],
+    strict: bool = False,
 ) -> PhysicalPlanDetails:
     details_start = plan_lines[tree_end:].index("") + tree_end + 2
     details_end = len(plan_lines) - 1
@@ -151,9 +152,10 @@ def get_plan_details(
             continue
 
         if node_type not in NODE_TYPE_DETAIL_MAP:
-            logger.warning(
-                f"No detail model for node type: {node_type} — storing raw text"
-            )
+            msg = f"No detail model for node type: {node_type}"
+            if strict:
+                raise ValueError(msg)
+            logger.warning(f"{msg} — storing raw text")
             details_parsed.append(
                 PhysicalPlanDetail(
                     node_id=node_id,
@@ -188,10 +190,11 @@ def get_plan_details(
 
         try:
             detail_parsed = detail_model.model_validate(detail_dict)
-        except Exception:
-            logger.warning(
-                f"Failed to parse details for node type: {node_type} — storing raw text"
-            )
+        except Exception as exc:
+            msg = f"Failed to parse details for node type: {node_type}"
+            if strict:
+                raise ValueError(msg) from exc
+            logger.warning(f"{msg} — storing raw text")
             detail_parsed = RawDetail(raw=detail)
 
         details_parsed.append(
@@ -313,11 +316,14 @@ def _get_tree_indentation(line: str) -> int:
     return len(line) - len(line.lstrip())
 
 
-def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
+def parse_spark_ui_tree(tree: str, strict: bool = False) -> dict[int, PhysicalPlanNode]:
     """Parse a Spark ASCII plan tree into a node_id -> node map.
 
     ``PhysicalPlanNode.child_nodes`` contains the node's actual children in
     execution order (data flows from children to parent).
+
+    When ``strict`` is True, an unrecognized node type raises instead of
+    falling back to ``NodeType.Unknown``.
     """
     step = 3
     lines = tree.split("\n")
@@ -342,9 +348,10 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
             try:
                 node_type = NodeType(node_type_match.group(1))
             except ValueError:
-                logger.warning(
-                    f"Unknown node type: {node_type_match.group(1)} — storing as Unknown"
-                )
+                msg = f"Unknown node type: {node_type_match.group(1)}"
+                if strict:
+                    raise ValueError(msg)
+                logger.warning(f"{msg} — storing as Unknown")
                 node_type = NodeType.Unknown
         else:
             raise ValueError(f"Could not parse node type from line: {line}")
@@ -394,7 +401,7 @@ def parse_spark_ui_tree(tree: str) -> dict[int, PhysicalPlanNode]:
     return node_map
 
 
-def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
+def parse_physical_plan(line_dict: dict, strict: bool = False) -> PhysicalPlan:
     plan_string = line_dict["physicalPlanDescription"]
     query_id = line_dict["executionId"]
 
@@ -452,9 +459,9 @@ def parse_physical_plan(line_dict: dict) -> PhysicalPlan:
             "could not remove initial plan after", max_attempts, "attempts"
         )
 
-    node_map = parse_spark_ui_tree(tree)
+    node_map = parse_spark_ui_tree(tree, strict=strict)
     plan_accumulators = parse_node_accumulators(line_dict, node_map)
-    details = get_plan_details(plan_lines, tree_end, node_map)
+    details = get_plan_details(plan_lines, tree_end, node_map, strict=strict)
 
     if len(details.codegen_lookup) > 0:
         for k, v in details.codegen_lookup.items():
@@ -569,7 +576,9 @@ def check_if_log_has_queries(log_path: str | Path) -> bool:
 
 
 @timeit
-def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
+def parse_log(
+    log_path: str | Path, out_name: str | None = None, strict: bool = False
+) -> ParsedLog:
     log_path_str = str(log_path)
     logger.debug(f"Starting to parse log file: {log_path_str}")
     with open_file(log_path_str, "r") as f:
@@ -634,9 +643,12 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
             try:
                 query_function = QueryFunction(line_dict["description"].split(" ")[0])
             except ValueError:
-                logger.warning(
+                msg = (
                     f"Unknown query function: {line_dict['description'].split(' ')[0]}"
                 )
+                if strict:
+                    raise ValueError(msg)
+                logger.warning(msg)
                 query_function = None
             query_times.append(
                 QueryEvent(
@@ -660,7 +672,7 @@ def parse_log(log_path: str | Path, out_name: str | None = None) -> ParsedLog:
     if len(queries) == 0:
         raise ValueError("No queries found in log file")
 
-    parsed_queries = [parse_physical_plan(query) for query in queries]
+    parsed_queries = [parse_physical_plan(query, strict=strict) for query in queries]
     logger.debug(
         f"Finished parsing log [n={len(jobs)} jobs | n={len(stages)} stages | n={len(tasks)} tasks | n={len(parsed_queries)} queries]"
     )
@@ -685,6 +697,7 @@ def get_parsed_metrics(
     out_name: str | None = None,
     out_format: OutputFormat | None = OutputFormat.csv,
     verbose: bool = False,
+    strict: bool = False,
 ) -> ParsedLogDataFrames:
     log_dir_str = str(log_dir)
     cloud = is_cloud_path(log_dir_str)
@@ -717,7 +730,7 @@ def get_parsed_metrics(
 
     logging.info(f"Reading log file: {log_to_parse}")
 
-    result = parse_log(log_to_parse, out_name)
+    result = parse_log(log_to_parse, out_name, strict=strict)
     dag_df = log_to_dag_df(result)
     combined_df = log_to_combined_df(result, dag_df, log_stem)
 
