@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
@@ -116,9 +118,50 @@ _COMBINED_SCHEMA: dict[str, pl.PolarsDataType] = {
 }
 
 
+_JOIN_NODE_TYPES: frozenset[NodeType] = frozenset({
+    NodeType.BroadcastHashJoin,
+    NodeType.SortMergeJoin,
+    NodeType.BroadcastNestedLoopJoin,
+    NodeType.CartesianProduct,
+})
+
+_JOIN_TYPES: frozenset[str] = frozenset({
+    "Inner", "LeftOuter", "RightOuter", "FullOuter",
+    "LeftSemi", "LeftAnti", "Cross",
+})
+
+_BRACKET_RE = re.compile(r"\[([^\]]*)\]")
+_EXPR_ID_RE = re.compile(r"#\w+")
+
+
 def _map_node_type(name: str) -> NodeType | None:
     prefix = name.split()[0] if name else ""
     return _PHOTON_NODE_TYPE_MAP.get(prefix)
+
+
+def _parse_join_details(name: str) -> dict[str, Any]:
+    """Extract left/right keys and join type from a join node name.
+
+    Spark Connect join names look like:
+        PhotonBroadcastHashJoin [left_col#id], [right_col#id], Inner, BuildRight
+    """
+    groups = _BRACKET_RE.findall(name)
+
+    def clean(group: str) -> list[str]:
+        return [_EXPR_ID_RE.sub("", k).strip() for k in group.split(",") if k.strip()]
+
+    result: dict[str, Any] = {}
+    if len(groups) >= 2:
+        result["left_keys"] = clean(groups[0])
+        result["right_keys"] = clean(groups[1])
+
+    remainder = _BRACKET_RE.sub("", name)
+    for token in (t.strip() for t in remainder.split(",")):
+        if token in _JOIN_TYPES:
+            result["join_type"] = token
+            break
+
+    return result
 
 
 def _readable_size(bytes_val: float) -> tuple[float, str]:
@@ -298,7 +341,18 @@ class SparkConnectCapture:
                         node_duration_minutes = m.value / 60_000_000_000
 
                 node_type_str = str(node_type)
-                node_name = node.name or f"[{node_id}] {node_type_str}"
+                node_name = f"[{node_id}] {node_type_str}"
+
+                detail_data: dict[str, Any] = {"raw_name": node.name}
+                if node_type in _JOIN_NODE_TYPES:
+                    detail_data.update(_parse_join_details(node.name))
+                if node_type == NodeType.Scan:
+                    # node.name is like "PhotonScan parquet catalog.schema.table [col, ...]"
+                    parts = node.name.split() if node.name else []
+                    if len(parts) >= 3:
+                        table = parts[2].split("[")[0].rstrip()
+                        detail_data["location"] = {"location": [table]}
+                details = json.dumps({"detail": detail_data})
 
                 rows.append(
                     {
@@ -315,7 +369,7 @@ class SparkConnectCapture:
                         "node_name": node_name,
                         "child_nodes": child_nodes,
                         "whole_stage_codegen_id": None,
-                        "details": '{"detail": null}',
+                        "details": details,
                         "accumulator_totals": accum_totals,
                         "n_accumulator_totals": len(accum_totals),
                         "node_duration_minutes": node_duration_minutes,
