@@ -339,7 +339,16 @@ def _build_tooltip(row: dict[str, Any]) -> str:
     from sparkparse.common import create_header
 
     header_length = 30
-    tooltip = row["node_name"] + "\n"
+    details_str = row.get("details")
+    raw_name: str | None = None
+    if details_str:
+        try:
+            detail = json.loads(details_str).get("detail") or {}
+            raw_name = detail.get("raw_name")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    tooltip = (raw_name + "\n" if raw_name else "") + row["node_name"] + "\n"
     if row.get("child_nodes"):
         tooltip += f"Child Nodes: {row['child_nodes']}\n"
 
@@ -365,19 +374,20 @@ def _build_tooltip(row: dict[str, Any]) -> str:
             except (TypeError, ValueError):
                 tooltip += f"{metric['metric_name']}: {rv} {ru}\n"
 
-    details_str = row.get("details")
     if details_str is not None:
         try:
             detail = json.loads(details_str).get("detail")
             if detail is not None:
-                tooltip += (
-                    create_header(header_length, "Details", center=True, spacer="-")
-                    + "\n"
-                )
-                tooltip += json.dumps(detail, indent=1)
-                tooltip += "\n" + create_header(
-                    header_length, "", center=False, spacer="-"
-                )
+                detail_display = {k: v for k, v in detail.items() if k != "raw_name"}
+                if detail_display:
+                    tooltip += (
+                        create_header(header_length, "Details", center=True, spacer="-")
+                        + "\n"
+                    )
+                    tooltip += json.dumps(detail_display, indent=1)
+                    tooltip += "\n" + create_header(
+                        header_length, "", center=False, spacer="-"
+                    )
         except (json.JSONDecodeError, AttributeError):
             pass
 
