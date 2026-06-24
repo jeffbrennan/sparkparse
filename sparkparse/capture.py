@@ -13,8 +13,8 @@ from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_plan_summary
-from sparkparse.app import get
 from sparkparse.models import ParsedLogDataFrames, RunRecord
+from sparkparse.parse import get_parsed_metrics
 from sparkparse.storage import (
     copy_file,
     ensure_dir,
@@ -47,6 +47,7 @@ class SparkparseCapture:
         history_path: str | None = None,
         log_name: str | None = None,
         alert_config: str | None = None,
+        strict: bool = False,
     ) -> None:
         self.action = action
         self.temp_dir = temp_dir
@@ -60,6 +61,7 @@ class SparkparseCapture:
         self._history_path = history_path
         self._log_name = log_name
         self._alert_config = alert_config
+        self._strict = strict
         self._last_record: RunRecord | None = None
         self._triggered_alerts: list[dict] = []
         self._connect_cap: Any = None
@@ -211,12 +213,12 @@ class SparkparseCapture:
         elif self.action == "get":
             if self._log_dir is None:
                 raise ValueError("log directory is not set")
-            result = get(log_dir=self._log_dir)
+            result = get_parsed_metrics(log_dir=self._log_dir, strict=self._strict)
             self._parsed_logs = result
         elif self.action == "analyze":
             if self._log_dir is None:
                 raise ValueError("log directory is not set")
-            result = get(log_dir=self._log_dir)
+            result = get_parsed_metrics(log_dir=self._log_dir, strict=self._strict)
             self._parsed_logs = result
             log_name = get_path_name(self._log_dir)
             self._analysis = to_plan_summary(result, log_name)
@@ -242,6 +244,7 @@ def capture_context(
     history_path: str | None = None,
     log_name: str | None = None,
     alert_config: str | None = None,
+    strict: bool = False,
 ) -> SparkparseCapture:
     if spark is None:
         _spark = SparkSession.builder.appName("sparkparse_capture").getOrCreate()
@@ -256,6 +259,7 @@ def capture_context(
         history_path=history_path,
         log_name=log_name,
         alert_config=alert_config,
+        strict=strict,
     )
 
 
@@ -270,6 +274,7 @@ def capture(
     history_path: str | None = ...,
     log_name: str | None = ...,
     alert_config: str | None = ...,
+    strict: bool = ...,
 ) -> Callable[..., tuple[R, SparkparseCapture]]: ...
 
 
@@ -284,6 +289,7 @@ def capture(
     history_path: str | None = ...,
     log_name: str | None = ...,
     alert_config: str | None = ...,
+    strict: bool = ...,
 ) -> Callable[[Callable[..., R]], Callable[..., tuple[R, SparkparseCapture]]]: ...
 
 
@@ -297,6 +303,7 @@ def capture(
     history_path: str | None = None,
     log_name: str | None = None,
     alert_config: str | None = None,
+    strict: bool = False,
 ) -> Any:
     def decorator(
         func: Callable[..., R],
@@ -314,6 +321,7 @@ def capture(
             history_path=history_path,
             log_name=log_name,
             alert_config=alert_config,
+            strict=strict,
         )
         return cap(func)
 

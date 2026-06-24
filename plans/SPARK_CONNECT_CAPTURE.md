@@ -294,7 +294,7 @@ analyzes). The `log_name` param is the only one that matters.
 
 ```bash
 # Unit tests — run after implementation, all 219 should still pass
-uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
+just ci
 
 # Local smoke test (no Spark Connect, just schema validation)
 uv run python -c "

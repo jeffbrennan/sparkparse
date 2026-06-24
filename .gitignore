@@ -8,3 +8,4 @@ sandbox/
 !/tests/
 !/tests/data/
 !/tests/data/*.json
+sparkui/

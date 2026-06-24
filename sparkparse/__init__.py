@@ -1,3 +1,3 @@
-from .capture import capture, capture_context
+from sparkparse.capture import SparkparseCapture, capture, capture_context
 
-__all__ = ["capture", "capture_context"]
+__all__ = ["SparkparseCapture", "capture", "capture_context"]

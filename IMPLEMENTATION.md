@@ -48,9 +48,7 @@ broken into self-contained PRs that can be reviewed and merged independently.
 
 ```bash
 uv sync --dev
-uv run ruff check sparkparse/ tests/
-uv run ruff format --check sparkparse/ tests/
-uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
+just ci
 ```
 
 ---

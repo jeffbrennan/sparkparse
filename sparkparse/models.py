@@ -108,6 +108,7 @@ class NodeType(StrEnum):
     TransformWithStateInPySpark = auto()
     SubqueryAdaptiveBroadcast = auto()
     ResultQueryStage = auto()
+    CollectLimit = auto()
     Unknown = auto()
 
 

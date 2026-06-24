@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 import time
@@ -5,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import pyspark.sql.functions as F
+import pytest
 from pyspark.sql import Window
 from pyspark.sql.functions import pandas_udf
 
@@ -114,8 +116,12 @@ def test_broadcast_join():
     df_final.write.format("csv").mode("overwrite").save(str(output_path), header=True)
 
 
+@pytest.mark.slow
+@pytest.mark.skipif(
+    os.environ.get("RUN_SLOW_SPARK_TESTS") != "1",
+    reason="52+ min test; set RUN_SLOW_SPARK_TESTS=1 to run",
+)
 def test_complex_transformation():
-    # 52 min - use sparingly
     spark, data_path, base_dir = config("medium")
 
     df_large = spark.read.parquet(data_path.as_posix())
@@ -239,8 +245,18 @@ def test_multi_join_star():
     spark, data_path, _ = config("small")
 
     fact = spark.read.parquet(data_path.as_posix())
-    dim1 = fact.select("id1", "id2").distinct().limit(50)
-    dim2 = fact.select("id1", "id3").distinct().limit(50)
+    dim1 = (
+        fact.select("id1", "id2")
+        .distinct()
+        .limit(50)
+        .withColumnRenamed("id2", "id2_d1")
+    )
+    dim2 = (
+        fact.select("id1", "id3")
+        .distinct()
+        .limit(50)
+        .withColumnRenamed("id3", "id3_d2")
+    )
 
     result = (
         fact.join(dim1.hint("broadcast"), on="id1", how="left")
@@ -272,8 +288,6 @@ def test_spill_heavy():
 
     spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
     spark.conf.set("spark.sql.shuffle.partitions", "2")
-    spark.conf.set("spark.memory.fraction", "0.3")
-    spark.conf.set("spark.memory.storageFraction", "0.1")
 
     # id1 has 100 distinct values; 50K rows → ~500 per group → 500×500×100=25M explosion
     df = spark.read.parquet(data_path.as_posix()).limit(50000)
@@ -283,8 +297,6 @@ def test_spill_heavy():
 
     spark.conf.unset("spark.sql.autoBroadcastJoinThreshold")
     spark.conf.unset("spark.sql.shuffle.partitions")
-    spark.conf.unset("spark.memory.fraction")
-    spark.conf.unset("spark.memory.storageFraction")
 
 
 def test_cube_rollup():

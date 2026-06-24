@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from sparkparse.models import NodeType, RawDetail
 from sparkparse.parse import get_plan_details, parse_physical_plan, parse_spark_ui_tree
 
@@ -77,3 +79,59 @@ def test_unknown_node_type_end_to_end():
 
     detail = RawDetail.model_validate(json.loads(node.details)["detail"])
     assert "(1) UnknownNode" in detail.raw
+
+
+def test_unknown_node_type_strict_raises():
+    base_path = Path(__file__).parents[0] / "data" / "test_unknown_type_parsing"
+    tree = (base_path / "unknown_type_plan.txt").read_text()
+
+    with pytest.raises(ValueError, match="Unknown node type"):
+        parse_spark_ui_tree(tree, strict=True)
+
+
+def test_detail_parse_failure_strict_raises():
+    tree = "Scan (1)"
+    node_map = parse_spark_ui_tree(tree)
+
+    # Scan detail is missing the required Location field, so strict parsing fails.
+    plan_lines = [
+        "== Physical Plan ==",
+        "+- == Final Plan ==",
+        "   Scan (1)",
+        "+- == Initial Plan ==",
+        "",
+        "",
+        "(1) Scan",
+        "Output [id#0]",
+        "Batched: true",
+        "",
+    ]
+    tree_end = plan_lines.index("+- == Initial Plan ==")
+
+    with pytest.raises(ValueError, match="Failed to parse details"):
+        get_plan_details(plan_lines, tree_end, node_map, strict=True)
+
+
+def test_parse_physical_plan_strict_raises():
+    event = {
+        "Event": "org.apache.spark.sql.execution.ui.SparkListenerSQLAdaptiveExecutionUpdate",
+        "executionId": 0,
+        "physicalPlanDescription": (
+            "== Physical Plan ==\n"
+            "+- == Final Plan ==\n"
+            "   UnknownNode (1)\n"
+            "+- == Initial Plan ==\n"
+            "\n"
+            "\n"
+            "(1) UnknownNode\n"
+            "Input [id#0]\n"
+        ),
+        "sparkPlanInfo": {
+            "nodeName": "AdaptiveSparkPlan",
+            "simpleString": "AdaptiveSparkPlan isFinalPlan=true",
+            "children": [],
+        },
+    }
+
+    with pytest.raises(ValueError, match="Unknown node type"):
+        parse_physical_plan(event, strict=True)

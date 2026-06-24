@@ -239,11 +239,11 @@ def plot_dag(
         if row["node_id"] >= codegen_threshold:
             continue
 
-        source = f"query_{query_id}_{row['node_id']}"
+        target = f"query_{query_id}_{row['node_id']}"
         children = [int(i) for i in str(row["child_nodes"]).split(", ") if i]
         for child_id in children:
-            target = _resolve_edge_target(row, node_map, child_id, nodes_to_exclude)
-            if target:
+            source = _resolve_edge_target(row, node_map, child_id, nodes_to_exclude)
+            if source:
                 elements.append({"data": {"source": source, "target": target}})
 
     # Stylesheet: contrast=True matches the dashboard's update_stylesheet callback, giving
@@ -329,7 +329,7 @@ def plot_dag(
   cy.on('mouseout', 'node', function() {{ tt.style.display = 'none'; }});
   document.getElementById('{container_id}').addEventListener('mousemove', function(e) {{
     tt.style.left = (e.clientX + 16) + 'px';
-    tt.style.top  = (e.clientY - 10) + 'px';
+    tt.style.top  = Math.max(0, e.clientY - tt.offsetHeight - 10) + 'px';
   }});
 }})();
 </script>"""
@@ -339,7 +339,16 @@ def _build_tooltip(row: dict[str, Any]) -> str:
     from sparkparse.common import create_header
 
     header_length = 30
-    tooltip = row["node_name"] + "\n"
+    details_str = row.get("details")
+    raw_name: str | None = None
+    if details_str:
+        try:
+            detail = json.loads(details_str).get("detail") or {}
+            raw_name = detail.get("raw_name")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    tooltip = (raw_name + "\n" if raw_name else "") + row["node_name"] + "\n"
     if row.get("child_nodes"):
         tooltip += f"Child Nodes: {row['child_nodes']}\n"
 
@@ -365,19 +374,20 @@ def _build_tooltip(row: dict[str, Any]) -> str:
             except (TypeError, ValueError):
                 tooltip += f"{metric['metric_name']}: {rv} {ru}\n"
 
-    details_str = row.get("details")
     if details_str is not None:
         try:
             detail = json.loads(details_str).get("detail")
             if detail is not None:
-                tooltip += (
-                    create_header(header_length, "Details", center=True, spacer="-")
-                    + "\n"
-                )
-                tooltip += json.dumps(detail, indent=1)
-                tooltip += "\n" + create_header(
-                    header_length, "", center=False, spacer="-"
-                )
+                detail_display = {k: v for k, v in detail.items() if k != "raw_name"}
+                if detail_display:
+                    tooltip += (
+                        create_header(header_length, "Details", center=True, spacer="-")
+                        + "\n"
+                    )
+                    tooltip += json.dumps(detail_display, indent=1)
+                    tooltip += "\n" + create_header(
+                        header_length, "", center=False, spacer="-"
+                    )
         except (json.JSONDecodeError, AttributeError):
             pass
 

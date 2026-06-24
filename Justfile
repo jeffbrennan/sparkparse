@@ -6,6 +6,15 @@ ci:
     uv run pyrefly check sparkparse/ tests/
     uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
 
+# Full CI including JVM/PySpark integration tests. Skips tests marked `slow`
+# (e.g. the 52-minute complex transformation fixture) unless
+# RUN_SLOW_SPARK_TESTS=1 is set.
+ci-full:
+    uv run ruff check sparkparse/ tests/
+    uv run ruff format --check sparkparse/ tests/
+    uv run pyrefly check sparkparse/ tests/
+    uv run pytest tests/ -v
+
 # Trigger the test workflow on the current branch and watch it run.
 # The workflow also auto-runs when a PR is opened/reopened; use this for
 # manual re-runs after pushing new commits. Requires gh auth login.

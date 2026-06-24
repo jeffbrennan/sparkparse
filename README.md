@@ -72,11 +72,11 @@ See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the planned improvement roadmap.
 # install with dev dependencies
 uv sync --dev
 
-# lint
-uv run ruff check sparkparse/
+# lint + unit tests (excludes Spark-dependent integration tests)
+just ci
 
-# test (excludes Spark-dependent integration tests)
-uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
+# full tests including Spark integration tests
+just ci-full
 ```
 
 ## TODOs

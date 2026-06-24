@@ -13,7 +13,12 @@ _JOIN_NODE_TYPES = frozenset(
         NodeType.BroadcastHashJoin,
         NodeType.SortMergeJoin,
         NodeType.BroadcastNestedLoopJoin,
+        NodeType.CartesianProduct,
     ]
+)
+
+_SOURCE_SCAN_TYPES = frozenset(
+    [NodeType.Scan, NodeType.BatchScan, NodeType.LocalTableScan]
 )
 
 
@@ -25,6 +30,98 @@ def _detail_dict(details_str: str | None) -> dict[str, Any] | None:
         return json.loads(details_str).get("detail")
     except (json.JSONDecodeError, AttributeError):
         return None
+
+
+def _get_metric_value(acc_totals: list[dict] | None, metric_name: str) -> int | None:
+    """Return the integer value for a metric from a node's accumulator totals."""
+    if not acc_totals:
+        return None
+    for acc in acc_totals:
+        if isinstance(acc, dict) and acc.get("metric_name") == metric_name:
+            value = acc.get("value")
+            if value is not None:
+                return int(value)
+    return None
+
+
+def _get_output_rows(acc_totals: list[dict] | None) -> int | None:
+    """Return output row count from accumulator totals.
+
+    Checks both the event-log name ('number of output rows') and the
+    Spark Connect / Photon name ('numOutputRows').
+    """
+    return _get_metric_value(acc_totals, "number of output rows") or _get_metric_value(
+        acc_totals, "numOutputRows"
+    )
+
+
+def _get_scan_paths(details_str: str | None) -> list[str]:
+    """Return file paths from a Scan/BatchScan/LocalTableScan node's details."""
+    detail = _detail_dict(details_str)
+    if detail is None:
+        return []
+    location = detail.get("location", {})
+    if isinstance(location, dict):
+        return location.get("location", [])
+    return []
+
+
+def _find_source_scans(
+    dag: pl.DataFrame, query_id: int, start_node_ids: list[int]
+) -> list[dict[str, Any]]:
+    """Trace from start nodes down to source scans within a query."""
+    query_nodes = {
+        r["node_id"]: r for r in dag.filter(pl.col("query_id") == query_id).to_dicts()
+    }
+    found: list[dict[str, Any]] = []
+    visited: set[int] = set()
+
+    def walk(node_id: int) -> None:
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        node = query_nodes.get(node_id)
+        if node is None:
+            return
+        if node["node_type"] in _SOURCE_SCAN_TYPES:
+            found.append(
+                {
+                    "node_id": node_id,
+                    "node_type": node["node_type"],
+                    "paths": _get_scan_paths(node.get("details")),
+                    "output_rows": _get_output_rows(node.get("accumulator_totals")),
+                }
+            )
+            return
+        children_str = node.get("child_nodes")
+        if not children_str:
+            return
+        for child in str(children_str).split(", "):
+            child = child.strip()
+            if child:
+                try:
+                    walk(int(child))
+                except ValueError:
+                    pass
+
+    for start_id in start_node_ids:
+        walk(start_id)
+    return found
+
+
+def _fmt_rows(n: int | None) -> str:
+    """Format a row count compactly for issue messages."""
+    if n is None:
+        return "unknown"
+    for threshold, suffix in [
+        (10**12, "T"),
+        (10**9, "B"),
+        (10**6, "M"),
+        (10**3, "K"),
+    ]:
+        if n >= threshold:
+            return f"{n / threshold:.1f}{suffix}"
+    return str(n)
 
 
 def to_plan_summary(
@@ -162,6 +259,92 @@ def find_cartesian_joins(dfs: ParsedLogDataFrames) -> pl.DataFrame:
         )
         .sort("query_id", "node_id")
     )
+
+
+def find_row_count_explosions(
+    dfs: ParsedLogDataFrames, ratio_threshold: float = 1.1
+) -> pl.DataFrame:
+    """
+    Return joins whose output rows exceed the largest input side by ``ratio_threshold``.
+
+    A join output larger than its inputs indicates duplicate keys (M:N matches),
+    which is the classic missing-unique-key row explosion. Source scans are traced
+    separately for the left and right branches so the issue message can name both
+    tables and the keys being joined.
+    """
+    dag = dfs.dag
+    records: list[dict[str, Any]] = []
+
+    for row in dag.filter(pl.col("node_type").is_in(_JOIN_NODE_TYPES)).to_dicts():
+        output_rows = _get_output_rows(row.get("accumulator_totals"))
+        if output_rows is None or output_rows <= 0:
+            continue
+
+        detail = _detail_dict(row.get("details"))
+        join_type = detail.get("join_type") if detail else None
+        left_keys = detail.get("left_keys") if detail else None
+        right_keys = detail.get("right_keys") if detail else None
+
+        children_str = row.get("child_nodes")
+        if not children_str:
+            continue
+        child_ids = [int(c) for c in str(children_str).split(", ") if c]
+        if len(child_ids) < 2:
+            continue
+
+        left_scans = _find_source_scans(dag, row["query_id"], child_ids[:1])
+        right_scans = _find_source_scans(dag, row["query_id"], child_ids[1:2])
+
+        left_rows = sum(s["output_rows"] or 0 for s in left_scans) or None
+        right_rows = sum(s["output_rows"] or 0 for s in right_scans) or None
+        max_input = max(left_rows or 0, right_rows or 0)
+        if max_input == 0:
+            continue
+
+        ratio = output_rows / max_input
+        if ratio < ratio_threshold:
+            continue
+
+        records.append(
+            {
+                "query_id": row["query_id"],
+                "node_id": row["node_id"],
+                "node_type": row["node_type"],
+                "join_type": join_type,
+                "left_keys": left_keys,
+                "right_keys": right_keys,
+                "output_rows": output_rows,
+                "left_input_rows": left_rows,
+                "right_input_rows": right_rows,
+                "ratio": ratio,
+                "left_scan_paths": [
+                    path for scan in left_scans for path in scan["paths"]
+                ],
+                "right_scan_paths": [
+                    path for scan in right_scans for path in scan["paths"]
+                ],
+            }
+        )
+
+    if not records:
+        return pl.DataFrame(
+            schema={
+                "query_id": pl.Int64,
+                "node_id": pl.Int64,
+                "node_type": pl.String,
+                "join_type": pl.String,
+                "left_keys": pl.List(pl.String),
+                "right_keys": pl.List(pl.String),
+                "output_rows": pl.Int64,
+                "left_input_rows": pl.Int64,
+                "right_input_rows": pl.Int64,
+                "ratio": pl.Float64,
+                "left_scan_paths": pl.List(pl.String),
+                "right_scan_paths": pl.List(pl.String),
+            }
+        )
+
+    return pl.DataFrame(records).sort("ratio", descending=True)
 
 
 def find_largest_scans(dfs: ParsedLogDataFrames, n: int = 10) -> pl.DataFrame:
@@ -363,6 +546,11 @@ def _fmt_bytes(n: int | None) -> str:
     return f"{n} B"
 
 
+def _path_name(path: str) -> str:
+    """Return a compact file/table name from a full scan path."""
+    return path.rstrip("/").split("/")[-1] or path
+
+
 def get_issues(dfs: ParsedLogDataFrames) -> list[dict[str, Any]]:
     """
     Run all find_* helpers and return a flat list of issue dicts.
@@ -371,17 +559,43 @@ def get_issues(dfs: ParsedLogDataFrames) -> list[dict[str, Any]]:
     query_id (int | None), stage_id (int | None).
 
     Severity mapping:
-    - critical: cartesian joins, spill
+    - critical: row-count explosions, spill
     - warning: repeated scans, task skew, heavy shuffle (>= 1 GiB)
     """
     issues: list[dict[str, Any]] = []
 
-    for row in find_cartesian_joins(dfs).to_dicts():
+    for row in find_row_count_explosions(dfs, ratio_threshold=1.1).to_dicts():
+        node_type = row["node_type"]
+        join_type = row["join_type"]
+        is_cartesian = node_type == NodeType.BroadcastNestedLoopJoin.value or (
+            join_type is not None and join_type == "Cross"
+        )
+        category = "Cartesian Join" if is_cartesian else "Row Count Explosion"
+
+        if row["left_keys"] and row["right_keys"]:
+            key_str = f"keys {row['left_keys']} = {row['right_keys']}"
+        else:
+            key_str = "no join keys (cartesian)"
+
+        left_paths = [_path_name(p) for p in row["left_scan_paths"]]
+        right_paths = [_path_name(p) for p in row["right_scan_paths"]]
+        if left_paths and right_paths:
+            scan_str = f"left: {', '.join(left_paths)}; right: {', '.join(right_paths)}"
+        elif left_paths or right_paths:
+            scan_str = f"scans: {', '.join(left_paths + right_paths)}"
+        else:
+            scan_str = "source scans unknown"
+
+        message = (
+            f"{node_type} produced {_fmt_rows(row['output_rows'])} rows"
+            f" ({row['ratio']:.1f}× input) with {key_str}; {scan_str}"
+        )
+
         issues.append(
             {
                 "severity": "critical",
-                "category": "Cartesian Join",
-                "message": f"{row['node_type']} in query {row['query_id']}",
+                "category": category,
+                "message": message,
                 "query_id": row["query_id"],
                 "stage_id": None,
             }

@@ -2363,15 +2363,8 @@ name = "sparkparse"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "dash-ag-grid" },
-    { name = "dash-bootstrap-components" },
-    { name = "dash-cytoscape" },
-    { name = "fsspec" },
-    { name = "pandas" },
-    { name = "plotly" },
     { name = "polars" },
     { name = "pydantic" },
-    { name = "pyspark" },
 ]
 
 [package.optional-dependencies]
@@ -2392,13 +2385,30 @@ gcs = [
 s3 = [
     { name = "s3fs" },
 ]
+spark = [
+    { name = "pyspark" },
+]
+viz = [
+    { name = "dash-ag-grid" },
+    { name = "dash-bootstrap-components" },
+    { name = "dash-cytoscape" },
+    { name = "pandas" },
+    { name = "plotly" },
+]
 
 [package.dev-dependencies]
 dev = [
+    { name = "dash-ag-grid" },
+    { name = "dash-bootstrap-components" },
+    { name = "dash-cytoscape" },
     { name = "falsa" },
+    { name = "fsspec" },
     { name = "ipykernel" },
+    { name = "pandas" },
+    { name = "plotly" },
     { name = "pyarrow" },
     { name = "pyrefly" },
+    { name = "pyspark" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -2407,29 +2417,35 @@ dev = [
 requires-dist = [
     { name = "adlfs", marker = "extra == 'azure'", specifier = ">=2024.1.0" },
     { name = "adlfs", marker = "extra == 'cloud'", specifier = ">=2024.1.0" },
-    { name = "dash-ag-grid", specifier = ">=31.3.0" },
-    { name = "dash-bootstrap-components", specifier = ">=1.6.0,<2" },
-    { name = "dash-cytoscape", specifier = ">=1.0.2" },
+    { name = "dash-ag-grid", marker = "extra == 'viz'", specifier = ">=31.3.0" },
+    { name = "dash-bootstrap-components", marker = "extra == 'viz'", specifier = ">=1.6.0,<2" },
+    { name = "dash-cytoscape", marker = "extra == 'viz'", specifier = ">=1.0.2" },
     { name = "deltalake", marker = "extra == 'delta'", specifier = ">=0.25" },
-    { name = "fsspec", specifier = ">=2024.1.0" },
     { name = "gcsfs", marker = "extra == 'cloud'", specifier = ">=2024.1.0" },
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2024.1.0" },
-    { name = "pandas", specifier = ">=2.2.3" },
-    { name = "plotly", specifier = ">=6.0.0" },
+    { name = "pandas", marker = "extra == 'viz'", specifier = ">=2.2.3" },
+    { name = "plotly", marker = "extra == 'viz'", specifier = ">=6.0.0" },
     { name = "polars", specifier = ">=1.24.0" },
     { name = "pydantic", specifier = ">=2.10.6" },
-    { name = "pyspark", specifier = ">=3.5.5" },
+    { name = "pyspark", marker = "extra == 'spark'", specifier = ">=3.5.5" },
     { name = "s3fs", marker = "extra == 'cloud'", specifier = ">=2024.1.0" },
     { name = "s3fs", marker = "extra == 's3'", specifier = ">=2024.1.0" },
 ]
-provides-extras = ["s3", "azure", "gcs", "cloud", "delta"]
+provides-extras = ["viz", "spark", "s3", "azure", "gcs", "cloud", "delta"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "dash-ag-grid", specifier = ">=31.3.0" },
+    { name = "dash-bootstrap-components", specifier = ">=1.6.0,<2" },
+    { name = "dash-cytoscape", specifier = ">=1.0.2" },
     { name = "falsa", specifier = ">=0.0.3" },
+    { name = "fsspec", specifier = ">=2024.1.0" },
     { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "pandas", specifier = ">=2.2.3" },
+    { name = "plotly", specifier = ">=6.0.0" },
     { name = "pyarrow", specifier = ">=10.0.0" },
     { name = "pyrefly", specifier = ">=1.0.0" },
+    { name = "pyspark", specifier = ">=3.5.5" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.9.9" },
 ]
