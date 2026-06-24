@@ -19,6 +19,7 @@ _PHOTON_NODE_TYPE_MAP: dict[str, NodeType] = {
     # Photon execution nodes
     "PhotonScan": NodeType.Scan,
     "PhotonGroupingAgg": NodeType.HashAggregate,
+    "PhotonAgg": NodeType.HashAggregate,
     "PhotonSort": NodeType.Sort,
     "PhotonShuffleExchangeSink": NodeType.Exchange,
     "PhotonShuffleExchangeSource": NodeType.Exchange,
@@ -115,15 +116,9 @@ _COMBINED_SCHEMA: dict[str, pl.PolarsDataType] = {
 }
 
 
-def _map_node_type(name: str) -> NodeType:
+def _map_node_type(name: str) -> NodeType | None:
     prefix = name.split()[0] if name else ""
-    mapped = _PHOTON_NODE_TYPE_MAP.get(prefix)
-    if mapped is None:
-        raise ValueError(
-            f"Unmapped Spark Connect node type: {name!r} (prefix={prefix!r}). "
-            "Add it to _PHOTON_NODE_TYPE_MAP in sparkparse/connect.py."
-        )
-    return mapped
+    return _PHOTON_NODE_TYPE_MAP.get(prefix)
 
 
 def _readable_size(bytes_val: float) -> tuple[float, str]:
@@ -260,6 +255,7 @@ class SparkConnectCapture:
             return pl.DataFrame(schema=_DAG_SCHEMA)
 
         rows: list[dict[str, Any]] = []
+        unmapped: dict[str, str] = {}  # raw name -> prefix, for error reporting
         for query_id, plan_metrics in enumerate(self._captured_queries):
             children: dict[int, list[int]] = defaultdict(list)
             for node in plan_metrics:
@@ -287,6 +283,10 @@ class SparkConnectCapture:
             for node in plan_metrics:
                 node_id = node.plan_id
                 node_type = _map_node_type(node.name)
+                if node_type is None:
+                    prefix = node.name.split()[0] if node.name else ""
+                    unmapped[node.name] = prefix
+                    continue
                 child_nodes = child_nodes_map.get(node_id)
 
                 accum_totals: list[dict[str, Any]] = []
@@ -323,6 +323,16 @@ class SparkConnectCapture:
                         "node_id_adj": node_id,
                     }
                 )
+
+        if unmapped:
+            lines = "\n".join(
+                f"  {name!r} (prefix={prefix!r})"
+                for name, prefix in sorted(unmapped.items())
+            )
+            raise ValueError(
+                f"Unmapped Spark Connect node type(s) — add to _PHOTON_NODE_TYPE_MAP "
+                f"in sparkparse/connect.py:\n{lines}"
+            )
 
         df = pl.DataFrame(rows, schema_overrides=_DAG_SCHEMA)
         return df
