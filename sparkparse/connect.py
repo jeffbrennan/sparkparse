@@ -341,11 +341,20 @@ class SparkConnectCapture:
             captured_plans = self._captured_plans
 
             def _patched_to_table(plan: Any, *args: Any, **kwargs: Any) -> Any:
-                try:
-                    # plan.plan(client) converts the Python LogicalPlan to a proto Relation.
-                    captured_plans.append(plan.plan(client))
-                except Exception:
-                    captured_plans.append(None)
+                proto = None
+                for call in (
+                    lambda: plan.plan(client),        # PySpark 3.4+
+                    lambda: plan.plan(self.spark),    # some versions take session
+                    lambda: plan.relation,            # direct attribute
+                    lambda: plan._relation,
+                ):
+                    try:
+                        proto = call()
+                        if proto is not None:
+                            break
+                    except Exception as _e:
+                        _log.debug("to_table plan capture attempt failed: %s", _e)
+                captured_plans.append(proto)
                 return orig_to_table(plan, *args, **kwargs)
 
             client.to_table = _patched_to_table
