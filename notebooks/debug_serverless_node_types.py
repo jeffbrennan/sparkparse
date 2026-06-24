@@ -113,16 +113,33 @@ print(f"host: {_host}")
 
 
 def _graphql(operation: str, variables: dict, query: str = "") -> dict:
+    import gzip as _gzip
     body = _json.dumps(
         {"operationName": operation, "variables": variables, "query": query}
     ).encode()
     r = _req.Request(
         f"{_host}/graphql/{operation}",  # _host already has https://
         data=body,
-        headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate",
+        },
         method="POST",
     )
-    return _json.loads(_req.urlopen(r).read())
+    try:
+        resp = _req.urlopen(r)
+    except _req.HTTPError as e:
+        raw = e.read()
+        print(f"  HTTP {e.code} {e.reason}  body={raw[:500]!r}")
+        raise
+    raw = resp.read()
+    enc = resp.headers.get("Content-Encoding", "")
+    if enc == "gzip":
+        raw = _gzip.decompress(raw)
+    print(f"  HTTP {resp.status}  Content-Encoding={enc!r}  body_len={len(raw)}  preview={raw[:300]!r}")
+    return _json.loads(raw)
 
 
 # Full inline query captured from browser network tab for the plan graph endpoint.
