@@ -1,39 +1,10 @@
 # Databricks notebook source
 
 # stdlib imports + Databricks runtime globals for type checking.
-import glob
-import pathlib
-import subprocess
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from databricks import dbutils, display, displayHTML, spark  # noqa: F401
-
-# COMMAND ----------
-
-# Install the sparkparse wheel bundled alongside this notebook.
-_p = pathlib.PurePosixPath(
-    dbutils.notebook.entry_point.getDbutils()
-    .notebook()
-    .getContext()
-    .notebookPath()
-    .get()
-)
-_whl = next(
-    (
-        whl
-        for ancestor in _p.parents
-        for whl in glob.glob(f"/Workspace{ancestor}/dist/*.whl")
-    ),
-    None,
-)
-if _whl:
-    subprocess.check_call(["pip", "install", "--quiet", _whl])
-    print(f"sparkparse installed from: {_whl}")
-else:
-    print(
-        "WARNING: sparkparse whl not found — run `uv build --wheel && databricks bundle deploy` first"
-    )
 
 # COMMAND ----------
 
@@ -97,8 +68,7 @@ print(f"combined: {dfs.combined.shape}")
 
 print("node types seen:")
 display(
-    dfs.dag.select("node_id", "node_type", "node_name", "node_duration_minutes")
-    .sort("node_id")
+    dfs.dag.select("node_id", "node_type", "node_name", "node_duration_minutes").sort("node_id")
 )
 
 # COMMAND ----------
