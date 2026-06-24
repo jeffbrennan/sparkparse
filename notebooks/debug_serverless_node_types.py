@@ -93,11 +93,14 @@ for row in dfs.dag.sort("node_id").to_dicts():
 # COMMAND ----------
 
 # Debug: show logical plans captured from to_table() intercept and extracted join info.
+# SparkparseCapture delegates to SparkConnectCapture via ._connect_cap on serverless.
 from sparkparse.connect import _extract_join_info
 
-print(f"captured plans:   {len(cap._captured_plans)}")
-print(f"captured queries: {len(cap._captured_queries)}")
-for i, proto_rel in enumerate(cap._captured_plans):
+_inner = cap._connect_cap  # SparkConnectCapture instance
+print(f"_connect_cap type: {type(_inner)}")
+print(f"captured plans:   {len(_inner._captured_plans)}")
+print(f"captured queries: {len(_inner._captured_queries)}")
+for i, proto_rel in enumerate(_inner._captured_plans):
     if proto_rel is None:
         print(f"  plan[{i}]: None (capture failed)")
         continue
