@@ -30,7 +30,8 @@ _top_zip = spark.sql("""
 _trips = spark.read.table("samples.nyctaxi.trips").filter(f"pickup_zip = {_top_zip}")
 
 left = _trips.select("pickup_zip", "trip_distance", "fare_amount").limit(1000)
-left.write.mode("overwrite").saveAsTable("sparkparse_demo.test.left_trips")
+if not spark.catalog.tableExists("sparkparse_demo.test.left_trips"):
+    left.write.mode("overwrite").saveAsTable("sparkparse_demo.test.left_trips")
 
 right = (
     _trips.select("pickup_zip", "trip_distance", "fare_amount")
@@ -38,7 +39,8 @@ right = (
     .withColumnRenamed("fare_amount", "fare_amount_b")
     .limit(1000)
 )
-right.write.mode("overwrite").saveAsTable("sparkparse_demo.test.right_trips")
+if not spark.catalog.tableExists("sparkparse_demo.test.right_trips"):
+    right.write.mode("overwrite").saveAsTable("sparkparse_demo.test.right_trips")
 
 print(f"pickup_zip: {_top_zip}")
 
