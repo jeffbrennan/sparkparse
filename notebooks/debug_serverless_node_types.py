@@ -80,9 +80,13 @@ import json
 print("all dag nodes (node_type repr + raw_name):")
 for row in dfs.dag.sort("node_id").to_dicts():
     detail = (json.loads(row["details"]).get("detail") or {}) if row.get("details") else {}
-    print(f"  [{row['node_id']:3d}] type={row['node_type']!r:30s}  raw_name={detail.get('raw_name', '')!r}")
+    print(
+        f"  [{row['node_id']:3d}] type={row['node_type']!r:30s}  raw_name={detail.get('raw_name', '')!r}"
+    )
     if detail.get("left_keys") or detail.get("location"):
-        print(f"         left_keys={detail.get('left_keys')}  right_keys={detail.get('right_keys')}  location={detail.get('location')}")
+        print(
+            f"         left_keys={detail.get('left_keys')}  right_keys={detail.get('right_keys')}  location={detail.get('location')}"
+        )
     if row.get("child_nodes"):
         print(f"         child_nodes={row['child_nodes']!r}")
 
@@ -94,48 +98,27 @@ for row in dfs.dag.sort("node_id").to_dicts():
 # then attempt to fetch the photonExplain plan graph (join keys etc.) via
 # the GraphQL endpoint the SQL UI uses.
 
-import base64
 import json as _json
-import urllib.request as _urllib
 
-def _build_lookup_key(query_id: str, start_ms: int, endpoint_id: str, user_id: int) -> str:
-    def varint(n: int) -> bytes:
-        out = b""
-        while n > 0x7F:
-            out += bytes([(n & 0x7F) | 0x80]); n >>= 7
-        return out + bytes([n])
-    def ld(field: int, b: bytes) -> bytes:
-        return varint((field << 3) | 2) + varint(len(b)) + b
-    proto = ld(1, query_id.encode()) + varint((2 << 3) | 0) + varint(start_ms) + ld(3, endpoint_id.encode()) + varint((4 << 3) | 0) + varint(user_id)
-    return base64.b64encode(proto).decode().rstrip("=")
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.sql import QueryFilter, QueryStatus
 
-_ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
-_token = _ctx.apiToken().get()
-_host = _ctx.browserHostName().get()
-_run_id = _ctx.jobRunId().get() if _ctx.jobRunId().isDefined() else None
-_job_id = _ctx.jobId().get() if _ctx.jobId().isDefined() else None
+_w = WorkspaceClient()
+print(f"host: {_w.config.host}")
 
-def _api(path: str, method: str = "GET", body: dict | None = None) -> dict:
-    url = f"https://{_host}{path}"
-    data = _json.dumps(body).encode() if body else None
-    req = _urllib.Request(url, data=data, headers={
-        "Authorization": f"Bearer {_token}",
-        "Content-Type": "application/json",
-    }, method=method)
-    return _json.loads(_urllib.urlopen(req).read())
-
-# 1. Fetch recent queries for this job run
-_hist_params = "max_results=25"
-if _run_id:
-    _hist_params += f"&filter_by.run_ids={_run_id}"
-_hist = _api(f"/api/2.0/sql/history/queries?{_hist_params}")
-_queries = _hist.get("res", _hist.get("queries", []))
+# List recent queries for this run filtered by status
+_queries = list(
+    _w.query_history.list(
+        filter_by=QueryFilter(statuses=[QueryStatus.FINISHED]),
+        max_results=25,
+    )
+)
 print(f"SQL history queries found: {len(_queries)}")
 for q in _queries:
-    print(f"  id={q.get('query_id') or q.get('statement_id') or q.get('id')}  status={q.get('status')}  text={str(q.get('query_text',''))[:60]}")
+    print(f"  id={q.query_id}  status={q.status}  text={str(q.query_text or '')[:80]}")
 print()
-print("raw first result sample:")
-print(_json.dumps(_queries[0] if _queries else {}, indent=2)[:800])
+print("raw first result:")
+print(_json.dumps(_queries[0].as_dict() if _queries else {}, indent=2)[:1200])
 
 # COMMAND ----------
 
