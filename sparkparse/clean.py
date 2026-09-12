@@ -257,6 +257,7 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
         "metric_name",
         "metric_type",
         "value",
+        "value_exact",
         "unit",
         "readable_value",
         "readable_unit",
@@ -281,6 +282,15 @@ def parse_accumulator_metrics(dag_long: pl.DataFrame, df_type: str) -> pl.DataFr
 
     readable_metrics = (
         base.sort(["metric_type", "metric_name"])
+        # Counts are int64 on the way in; ``value`` becomes float64 below to hold
+        # rescaled timings, which rounds anything above 2**53. ``value_exact``
+        # keeps the original integer for every metric that is not rescaled.
+        .with_columns(
+            pl.when(pl.col("metric_type").eq("nsTiming"))
+            .then(None)
+            .otherwise(pl.col("value").cast(pl.Int64, strict=False))
+            .alias("value_exact")
+        )
         .with_columns(
             pl.when(pl.col("metric_type").eq("nsTiming"))
             .then(pl.col("value").mul(1 / 1e6))
@@ -339,6 +349,9 @@ def get_node_metrics(
                 value=pl.when(pl.field("metric_type").eq("average"))
                 .then(pl.col("median_of_average_value"))
                 .otherwise(pl.field("value")),
+                value_exact=pl.when(pl.field("metric_type").eq("average"))
+                .then(None)
+                .otherwise(pl.field("value_exact")),
                 readable_value=pl.when(pl.field("metric_type").eq("average"))
                 .then(pl.col("median_of_average_value"))
                 .otherwise(
@@ -348,17 +361,24 @@ def get_node_metrics(
         )
     )
 
+    # A node with no timing metric has no measured duration. Null says that;
+    # zero would claim the operator ran instantly.
     node_durations = (
         readable_metrics_total.with_columns(
             pl.when(
                 pl.col("accumulator_totals").struct.field("metric_type").eq("timing")
             )
             .then(pl.col("accumulator_totals").struct.field("value").mul(1 / 60_000))
-            .otherwise(pl.lit(0))
+            .otherwise(None)
             .alias("node_duration_minutes")
         )
         .group_by("query_id", "node_id")
-        .agg(pl.sum("node_duration_minutes").alias("node_duration_minutes"))
+        .agg(
+            pl.when(pl.col("node_duration_minutes").is_not_null().any())
+            .then(pl.sum("node_duration_minutes"))
+            .otherwise(None)
+            .alias("node_duration_minutes")
+        )
     )
     metric_type_order = {
         "timing": 0,
@@ -547,11 +567,6 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
             plan.select(*dag_base_cols + extra_cols)
             .join(dag_metrics_combined, on=["query_id", "node_id"], how="left")
             .join(node_durations, on=["query_id", "node_id"], how="left")
-            .with_columns(
-                pl.coalesce("node_duration_minutes", pl.lit(0)).alias(
-                    "node_duration_minutes"
-                )
-            )
             .sort("query_id", "node_id")
         )
         # adjust wholestagecodegen labels

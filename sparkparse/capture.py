@@ -17,7 +17,7 @@ import polars as pl
 from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
-from sparkparse.analyze import to_plan_summary
+from sparkparse.analyze import to_analysis_export, to_plan_summary
 from sparkparse.models import (
     CapabilityStatus,
     CaptureCapabilities,
@@ -625,6 +625,9 @@ class SparkparseCapture:
                     raise RuntimeError("Capture result was not initialized.")
                 name = self._log_name or result.metadata.workload_label or "capture"
                 self._analysis = to_plan_summary(result, name)
+                # Raw facts and diagnostic findings stay separate keys: the
+                # summary measures, the analysis interprets.
+                self._analysis["analysis"] = to_analysis_export(result, name)
             except Exception as exc:
                 self._add_diagnostic("analysis_failed", str(exc), "analysis")
                 raise

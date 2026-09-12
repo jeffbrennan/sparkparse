@@ -10,6 +10,7 @@ from sparkparse.clean import (
     get_job_idle_time,
     get_readable_size,
     get_readable_timing,
+    log_to_dag_df,
 )
 from sparkparse.models import EventType, Job, Stage
 from sparkparse.parse import parse_log
@@ -338,3 +339,24 @@ def test_get_job_idle_time_returns_readable(parsed_log):
     result = get_job_idle_time(combined)
     assert "idle_time_ms" in result
     assert "readable" in result
+
+
+# ---------------------------------------------------------------------------
+# node duration null semantics
+# ---------------------------------------------------------------------------
+
+
+def test_nodes_without_timing_metrics_have_null_duration(parsed_log):
+    dag = log_to_dag_df(parsed_log)
+    durations = dag["node_duration_minutes"]
+    # Some nodes report timing metrics and some report none at all; the ones
+    # that report none must stay null rather than claiming zero time.
+    assert durations.null_count() > 0
+    assert durations.drop_nulls().len() > 0
+
+    for row in dag.to_dicts():
+        has_timing = any(
+            metric["metric_type"] == "timing"
+            for metric in row["accumulator_totals"] or []
+        )
+        assert has_timing == (row["node_duration_minutes"] is not None)

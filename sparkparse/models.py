@@ -1660,3 +1660,142 @@ class RunRecord(BaseModel):
     n_cartesian_joins: int | None
     max_node_duration_min: float | None
     max_scan_bytes: int | None
+
+
+class MetricUnit(StrEnum):
+    """Physical unit a normalized metric value is expressed in."""
+
+    bytes = "bytes"
+    milliseconds = "milliseconds"
+    nanoseconds = "nanoseconds"
+    rows = "rows"
+    # Named ``items`` because ``count`` would shadow ``str.count`` on a StrEnum.
+    items = "count"
+    ratio = "ratio"
+    seconds = "seconds"
+    none = "none"
+
+
+class MetricScope(StrEnum):
+    """Entity a metric describes."""
+
+    query = "query"
+    operator = "operator"
+    stage = "stage"
+    task = "task"
+    unknown = "unknown"
+
+
+class MetricAggregation(StrEnum):
+    """How a metric combines across tasks or across a plan subtree."""
+
+    sum = "sum"
+    max = "max"
+    last = "last"
+    median = "median"
+    cumulative = "cumulative"
+    unknown = "unknown"
+
+
+class MetricDerivation(StrEnum):
+    """Provenance of a normalized metric value."""
+
+    measured = "measured"
+    inferred_from_metric_type = "inferred_from_metric_type"
+    derived = "derived"
+
+
+class MetricDefinition(BaseModel):
+    """One canonical metric and the raw names that map onto it."""
+
+    canonical: str
+    unit: MetricUnit
+    scope: MetricScope
+    aggregation: MetricAggregation
+    aliases: frozenset[str]
+    description: str
+
+    model_config = ConfigDict(frozen=True)
+
+
+class NormalizedMetric(BaseModel):
+    """A raw plan/task metric expressed in canonical, machine-readable form.
+
+    ``canonical`` is ``None`` for metrics with no verified mapping. Such metrics
+    are preserved verbatim rather than guessed at.
+    """
+
+    raw_name: str
+    canonical: str | None
+    value: float | int | None
+    unit: MetricUnit
+    scope: MetricScope
+    aggregation: MetricAggregation
+    source: str
+    derivation: MetricDerivation
+    coverage: CapabilityStatus
+    readable: str | None = None
+
+
+class RuleStatus(StrEnum):
+    """Whether an analysis rule could be evaluated against a capture."""
+
+    evaluated = "evaluated"
+    unsupported = "unsupported"
+    insufficient_data = "insufficient_data"
+
+
+class FindingSeverity(StrEnum):
+    critical = "critical"
+    warning = "warning"
+
+
+class FindingConfidence(StrEnum):
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
+class EvidenceValue(BaseModel):
+    """A single numeric or textual fact backing a finding."""
+
+    name: str
+    value: float | int | str | None
+    unit: MetricUnit = MetricUnit.none
+    source: str | None = None
+
+
+class Finding(BaseModel):
+    """One diagnostic observation with the evidence that produced it."""
+
+    rule_id: str
+    severity: FindingSeverity
+    category: str
+    observation: str
+    confidence: FindingConfidence
+    query_id: int | None = None
+    stage_id: int | None = None
+    node_ids: list[int] = Field(default_factory=list)
+    evidence: list[EvidenceValue] = Field(default_factory=list)
+    threshold: EvidenceValue | None = None
+    caveat: str | None = None
+    next_investigation: str | None = None
+
+
+class RuleAssessment(BaseModel):
+    """Outcome of running one rule, including why it could not run."""
+
+    rule_id: str
+    status: RuleStatus
+    reason: str | None = None
+    entities_evaluated: int = 0
+    findings: int = 0
+
+
+class AnalysisReport(BaseModel):
+    """Findings plus per-rule assessment status for one capture."""
+
+    schema_version: str = "1"
+    log_name: str
+    findings: list[Finding] = Field(default_factory=list)
+    assessments: list[RuleAssessment] = Field(default_factory=list)

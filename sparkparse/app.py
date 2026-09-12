@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from sparkparse import alerts, history
-from sparkparse.analyze import to_plan_summary
+from sparkparse.analyze import to_analysis_export, to_plan_summary
 from sparkparse.dashboard import init_dashboard, run_app
 from sparkparse.models import OutputFormat, ParsedLogDataFrames, RunRecord
 from sparkparse.parse import get_parsed_metrics
@@ -124,8 +124,34 @@ def analyze(
         AnalysisFormat,
         typer.Option(help="Output format: 'json' (default) or human-readable 'text'."),
     ] = AnalysisFormat.json,
+    compact: Annotated[
+        bool,
+        typer.Option(
+            help="Drop display-only fields and keep only the longest-running nodes."
+        ),
+    ] = False,
+    top_n: Annotated[
+        int | None,
+        typer.Option(help="Nodes to keep per query (default: all; 25 with --compact)."),
+    ] = None,
+    redact: Annotated[
+        bool,
+        typer.Option(help="Replace file paths and expressions with hashed tokens."),
+    ] = False,
+    findings: Annotated[
+        bool,
+        typer.Option(
+            help="Include diagnostic findings and per-rule status alongside the "
+            "raw plan summary."
+        ),
+    ] = True,
 ) -> None:
-    """Analyze Spark event logs and emit a token-efficient summary suitable for LLM piping."""
+    """Analyze Spark event logs and emit a token-efficient summary suitable for LLM piping.
+
+    The raw plan summary and the diagnostic findings stay separate: the summary
+    states measured facts, the findings interpret them and carry their own
+    evidence, thresholds and coverage status.
+    """
     dfs = get_parsed_metrics(
         log_dir=log_dir,
         log_file=log_file,
@@ -136,27 +162,47 @@ def analyze(
     )
 
     log_name = get_path_stem(log_file) if log_file else get_path_name(log_dir)
-    summary = to_plan_summary(dfs, log_name)
+    summary = to_plan_summary(
+        dfs, log_name, compact=compact, top_n=top_n, redact=redact
+    )
+    analysis = to_analysis_export(dfs, log_name, redact=redact) if findings else None
 
     if format == AnalysisFormat.json:
-        output = json.dumps(summary, indent=2, default=str)
+        payload = dict(summary)
+        if analysis is not None:
+            payload["analysis"] = analysis
+        output = json.dumps(payload, indent=2, default=str)
     else:
-        lines: list[str] = [f"Log: {summary['log_name']}"]
         totals = summary.get("totals", {})
+
+        def total(name: str) -> str:
+            # None means the source never reported the metric, not zero work.
+            value = totals.get(name)
+            return "not available" if value is None else f"{value:,}"
+
+        lines: list[str] = [f"Log: {summary['log_name']}"]
         lines.append(f"Queries: {len(summary.get('queries', []))}")
-        lines.append(f"Bytes read: {totals.get('bytes_read', 0):,}")
-        lines.append(f"Bytes written: {totals.get('bytes_written', 0):,}")
-        lines.append(f"Shuffle bytes read: {totals.get('shuffle_bytes_read', 0):,}")
-        lines.append(
-            f"Shuffle bytes written: {totals.get('shuffle_bytes_written', 0):,}"
-        )
-        lines.append(f"Memory spilled: {totals.get('memory_bytes_spilled', 0):,}")
-        lines.append(f"Disk spilled: {totals.get('disk_bytes_spilled', 0):,}")
+        lines.append(f"Bytes read: {total('bytes_read')}")
+        lines.append(f"Bytes written: {total('bytes_written')}")
+        lines.append(f"Shuffle bytes read: {total('shuffle_bytes_read')}")
+        lines.append(f"Shuffle bytes written: {total('shuffle_bytes_written')}")
+        lines.append(f"Memory spilled: {total('memory_bytes_spilled')}")
+        lines.append(f"Disk spilled: {total('disk_bytes_spilled')}")
         for q in summary.get("queries", []):
+            duration = (
+                f"{q['duration_seconds']:.1f}s"
+                if q.get("duration_seconds") is not None
+                else "not available"
+            )
+            omitted = (
+                f"  omitted={q['omitted_node_count']}"
+                if q.get("omitted_node_count")
+                else ""
+            )
             lines.append(
                 f"\nQuery {q['query_id']} ({q['query_function']})"
-                f"  duration={q['duration_seconds']:.1f}s"
-                f"  nodes={len(q['nodes'])}"
+                f"  duration={duration}"
+                f"  nodes={len(q['nodes'])}{omitted}"
             )
             for n in q["nodes"]:
                 dur = (
@@ -165,6 +211,33 @@ def analyze(
                     else "?"
                 )
                 lines.append(f"  [{n['node_id']}] {n['node_type']}  {dur}")
+        if analysis is not None:
+            lines.append("")
+            lines.append(f"Findings ({len(analysis['findings'])}):")
+            for finding in analysis["findings"]:
+                scope = []
+                if finding["query_id"] is not None:
+                    scope.append(f"q{finding['query_id']}")
+                if finding["stage_id"] is not None:
+                    scope.append(f"s{finding['stage_id']}")
+                scope_str = f" [{'/'.join(scope)}]" if scope else ""
+                lines.append(
+                    f"  [{finding['severity']}] {finding['category']}{scope_str}"
+                    f" ({finding['confidence']} confidence): {finding['observation']}"
+                )
+            skipped = [
+                assessment
+                for assessment in analysis["assessments"]
+                if assessment["status"] != "evaluated"
+            ]
+            if skipped:
+                lines.append("")
+                lines.append("Rules not evaluated:")
+                for assessment in skipped:
+                    lines.append(
+                        f"  {assessment['rule_id']}: {assessment['status']}"
+                        f" — {assessment['reason']}"
+                    )
         output = "\n".join(lines)
 
     if out_file is not None:

@@ -1,7 +1,36 @@
 # 03 — Correct metrics, then deeper analysis
 
-Status: proposed. Priority: P0 correctness, P1 depth. Depends on 01–02.
-Primary files: `analyze.py`, `clean.py`, `models.py`, `viz.py`, `pages/summary.py`.
+Status: implemented (2026-09-12), offline validation only. Priority: P0 correctness,
+P1 depth. Depends on 01–02.
+
+Implementation notes:
+
+- `sparkparse/metrics.py` holds the metric registry; `MetricDefinition`,
+  `NormalizedMetric`, `Finding`, `RuleAssessment` and `AnalysisReport` live in
+  `models.py`.
+- `find_cartesian_joins` no longer counts conditional nested loop joins; those are
+  reported by `find_nested_loop_joins` and the `nested_loop_join` rule. Cross-join
+  matching is query-scoped.
+- Expansion ratios come from the join's immediate inputs, descending only through
+  row-preserving operators. Scans are used for lineage only.
+- Scan efficiency has no pushed/partition-filter evidence to work from: the parsed
+  `ScanDetail` does not retain `PushedFilters`/`PartitionFilters`, so findings are
+  worded as "rows read but discarded", not as a pruning verdict.
+- Redaction covers node names as well as structured details: Connect embeds the
+  server's operator name in the display name for unmapped operators, so the name
+  is rebuilt from node id and resolved type with the remainder tokenized.
+- Task-backed rules (`spill`, `shuffle_volume`, `task_straggler`, `gc_overhead`)
+  verify that the counters they need are actually populated before reporting
+  `evaluated`, and count assessed stages rather than stages over threshold.
+- Exact integer counts hold end to end: `accumulator_totals` carries an
+  `value_exact` `Int64` beside the `Float64` `value` in both the event-log and
+  Connect paths, and normalization prefers it. Regression tests cover a patched
+  event log and a Connect replay carrying 2**53 + 1.
+- AQE initial plans are dropped by `parse.py` (only `isFinalPlan=true` snapshots are
+  kept), so `aqe_plan_change` reports optimizer-recorded adjustments on the surviving
+  plan and says so in its assessment reason.
+
+Primary files: `analyze.py`, `metrics.py`, `models.py`, `app.py`, `capture.py`, `pages/summary.py`.
 
 ## Confirmed gaps
 

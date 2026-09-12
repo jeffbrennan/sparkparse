@@ -23,7 +23,7 @@ access mode. Spark Connect is a transport, not proof that compute is serverless.
 |---|---|---|---|
 | P0 | [01 — Capture and capabilities](01-capture-and-capabilities.md) | Safe session lifecycle, common finalization, explicit missing data | Implemented + smoke-tested |
 | P0 | [02 — Connect correctness](02-connect-correctness.md) | Reliable query attribution and tolerant operator handling | Implemented offline; live validation outstanding |
-| P0 | [03 — Analysis correctness and depth](03-analysis.md) | Accurate metrics and evidence-based findings | Large; 01–02 |
+| P0 | [03 — Analysis correctness and depth](03-analysis.md) | Accurate metrics and evidence-based findings | Implemented offline; increments 1–3 |
 | P1 | [04 — Event-log robustness](04-event-logs.md) | Non-AQE, partial, rolled, retried, and larger workloads | Large; 01 identities |
 | P1 | [05 — Developer experience and validation](05-developer-experience.md) | Installable CLI, reproducible checks, serverless-friendly reports | Medium; packaging can start immediately |
 | P1 | [06 — History and comparisons](06-history.md) | Comparable runs and meaningful regression alerts | Medium; 01 and 03 |

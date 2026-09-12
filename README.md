@@ -11,7 +11,8 @@ sparkparse parses Apache Spark event logs and provides:
 - an interactive Dash dashboard for exploring query plans, stage timelines, and task metrics
 - a CLI for parsing logs into structured Polars DataFrames (CSV, Parquet, Delta, JSON output)
 - a context manager / decorator for capturing logs from an active SparkSession
-- (planned) an `analyze` command that produces structured JSON findings for LLM-assisted analysis
+- an `analyze` command that emits a raw plan summary (numeric metrics with units)
+  plus diagnostic findings, each with its own evidence, thresholds and coverage status
 
 ## install
 
@@ -30,8 +31,11 @@ sparkparse get --log-dir ./logs --out-format parquet
 # launch the dashboard
 sparkparse viz --log-dir ./logs
 
-# (planned) produce LLM-friendly analysis JSON
-sparkparse analyze --log-dir ./logs
+# produce LLM-friendly analysis JSON
+sparkparse analyze ./logs
+
+# compact export for long plans, with paths and expressions redacted
+sparkparse analyze ./logs --compact --top-n 25 --redact
 ```
 
 ### context manager
@@ -148,6 +152,6 @@ just ci-full
 - [x] task box plots on hover
 - [x] metric capture via context manager / decorator
 - [ ] hotspot highlighting by metrics other than duration (spill, records, etc.)
-- [ ] `analyze` command with LLM-friendly JSON output
+- [x] `analyze` command with LLM-friendly JSON output
 - [ ] reading from cloud storage
 - [ ] ruff + pyrefly CI
