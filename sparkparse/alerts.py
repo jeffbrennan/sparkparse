@@ -161,7 +161,15 @@ def check_alerts(
             )
             continue
 
-        current = float(getattr(record, alert.metric))
+        current_value = getattr(record, alert.metric)
+        if current_value is None:
+            logger.warning(
+                "Alert '%s' references unavailable metric '%s', skipping",
+                alert.name,
+                alert.metric,
+            )
+            continue
+        current = float(current_value)
         baseline: float | None = None
 
         if alert.condition == "threshold":

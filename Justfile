@@ -1,4 +1,8 @@
-export JAVA_HOME := `/usr/libexec/java_home -v 17 2>/dev/null || echo /opt/homebrew/opt/openjdk@17`
+# Prefer a JAVA_HOME that actually has a java binary in it: CI sets a good one
+# with setup-java, and a shell profile can export one left behind by an
+# upgraded JDK. Fall back to the macOS lookup when neither holds.
+env_java := env_var_or_default("JAVA_HOME", "")
+export JAVA_HOME := if path_exists(env_java / "bin" / "java") == "true" { env_java } else { `/usr/libexec/java_home -v 17 2>/dev/null || echo /opt/homebrew/opt/openjdk@17` }
 
 ci:
     uv run ruff check sparkparse/ tests/

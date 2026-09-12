@@ -118,6 +118,14 @@ _COMBINED_SCHEMA: dict[str, pl.PolarsDataType] = {
 }
 
 
+def empty_capture_dataframes() -> ParsedLogDataFrames:
+    """Return the canonical typed empty frames used by capture backends."""
+    return ParsedLogDataFrames(
+        dag=pl.DataFrame(schema=_DAG_SCHEMA),
+        combined=pl.DataFrame(schema=_COMBINED_SCHEMA),
+    )
+
+
 _JOIN_NODE_TYPES: frozenset[NodeType] = frozenset(
     {
         NodeType.BroadcastHashJoin,
@@ -320,47 +328,56 @@ class SparkConnectCapture:
     def __enter__(self) -> SparkConnectCapture:
         client: Any = getattr(self.spark, "_client")
 
-        # Patch _build_metrics to capture per-node physical-plan metrics.
-        orig_build_metrics = client._build_metrics
-        self._orig_build_metrics = orig_build_metrics
-        captured_queries = self._captured_queries
+        try:
+            # Patch _build_metrics to capture per-node physical-plan metrics.
+            orig_build_metrics = client._build_metrics
+            self._orig_build_metrics = orig_build_metrics
+            captured_queries = self._captured_queries
 
-        def _patched_build_metrics(metrics_proto: Any) -> Any:
-            result = orig_build_metrics(metrics_proto)
-            if result:
-                captured_queries.append(list(result))
-            return result
+            def _patched_build_metrics(metrics_proto: Any) -> Any:
+                result = orig_build_metrics(metrics_proto)
+                if result:
+                    captured_queries.append(list(result))
+                return result
 
-        client._build_metrics = _patched_build_metrics
+            client._build_metrics = _patched_build_metrics
 
-        # Patch to_table to capture the logical plan proto for join-key extraction.
-        # Photon physical node names don't carry key info; the logical plan does.
-        orig_to_table = getattr(client, "to_table", None)
-        self._orig_to_table = orig_to_table
-        if orig_to_table is not None:
-            captured_plans = self._captured_plans
+            # Patch to_table to capture the logical plan proto for join-key extraction.
+            # Photon physical node names don't carry key info; the logical plan does.
+            orig_to_table = getattr(client, "to_table", None)
+            self._orig_to_table = orig_to_table
+            if orig_to_table is not None:
+                captured_plans = self._captured_plans
 
-            def _patched_to_table(plan: Any, *args: Any, **kwargs: Any) -> Any:
-                try:
-                    # plan is pyspark.sql.connect.proto.base_pb2.Plan.
-                    # plan.root is the Relation (logical plan root).
-                    proto = plan.root if plan.HasField("root") else None
-                except Exception:
-                    proto = None
-                captured_plans.append(proto)
-                return orig_to_table(plan, *args, **kwargs)
+                def _patched_to_table(plan: Any, *args: Any, **kwargs: Any) -> Any:
+                    try:
+                        # plan is pyspark.sql.connect.proto.base_pb2.Plan.
+                        # plan.root is the Relation (logical plan root).
+                        proto = plan.root if plan.HasField("root") else None
+                    except Exception:
+                        proto = None
+                    captured_plans.append(proto)
+                    return orig_to_table(plan, *args, **kwargs)
 
-            client.to_table = _patched_to_table
+                client.to_table = _patched_to_table
+        except BaseException:
+            if self._orig_build_metrics is not None:
+                client._build_metrics = self._orig_build_metrics
+            if self._orig_to_table is not None:
+                client.to_table = self._orig_to_table
+            self._orig_build_metrics = None
+            self._orig_to_table = None
+            raise
 
         return self
 
     def __exit__(self, exc_type: Any, *_: Any) -> None:
         client: Any = getattr(self.spark, "_client")
-        client._build_metrics = self._orig_build_metrics
-        if self._orig_to_table is not None:
-            client.to_table = self._orig_to_table
-        if exc_type:
-            return
+        try:
+            client._build_metrics = self._orig_build_metrics
+        finally:
+            if self._orig_to_table is not None:
+                client.to_table = self._orig_to_table
         self._dfs = self._build_dataframes()
         _log.info(
             "SparkConnectCapture: captured %d quer(y/ies), %d plan(s)",
@@ -370,10 +387,6 @@ class SparkConnectCapture:
 
     @property
     def dfs(self) -> ParsedLogDataFrames | None:
-        return self._dfs
-
-    @property
-    def _parsed_logs(self) -> ParsedLogDataFrames | None:
         return self._dfs
 
     def _build_dataframes(self) -> ParsedLogDataFrames:

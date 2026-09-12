@@ -5,7 +5,12 @@ from typing import Any
 
 import polars as pl
 
-from sparkparse.models import NodeType, ParsedLogDataFrames
+from sparkparse.models import (
+    CapabilityStatus,
+    CaptureResult,
+    NodeType,
+    ParsedLogDataFrames,
+)
 from sparkparse.storage import write_text
 
 _JOIN_NODE_TYPES = frozenset(
@@ -125,7 +130,7 @@ def _fmt_rows(n: int | None) -> str:
 
 
 def to_plan_summary(
-    dfs: ParsedLogDataFrames,
+    dfs: ParsedLogDataFrames | CaptureResult,
     log_name: str,
     out_path: str | None = None,
 ) -> dict[str, Any]:
@@ -202,18 +207,25 @@ def to_plan_summary(
             }
         )
 
-    agg = combined.select(
-        pl.sum("bytes_read").alias("bytes_read"),
-        pl.sum("records_read").alias("records_read"),
-        pl.sum("bytes_written").alias("bytes_written"),
-        pl.sum("records_written").alias("records_written"),
-        pl.sum("memory_bytes_spilled").alias("memory_bytes_spilled"),
-        pl.sum("disk_bytes_spilled").alias("disk_bytes_spilled"),
-        pl.sum("shuffle_bytes_read").alias("shuffle_bytes_read"),
-        pl.sum("shuffle_bytes_written").alias("shuffle_bytes_written"),
-        pl.sum("executor_run_time_seconds").alias("executor_run_time_seconds"),
-        pl.sum("jvm_gc_time_seconds").alias("jvm_gc_time_seconds"),
-    ).row(0, named=True)
+    total_columns = (
+        "bytes_read",
+        "records_read",
+        "bytes_written",
+        "records_written",
+        "memory_bytes_spilled",
+        "disk_bytes_spilled",
+        "shuffle_bytes_read",
+        "shuffle_bytes_written",
+        "executor_run_time_seconds",
+        "jvm_gc_time_seconds",
+    )
+    if combined.height == 0:
+        # An empty task table is a valid Connect result, not evidence of zero work.
+        agg = {column: None for column in total_columns}
+    else:
+        agg = combined.select(
+            *(pl.sum(column).alias(column) for column in total_columns)
+        ).row(0, named=True)
 
     summary = {
         "log_name": log_name,
@@ -221,13 +233,26 @@ def to_plan_summary(
         "totals": agg,
     }
 
+    if isinstance(dfs, CaptureResult):
+        summary["metadata"] = dfs.metadata.model_dump(mode="json")
+        summary["capabilities"] = dfs.capabilities.model_dump(mode="json")
+        summary["diagnostics"] = [d.model_dump(mode="json") for d in dfs.diagnostics]
+        if dfs.capabilities.task_metrics.status != CapabilityStatus.available:
+            summary["totals"] = dict.fromkeys(total_columns)
+        for query in queries:
+            coverage = dfs.capabilities.query_elapsed_time.query_coverage.get(
+                str(query["query_id"])
+            )
+            if coverage != CapabilityStatus.available:
+                query["duration_seconds"] = None
+
     if out_path is not None:
         write_text(out_path, json.dumps(summary, indent=2, default=str))
 
     return summary
 
 
-def find_cartesian_joins(dfs: ParsedLogDataFrames) -> pl.DataFrame:
+def find_cartesian_joins(dfs: ParsedLogDataFrames | CaptureResult) -> pl.DataFrame:
     """
     Return DAG nodes that are cartesian or cross joins.
 
@@ -347,7 +372,9 @@ def find_row_count_explosions(
     return pl.DataFrame(records).sort("ratio", descending=True)
 
 
-def find_largest_scans(dfs: ParsedLogDataFrames, n: int = 10) -> pl.DataFrame:
+def find_largest_scans(
+    dfs: ParsedLogDataFrames | CaptureResult, n: int = 10
+) -> pl.DataFrame:
     """
     Return the top N scan nodes by total bytes read.
 

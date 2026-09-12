@@ -23,7 +23,12 @@ from typing import cast
 import polars as pl
 
 from sparkparse.analyze import find_cartesian_joins, find_largest_scans
-from sparkparse.models import ParsedLogDataFrames, RunRecord
+from sparkparse.models import (
+    CapabilityStatus,
+    CaptureResult,
+    ParsedLogDataFrames,
+    RunRecord,
+)
 from sparkparse.storage import (
     append_text,
     ensure_dir,
@@ -68,7 +73,9 @@ def _resolve_read_format(format: HistoryFormat, history_path: str) -> str:
     return "delta" if _delta_available() else "jsonl"
 
 
-def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
+def record_from_dfs(
+    dfs: ParsedLogDataFrames | CaptureResult, log_name: str
+) -> RunRecord:
     """Derive a ``RunRecord`` from parsed DataFrames.
 
     Reuses ``analyze.find_cartesian_joins`` and ``analyze.find_largest_scans``
@@ -77,59 +84,118 @@ def record_from_dfs(dfs: ParsedLogDataFrames, log_name: str) -> RunRecord:
     dag = dfs.dag
     combined = dfs.combined
 
-    start_ts = dag["query_start_timestamp"].str.to_datetime(format=_TS_FORMAT).min()
-    end_ts = dag["query_end_timestamp"].str.to_datetime(format=_TS_FORMAT).max()
+    start_ts = None
+    end_ts = None
+    if (
+        "query_start_timestamp" in dag.columns
+        and "query_end_timestamp" in dag.columns
+        and dag.height > 0
+    ):
+        start_ts = (
+            dag["query_start_timestamp"]
+            .str.to_datetime(format=_TS_FORMAT, strict=False)
+            .drop_nulls()
+            .min()
+        )
+        end_ts = (
+            dag["query_end_timestamp"]
+            .str.to_datetime(format=_TS_FORMAT, strict=False)
+            .drop_nulls()
+            .max()
+        )
     if start_ts is not None and end_ts is not None:
         assert isinstance(start_ts, datetime.datetime)
         assert isinstance(end_ts, datetime.datetime)
         duration_s = (end_ts - start_ts).total_seconds()
     else:
-        duration_s = 0.0
+        duration_s = None
 
-    totals = combined.select(
-        pl.sum("bytes_read").alias("bytes_read"),
-        pl.sum("bytes_written").alias("bytes_written"),
-        pl.sum("shuffle_bytes_read").alias("shuffle_bytes_read"),
-        pl.sum("shuffle_bytes_written").alias("shuffle_bytes_written"),
-        pl.sum("memory_bytes_spilled").alias("memory_bytes_spilled"),
-        pl.sum("disk_bytes_spilled").alias("disk_bytes_spilled"),
-    ).row(0, named=True)
+    def total(column: str) -> int | None:
+        if column not in combined.columns or combined.height == 0:
+            return None
+        values = combined[column].drop_nulls()
+        if len(values) == 0:
+            return None
+        return int(values.sum() or 0)
 
-    n_cartesian = find_cartesian_joins(dfs).height
+    bytes_read = total("bytes_read")
+    bytes_written = total("bytes_written")
+    shuffle_read = total("shuffle_bytes_read")
+    shuffle_written = total("shuffle_bytes_written")
+    memory_spilled = total("memory_bytes_spilled")
+    disk_spilled = total("disk_bytes_spilled")
 
-    max_node_dur = dag["node_duration_minutes"].max()
-    if isinstance(max_node_dur, int | float):
-        max_node_duration_min = float(max_node_dur)
-    else:
-        max_node_duration_min = 0.0
+    n_cartesian = find_cartesian_joins(dfs).height if dag.height else None
 
-    largest_scans = find_largest_scans(dfs, n=1)
-    if largest_scans.is_empty():
-        max_scan_bytes = 0
-    else:
-        val = largest_scans["bytes_read"][0]
-        max_scan_bytes = int(val) if val is not None else 0
+    max_node_duration_min = None
+    if "node_duration_minutes" in dag.columns and dag.height:
+        max_node_dur = dag["node_duration_minutes"].drop_nulls().max()
+        if isinstance(max_node_dur, int | float):
+            max_node_duration_min = float(max_node_dur)
 
-    return RunRecord(
+    max_scan_bytes = None
+    if dag.height:
+        largest_scans = find_largest_scans(dfs, n=1)
+        if not largest_scans.is_empty():
+            val = largest_scans["bytes_read"][0]
+            max_scan_bytes = int(val) if val is not None else None
+
+    n_queries = (
+        dag["query_id"].n_unique() if "query_id" in dag.columns and dag.height else None
+    )
+    n_stages = (
+        combined["stage_id"].n_unique()
+        if "stage_id" in combined.columns and combined.height
+        else None
+    )
+    n_tasks = combined.height if combined.height else None
+
+    record = RunRecord(
         run_id=uuid.uuid4().hex,
         run_at=datetime.datetime.now(datetime.UTC),
         log_name=log_name,
         duration_s=duration_s,
-        bytes_read=int(totals["bytes_read"] or 0),
-        bytes_written=int(totals["bytes_written"] or 0),
-        shuffle_bytes=int(
-            (totals["shuffle_bytes_read"] or 0) + (totals["shuffle_bytes_written"] or 0)
-        ),
-        spill_bytes=int(
-            (totals["memory_bytes_spilled"] or 0) + (totals["disk_bytes_spilled"] or 0)
-        ),
-        n_queries=dag["query_id"].n_unique(),
-        n_stages=combined["stage_id"].n_unique(),
-        n_tasks=combined.height,
+        bytes_read=bytes_read,
+        bytes_written=bytes_written,
+        shuffle_bytes=(shuffle_read + shuffle_written)
+        if shuffle_read is not None and shuffle_written is not None
+        else None,
+        spill_bytes=(memory_spilled + disk_spilled)
+        if memory_spilled is not None and disk_spilled is not None
+        else None,
+        n_queries=n_queries,
+        n_stages=n_stages,
+        n_tasks=n_tasks,
         n_cartesian_joins=n_cartesian,
         max_node_duration_min=max_node_duration_min,
         max_scan_bytes=max_scan_bytes,
     )
+    if isinstance(dfs, CaptureResult):
+        record.run_id = dfs.metadata.capture_id
+        record.run_at = dfs.metadata.capture_start
+        requirements = {
+            "task_metrics": [
+                "bytes_read",
+                "bytes_written",
+                "shuffle_bytes",
+                "spill_bytes",
+                "n_tasks",
+                "n_stages",
+                "max_scan_bytes",
+            ],
+            "query_elapsed_time": ["duration_s"],
+            "operator_metrics": ["max_node_duration_min"],
+            "join_details": ["n_cartesian_joins"],
+            "plan_structure": ["n_queries"],
+        }
+        for capability, metrics in requirements.items():
+            if (
+                getattr(dfs.capabilities, capability).status
+                != CapabilityStatus.available
+            ):
+                for metric in metrics:
+                    setattr(record, metric, None)
+    return record
 
 
 def append(
@@ -186,7 +252,7 @@ def read(
         return df
 
     if df["run_at"].dtype == pl.String:
-        df = df.with_columns(pl.col("run_at").str.to_datetime())
+        df = df.with_columns(pl.col("run_at").str.to_datetime(time_zone="UTC"))
 
     if log_name is not None:
         df = df.filter(pl.col("log_name") == log_name)

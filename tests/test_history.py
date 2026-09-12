@@ -12,6 +12,24 @@ from sparkparse.parse import parse_log
 DATA_DIR = Path(__file__).parent / "data" / "full_logs"
 
 
+def test_jsonl_history_normalizes_timestamp_offsets_to_utc(tmp_path):
+    instant = datetime.datetime(
+        2026,
+        9,
+        12,
+        12,
+        30,
+        1,
+        123456,
+        tzinfo=datetime.timezone(datetime.timedelta(hours=-4)),
+    )
+    path = str(tmp_path / "history.jsonl")
+    append(_make_record(run_at=instant), path, format="jsonl")
+    restored = read(path, format="jsonl")["run_at"][0]
+    assert restored == instant.astimezone(datetime.UTC)
+    assert restored.utcoffset() == datetime.timedelta(0)
+
+
 @pytest.fixture(scope="module")
 def dfs_nested() -> ParsedLogDataFrames:
     log_path = DATA_DIR / "nested_final_plans"
@@ -66,6 +84,17 @@ def test_record_from_dfs_valid(dfs_nested):
     assert record.log_name == "nested_final_plans"
     assert len(record.run_id) == 32  # uuid4 hex
     assert isinstance(record.run_at, datetime.datetime)
+    assert record.duration_s is not None
+    assert record.bytes_read is not None
+    assert record.bytes_written is not None
+    assert record.shuffle_bytes is not None
+    assert record.spill_bytes is not None
+    assert record.n_queries is not None
+    assert record.n_stages is not None
+    assert record.n_tasks is not None
+    assert record.n_cartesian_joins is not None
+    assert record.max_node_duration_min is not None
+    assert record.max_scan_bytes is not None
     assert record.duration_s > 0
     assert record.bytes_read >= 0
     assert record.bytes_written >= 0
@@ -82,16 +111,20 @@ def test_record_from_dfs_valid(dfs_nested):
 def test_record_from_dfs_duration_wall_clock(dfs_nested):
     record = record_from_dfs(dfs_nested, "nested_final_plans")
     total_query_duration = dfs_nested.dag["query_duration_seconds"].sum()
+    assert record.duration_s is not None
     assert 0 < record.duration_s <= total_query_duration
 
 
 def test_record_from_dfs_cartesian_count(dfs_loop_join):
     record = record_from_dfs(dfs_loop_join, "nested_loop_join")
+    assert record.n_cartesian_joins is not None
     assert record.n_cartesian_joins > 0
 
 
 def test_record_from_dfs_complex(dfs_complex):
     record = record_from_dfs(dfs_complex, "complex_transformation_medium")
+    assert record.n_queries is not None
+    assert record.n_tasks is not None
     assert record.n_queries > 0
     assert record.n_tasks > 0
 

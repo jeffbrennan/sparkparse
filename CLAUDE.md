@@ -37,7 +37,7 @@ Spark event log (JSONL)
 | `sparkparse/parse.py`   | `get_parsed_metrics()` is the main entry point. `parse_spark_ui_tree()` converts indented ASCII plans to node graphs. `parse_log()` orchestrates everything.     |
 | `sparkparse/clean.py`   | `log_to_dag_df()` and `log_to_combined_df()` produce the two output DataFrames. `get_readable_size()` and `get_readable_timing()` are Polars expression helpers. |
 | `sparkparse/app.py`     | Typer CLI. `get` → parses and writes output files. `viz` → launches dashboard.                                                                                   |
-| `sparkparse/capture.py` | `SparkparseCapture` context manager/decorator. Stops the active session, restarts it with event logging enabled, then processes logs on `__exit__`.              |
+| `sparkparse/capture.py` | `SparkparseCapture` context manager/decorator. Borrows configured sessions, supports explicit owned sessions, and finalizes results on `__exit__`.              |
 
 ## Data model
 
@@ -179,8 +179,8 @@ uv run pyrefly check sparkparse/ tests/  # type check
 
 ## Known quirks
 
-- `capture.py` stops and restarts the SparkSession to enable event logging — this resets
-  all in-memory cached DataFrames. Warn users accordingly.
+- `capture.py` borrows supplied SparkSessions and requires event logging to be enabled
+  before capture. Use `cap.spark` inside the context; opt into an owned session explicitly.
 - `test.py` and `test_capture.py` in `tests/` are integration tests that spin up a local
   SparkSession. They are slow and cannot run in CI without a JVM available.
 - `falsa` is listed in `[project.dependencies]` but its usage in the codebase is unclear —

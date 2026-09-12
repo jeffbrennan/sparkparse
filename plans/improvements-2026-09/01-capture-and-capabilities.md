@@ -1,7 +1,21 @@
 # 01 — Safe capture and an explicit capability contract
 
-Status: proposed. Priority: P0. Primary files: `capture.py`, `models.py`,
+Status: implemented; offline and Databricks Free serverless smoke-tested. Priority: P0. Primary files: `capture.py`, `models.py`,
 `connect.py`, `analyze.py`, `history.py`, and public exports.
+
+Review corrections: owned logs are parsed after session shutdown; borrowed logs
+are selected by application ID, not filename ordering. Explicit backend selection,
+session-free file ingestion, capture-error policy, schema-preserving JSON, and
+in-memory HTML reports are implemented. Analysis/history consume coverage and
+retain unavailable totals as null. Coverage remains conservative when completeness
+cannot be established. These corrections have local regression coverage and passed
+Databricks Free serverless run `566565689796128` on 2026-09-12. The expanded notebook
+verified populated/empty serialization, analysis metadata, history nulls and alert
+suppression, HTML reports, exception recovery, fresh decorator state, session
+preservation, and hook restoration. The first remote run exposed timezone inference
+failure in history reads with newer Polars; explicit UTC parsing fixed it, with a
+local offset-normalization regression test. Classic shutdown/log-flushing behavior
+is covered locally, not by this Connect-only remote run.
 
 ## Evidence and problem
 
@@ -22,9 +36,10 @@ defined common contract plus optional tables/fields.
 ## Design
 
 Introduce a versioned capture result containing `dag`, `combined`, metadata,
-capabilities, and diagnostics. Retain `ParsedLogDataFrames` compatibility through a
-documented adapter and retain `_parsed_logs` temporarily as an alias. Expose public
-`cap.dfs`, `cap.analysis`, `cap.result`, `cap.last_record`, and `cap.triggered_alerts`.
+capabilities, and diagnostics. `ParsedLogDataFrames` remains an internal parser/table
+container; the capture API exposes the new result directly through
+`cap.result`, alongside `cap.dfs`, `cap.analysis`, `cap.last_record`, and
+`cap.triggered_alerts`. No legacy capture aliases are maintained.
 Use one source-neutral finalizer for get/analyze/report, history, and alerts.
 
 Metadata should contain capture/run ID, source application/session ID if observed,
@@ -64,9 +79,9 @@ nested capture deliberately, and create fresh state for each decorator invocatio
 
 ## Increments and acceptance
 
-1. Add metadata/capability models and adapters. Existing constructors still work;
-   legacy data has unknown coverage rather than assumed completeness. Contract tests
-   cover empty, classic, and Connect-shaped results and serialization round trips.
+1. Add metadata/capability models. Legacy capture aliases are intentionally removed;
+   raw parser tables have unknown coverage rather than assumed completeness. Contract
+   tests cover empty, classic, and Connect-shaped results and serialization round trips.
 2. Refactor the common finalizer. Mock both backends and verify get/analyze/history/
    alerts run equivalently without requiring a log directory. Invalid actions fail
    at construction. Missing coverage produces diagnostics, never invented totals.

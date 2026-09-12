@@ -1,4 +1,6 @@
+import base64
 import datetime
+import io
 import json
 from enum import StrEnum, auto
 from typing import Annotated, Any
@@ -10,6 +12,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -1477,6 +1480,105 @@ class ParsedLogDataFrames(BaseModel):
     dag: pl.DataFrame
 
 
+class CaptureStatus(StrEnum):
+    complete = "complete"
+    partial = "partial"
+    failed = "failed"
+
+
+class CapabilityStatus(StrEnum):
+    not_applicable = "not_applicable"
+    available = "available"
+    partial = "partial"
+    unavailable = "unavailable"
+    unknown = "unknown"
+
+
+class CaptureCapability(BaseModel):
+    """Coverage for one family of metrics in a capture.
+
+    ``query_coverage`` uses string query IDs so the contract remains JSON
+    serializable even when a backend uses non-integer execution identifiers.
+    """
+
+    status: CapabilityStatus = CapabilityStatus.unknown
+    reason: str | None = None
+    source: str | None = None
+    query_coverage: dict[str, CapabilityStatus] = Field(default_factory=dict)
+
+
+class CaptureCapabilities(BaseModel):
+    """Explicit, source-neutral metric coverage for a capture."""
+
+    plan_structure: CaptureCapability = Field(default_factory=CaptureCapability)
+    operator_metrics: CaptureCapability = Field(default_factory=CaptureCapability)
+    query_elapsed_time: CaptureCapability = Field(default_factory=CaptureCapability)
+    task_metrics: CaptureCapability = Field(default_factory=CaptureCapability)
+    stage_timing: CaptureCapability = Field(default_factory=CaptureCapability)
+    scan_details: CaptureCapability = Field(default_factory=CaptureCapability)
+    join_details: CaptureCapability = Field(default_factory=CaptureCapability)
+
+
+class CaptureMetadata(BaseModel):
+    """Identity and lifecycle metadata attached to every capture result."""
+
+    capture_id: str
+    backend: str
+    transport: str | None = None
+    compute_type: str | None = None
+    access_mode: str | None = None
+    source_application_id: str | None = None
+    source_session_id: str | None = None
+    client_version: str | None = None
+    runtime_version: str | None = None
+    capture_start: datetime.datetime
+    capture_end: datetime.datetime | None = None
+    status: CaptureStatus = CaptureStatus.complete
+    schema_version: str = "1"
+    workload_label: str | None = None
+
+
+class CaptureDiagnostic(BaseModel):
+    """A recoverable or terminal issue observed while producing a result."""
+
+    code: str
+    message: str
+    phase: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class CaptureResult(BaseModel):
+    """Versioned capture artifact containing data, coverage, and diagnostics."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    dag: pl.DataFrame
+    combined: pl.DataFrame
+    metadata: CaptureMetadata
+    capabilities: CaptureCapabilities
+    diagnostics: list[CaptureDiagnostic] = Field(default_factory=list)
+
+    @field_validator("dag", "combined", mode="before")
+    @classmethod
+    def coerce_frame(cls, value: Any) -> pl.DataFrame:
+        if isinstance(value, pl.DataFrame):
+            return value
+        if isinstance(value, dict) and value.get("format") == "arrow-ipc":
+            return pl.read_ipc(
+                io.BytesIO(base64.b64decode(value["data"], validate=True))
+            )
+        raise TypeError(f"Expected a Polars DataFrame, got {type(value)!r}")
+
+    @field_serializer("dag", "combined")
+    def serialize_frame(self, value: pl.DataFrame) -> dict[str, str]:
+        buffer = io.BytesIO()
+        value.write_ipc(buffer)
+        return {
+            "format": "arrow-ipc",
+            "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+        }
+
+
 NODE_ID_PATTERN = r".*\((\d+)\)"
 NODE_TYPE_PATTERN = r"(\b\w+\b).*\(\d{1,4}\)"
 NODE_TYPE_DETAIL_MAP: dict[NodeType, type[BaseModel]] = {
@@ -1547,14 +1649,14 @@ class RunRecord(BaseModel):
     run_id: str
     run_at: datetime.datetime
     log_name: str
-    duration_s: float
-    bytes_read: int
-    bytes_written: int
-    shuffle_bytes: int
-    spill_bytes: int
-    n_queries: int
-    n_stages: int
-    n_tasks: int
-    n_cartesian_joins: int
-    max_node_duration_min: float
-    max_scan_bytes: int
+    duration_s: float | None
+    bytes_read: int | None
+    bytes_written: int | None
+    shuffle_bytes: int | None
+    spill_bytes: int | None
+    n_queries: int | None
+    n_stages: int | None
+    n_tasks: int | None
+    n_cartesian_joins: int | None
+    max_node_duration_min: float | None
+    max_scan_bytes: int | None

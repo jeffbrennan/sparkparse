@@ -42,8 +42,29 @@ import sparkparse
 with sparkparse.capture_context(spark=spark, action="get") as cap:
     df.groupBy("id").count().show()
 
-parsed = cap._parsed_logs  # ParsedLogDataFrames with .dag and .combined
+parsed = cap.dfs  # ParsedLogDataFrames with .dag and .combined
+result = cap.result  # dataframes, metadata, capabilities, and diagnostics
 ```
+
+Capture borrows a supplied Spark session and never stops or recreates it. Borrowed
+classic sessions must have event logging enabled before the workload starts. When
+sparkparse should own a local session, opt in explicitly with
+`capture_context(own_session=True)`. Connect captures expose the same result contract,
+with unavailable task/stage telemetry called out in `result.capabilities` rather than
+represented as zeroes.
+
+Use `backend="classic"` or `backend="connect"` to override detection. For post-run
+ingestion without a Spark session, use `backend="event_log", log_file="/path/to/log"`.
+Borrowed captures select the current application's log; use an explicit `log_file`
+when its filename cannot be identified. They report ambiguous capture scope and
+may observe an incomplete log. Owned captures stop their session before parsing.
+
+Capture failures raise by default; `capture_errors="record"` retains diagnostics
+and a partial result instead. This is independent of parser `strict=True`. Failed
+captures retain their temporary logs. User workload exceptions always take precedence.
+`action="viz"` produces an in-memory HTML report in `cap.report`, including coverage,
+on either backend; it does not launch a dashboard server. Capture-result JSON uses
+Arrow IPC tables to preserve schemas, including empty tables and nested metrics.
 
 ### decorator
 
