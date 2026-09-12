@@ -1,7 +1,36 @@
 # 02 — Reliable Spark Connect capture
 
-Status: proposed. Priority: P0. Depends on 01's identity and coverage contract.
+Status: implemented offline; not live-validated. Priority: P0. Depends on 01's
+identity and coverage contract.
 Primary file: `connect.py`; add `tests/test_connect.py` and sanitized fixtures.
+
+Implementation notes (2026-09-12): the adapter now intercepts action boundaries
+(`to_table`, `to_pandas`, `to_table_as_iterator`, `execute_command`,
+`execute_command_as_iterator`) plus `_build_metrics` and
+`_execute_plan_request_with_metadata`. Hooks are probed for presence, installed
+atomically, and the exact originals are restored (no leftover instance attributes) on
+setup failure, workload failure, and normal exit. A second capture on one client is
+rejected. Metrics are attributed to the execution active on the calling thread, so
+plan/metric correlation no longer depends on list position; metric batches are treated
+as snapshots (last value per plan ID wins) because pyspark's own
+`CollectedMetrics.extract_graph` replaces rather than accumulates repeats. Join keys
+are attached only on a logical plan-ID match, a single-join-per-query mapping, or an
+operator name that carries them; anything else stays unresolved with a diagnostic, and
+joins record `input_roles: unordered`. Unknown operators degrade to `NodeType.Unknown`
+with their raw names preserved unless `strict=True`. `query_duration_seconds` is
+client-observed elapsed time (capability capped at `partial`, reason states the
+transfer inclusion); cumulative operator time stays per node with its source unit.
+Connect diagnostics now reach `CaptureResult.diagnostics`, and `source_execution_id`
+carries the server operation ID. `probe_connect_support()` reports the client surface
+including `DataFrame.executionInfo` availability; the public API was not substituted
+for interception because it is scoped to one already-executed DataFrame and cannot
+observe SQL commands, writes, or other objects' actions.
+
+Offline validation: `tests/test_connect.py` (39 cases, no Spark/gRPC needed) plus
+`tests/data/connect/photon_join_execution.json`, a **synthetic** sanitized fixture in
+the `PlanMetrics.to_dict()` shape — it is not a recording of a live Databricks run.
+Live validation from 05 (bounded serverless job, recorded real PlanMetrics and version
+metadata) is still outstanding.
 
 ## Evidence
 

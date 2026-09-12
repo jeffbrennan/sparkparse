@@ -37,6 +37,7 @@ Spark event log (JSONL)
 | `sparkparse/parse.py`   | `get_parsed_metrics()` is the main entry point. `parse_spark_ui_tree()` converts indented ASCII plans to node graphs. `parse_log()` orchestrates everything.     |
 | `sparkparse/clean.py`   | `log_to_dag_df()` and `log_to_combined_df()` produce the two output DataFrames. `get_readable_size()` and `get_readable_timing()` are Polars expression helpers. |
 | `sparkparse/app.py`     | Typer CLI. `get` → parses and writes output files. `viz` → launches dashboard.                                                                                   |
+| `sparkparse/connect.py` | Spark Connect adapter. Intercepts client action boundaries and `_build_metrics`, attributes metrics per execution/thread, and builds the dag frame. `probe_connect_support()` reports the client surface; `SparkConnectCapture.from_plan_metrics()` replays recorded executions offline. |
 | `sparkparse/capture.py` | `SparkparseCapture` context manager/decorator. Borrows configured sessions, supports explicit owned sessions, and finalizes results on `__exit__`.              |
 
 ## Data model

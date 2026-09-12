@@ -1,0 +1,55 @@
+{
+  "source": "synthetic",
+  "provenance": "Hand-written from the PlanMetrics.to_dict() shape emitted by the Spark Connect client; not recorded from a live Databricks run.",
+  "client_version": "4.1.2",
+  "runtime_version": "unverified",
+  "executions": [
+    {
+      "action": "to_table",
+      "operation_id": "op-fixture-0",
+      "start": "2026-09-12T18:04:11+00:00",
+      "elapsed_seconds": 4.219,
+      "plan_metrics": [
+        {
+          "name": "PhotonResultStage",
+          "plan_id": 1,
+          "parent_plan_id": 1,
+          "metrics": [
+            {"name": "cumulTime", "value": 3820000000, "type": "nsTiming"},
+            {"name": "numOutputRows", "value": 1204, "type": "sum"}
+          ]
+        },
+        {
+          "name": "PhotonSortMergeJoin",
+          "plan_id": 2,
+          "parent_plan_id": 1,
+          "metrics": [
+            {"name": "cumulTime", "value": 2950000000, "type": "nsTiming"},
+            {"name": "numOutputRows", "value": 1204, "type": "sum"},
+            {"name": "numBytesSpilled", "value": 1048576, "type": "size"}
+          ]
+        },
+        {
+          "name": "PhotonScan parquet main.sales.orders [order_id, customer_id, amount]",
+          "plan_id": 3,
+          "parent_plan_id": 2,
+          "metrics": [
+            {"name": "cumulTime", "value": 1210000000, "type": "nsTiming"},
+            {"name": "numOutputRows", "value": 98211, "type": "sum"},
+            {"name": "numFiles", "value": 12, "type": "sum"}
+          ]
+        },
+        {
+          "name": "PhotonScan parquet main.sales.customers [customer_id, region]",
+          "plan_id": 4,
+          "parent_plan_id": 2,
+          "metrics": [
+            {"name": "cumulTime", "value": 430000000, "type": "nsTiming"},
+            {"name": "numOutputRows", "value": 1204, "type": "sum"},
+            {"name": "numFiles", "value": 2, "type": "sum"}
+          ]
+        }
+      ]
+    }
+  ]
+}
