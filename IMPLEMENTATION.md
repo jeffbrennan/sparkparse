@@ -1,5 +1,9 @@
 # sparkparse Implementation Roadmap
 
+> Historical roadmap. For the current review and future implementation briefs, see
+> [the September 2026 implementation queue](plans/improvements-2026-09/README.md).
+> Several items below are already implemented; use the new queue for remaining work.
+
 This document describes the planned improvements to sparkparse across three high-level goals,
 broken into self-contained PRs that can be reviewed and merged independently.
 

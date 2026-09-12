@@ -66,7 +66,9 @@ result, cap = run_job()
 
 ## development
 
-See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the planned improvement roadmap.
+See the [September 2026 review and implementation queue](plans/improvements-2026-09/README.md)
+for prioritized standard/serverless parity and developer experience improvements.
+[IMPLEMENTATION.md](IMPLEMENTATION.md) contains the earlier roadmap.
 
 ```bash
 # install with dev dependencies
