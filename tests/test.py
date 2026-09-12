@@ -23,6 +23,14 @@ def config(data_size: str = "small"):
     base_dir = Path(__file__).parents[1] / "data"
     data_path = base_dir / "raw" / f"G1_{data_lookup[data_size]}_100_0.parquet"
     log_dir = base_dir / "logs" / "raw"
+    if not data_path.exists():
+        pytest.skip(
+            f"missing generated fixture {data_path}; run `just gen-data` to "
+            f"create it (data/ is not committed)"
+        )
+    # Spark refuses to start when the event log directory does not exist yet,
+    # and nothing under data/ is committed, so a fresh checkout has none.
+    log_dir.mkdir(parents=True, exist_ok=True)
     spark = get_spark(log_dir)
 
     return spark, data_path, base_dir
