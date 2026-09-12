@@ -2,20 +2,35 @@ name: test
 
 on:
   pull_request:
-    types: [opened, reopened]
-  merge_group:
+    types: [opened, reopened, ready_for_review]
   workflow_dispatch:
 
-# Runs when a PR is opened or reopened, and again when a PR is queued to merge
-# (merge_group) -- not on every push, to keep runner usage down.
+# Runs when a PR is opened or reopened, and when a draft PR is marked ready --
+# not on every push, to keep runner usage down. The intended flow is to open
+# work as a draft, push freely at no cost, then mark it ready:
 #
-# The merge_group run is what gates the merge. A workflow_dispatch run does NOT:
-# its check suite is not associated with the pull request, so the check lands on
-# the commit but never satisfies the required context on the PR. Before the merge
-# queue was adopted, a PR pushed to after opening stayed BLOCKED with no way to
-# clear it except closing and reopening the PR.
+#   gh pr create --draft      # no CI
+#   git push                  # no CI
+#   gh pr ready               # CI runs, and gates the merge
 #
-# Branch protection on `main` requires the `test` check to pass before merge:
+# To re-run after pushing to an already-ready PR, send it back and forward
+# again: `gh pr ready --undo && gh pr ready`.
+#
+# Only a run from one of these pull_request events can satisfy branch
+# protection. A workflow_dispatch run does NOT: its check suite is not
+# associated with the pull request, so the check lands on the commit but the
+# required context on the PR stays unfulfilled. Verified on PR #20, where
+# `test` and `test-full` both passed on the head sha while the PR stayed
+# BLOCKED. Merge queue (merge_group) would be the tidier answer but is not
+# available on this account.
+#
+# Branch protection on `main` requires `test` and `test-full` to pass before
+# merge. Update contexts WITHOUT clobbering the rest of the config:
+#   gh api -X PATCH repos/jeffbrennan/sparkparse/branches/main/protection/required_status_checks \
+#     -f 'contexts[]=test' -f 'contexts[]=test-full'
+#
+# The full-object PUT below replaces everything and silently drops any setting
+# it does not restate; prefer the PATCH above.
 #   gh api -X PUT repos/jeffbrennan/sparkparse/branches/main/protection --input - <<'EOF'
 #   {
 #     "required_status_checks": {
