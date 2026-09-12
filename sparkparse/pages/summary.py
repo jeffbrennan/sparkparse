@@ -5,7 +5,7 @@ import polars as pl
 from dash import Input, Output, callback, dash_table, dcc, get_app, html
 from pydantic import BaseModel
 
-from sparkparse.analyze import get_issues
+from sparkparse.analyze import analyze_dfs
 from sparkparse.clean import get_job_idle_time, get_readable_col
 from sparkparse.common import resolve_dir, timeit
 from sparkparse.parse import get_parsed_metrics
@@ -493,7 +493,15 @@ def get_records(log_name: str, **kwargs):
     dfs = get_parsed_metrics(
         log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
     )
-    issues = get_issues(dfs)
+    report = analyze_dfs(dfs, log_name)
+    issues = {
+        "findings": [finding.model_dump(mode="json") for finding in report.findings],
+        "not_evaluated": [
+            assessment.model_dump(mode="json")
+            for assessment in report.assessments
+            if assessment.status != "evaluated"
+        ],
+    }
     return dfs.combined.to_pandas().to_dict("records"), issues
 
 
@@ -501,8 +509,13 @@ def get_records(log_name: str, **kwargs):
     Output("issues-panel", "children"),
     Input("issues-data", "data"),
 )
-def render_issues_panel(issues: list[dict]):
+def render_issues_panel(issues: dict | None):
     if not issues:
+        return []
+
+    findings = issues.get("findings", [])
+    not_evaluated = issues.get("not_evaluated", [])
+    if not findings and not not_evaluated:
         return []
 
     severity_color = {"critical": "danger", "warning": "warning"}
@@ -511,22 +524,62 @@ def render_issues_panel(issues: list[dict]):
         dbc.ListGroupItem(
             [
                 dbc.Badge(
-                    issue["category"],
-                    color=severity_color.get(issue["severity"], "secondary"),
+                    finding["category"],
+                    color=severity_color.get(finding["severity"], "secondary"),
                     className="me-2",
                 ),
-                issue["message"],
+                finding["observation"],
+                html.Small(
+                    f" ({finding['confidence']} confidence)", className="text-muted"
+                ),
+                html.Div(
+                    finding["caveat"],
+                    className="text-muted small fst-italic",
+                )
+                if finding.get("caveat")
+                else None,
             ],
-            color=severity_color.get(issue["severity"], "secondary"),
+            color=severity_color.get(finding["severity"], "secondary"),
         )
-        for issue in issues
+        for finding in findings
     ]
 
-    return [
-        html.H5(f"Issues ({len(issues)} found)", className="table-title"),
-        dbc.ListGroup(rows, flush=True),
-        html.Br(),
-    ]
+    children = []
+    if findings:
+        children.extend(
+            [
+                html.H5(f"Issues ({len(findings)} found)", className="table-title"),
+                dbc.ListGroup(rows, flush=True),
+            ]
+        )
+
+    if not_evaluated:
+        # Missing telemetry must be visible: an empty issue list is not a clean bill.
+        children.extend(
+            [
+                html.H6("Checks not run", className="table-title mt-3"),
+                dbc.ListGroup(
+                    [
+                        dbc.ListGroupItem(
+                            [
+                                dbc.Badge(
+                                    assessment["status"].replace("_", " "),
+                                    color="secondary",
+                                    className="me-2",
+                                ),
+                                f"{assessment['rule_id']}: {assessment['reason']}",
+                            ],
+                            color="light",
+                        )
+                        for assessment in not_evaluated
+                    ],
+                    flush=True,
+                ),
+            ]
+        )
+
+    children.append(html.Br())
+    return children
 
 
 def layout(log_name: str, **kwargs):

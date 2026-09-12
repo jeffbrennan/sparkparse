@@ -68,6 +68,10 @@ _ACCUM_TOTALS_STRUCT = pl.Struct(
         "metric_name": pl.Utf8,
         "metric_type": pl.Utf8,
         "value": pl.Float64,
+        # Exact integer counterpart of ``value``; null when the metric is
+        # fractional or was rescaled. ``value`` is float64 and cannot hold a
+        # count above 2**53 without rounding it.
+        "value_exact": pl.Int64,
         "readable_value": pl.Float64,
         "readable_unit": pl.Utf8,
         "readable_str": pl.Utf8,
@@ -182,7 +186,7 @@ class CapturedMetric:
     """One operator metric as reported by the Connect server."""
 
     name: str
-    value: float
+    value: float | int
     metric_type: str
 
 
@@ -503,6 +507,21 @@ def _convert_metric(
     return norm_type, value, float(readable_value), readable_unit, readable_str
 
 
+def _exact_value(raw_value: float | int, metric_type: str) -> int | None:
+    """Return the metric's exact integer value, when it has one.
+
+    ``nsTiming`` metrics are rescaled to milliseconds for display, so no integer
+    survives that conversion and this returns ``None``.
+    """
+    if metric_type == "nsTiming" or isinstance(raw_value, bool):
+        return None
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, float) and raw_value.is_integer():
+        return int(raw_value)
+    return None
+
+
 def _build_accum_struct(metric: CapturedMetric) -> dict[str, Any]:
     norm_type, value, readable_value, readable_unit, readable_str = _convert_metric(
         metric.value, metric.metric_type
@@ -511,10 +530,30 @@ def _build_accum_struct(metric: CapturedMetric) -> dict[str, Any]:
         "metric_name": metric.name,
         "metric_type": norm_type,
         "value": value,
+        "value_exact": _exact_value(metric.value, metric.metric_type),
         "readable_value": readable_value,
         "readable_unit": readable_unit,
         "readable_str": readable_str,
     }
+
+
+def _numeric(raw_value: Any) -> float | int:
+    """Return a metric value as a number, keeping integers out of float64.
+
+    Row counts arrive as integers and can exceed 2**53; converting them to float
+    here would round them before anything downstream could preserve them.
+    """
+    if isinstance(raw_value, bool):
+        raise TypeError("metric value is a boolean")
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        try:
+            return int(text)
+        except ValueError:
+            return float(text)
+    return float(raw_value)
 
 
 def normalize_plan_metrics(batch: Any) -> tuple[list[CapturedNode], list[str]]:
@@ -547,11 +586,11 @@ def normalize_plan_metrics(batch: Any) -> tuple[list[CapturedNode], list[str]]:
                 if isinstance(raw, dict):
                     metric_name = str(raw["name"])
                     metric_type = str(raw.get("type") or raw.get("metric_type") or "")
-                    value = float(raw["value"])
+                    value = _numeric(raw["value"])
                 else:
                     metric_name = str(raw.name)
                     metric_type = str(raw.metric_type)
-                    value = float(raw.value)
+                    value = _numeric(raw.value)
             except Exception as exc:
                 problems.append(f"unreadable metric on plan node {plan_id}: {exc}")
                 continue

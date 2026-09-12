@@ -24,6 +24,8 @@ Spark event log (JSONL)
         ▼
   sparkparse/models.py         – all Pydantic models and the NodeType / NodeTypeDetailMap
         │
+        ├──▶ sparkparse/metrics.py   – canonical metric registry (names, units, scopes)
+        ├──▶ sparkparse/analyze.py   – raw plan export + evidence-based findings
         ├──▶ sparkparse/app.py       – Typer CLI (get, viz commands)
         ├──▶ sparkparse/dashboard.py – Dash app (multi-page: home, summary, dag)
         └──▶ sparkparse/capture.py   – context manager / decorator for live Spark sessions
@@ -38,6 +40,8 @@ Spark event log (JSONL)
 | `sparkparse/clean.py`   | `log_to_dag_df()` and `log_to_combined_df()` produce the two output DataFrames. `get_readable_size()` and `get_readable_timing()` are Polars expression helpers. |
 | `sparkparse/app.py`     | Typer CLI. `get` → parses and writes output files. `viz` → launches dashboard.                                                                                   |
 | `sparkparse/connect.py` | Spark Connect adapter. Intercepts client action boundaries and `_build_metrics`, attributes metrics per execution/thread, and builds the dag frame. `probe_connect_support()` reports the client surface; `SparkConnectCapture.from_plan_metrics()` replays recorded executions offline. |
+| `sparkparse/metrics.py` | Canonical metric registry. Maps verified classic and Photon/Connect raw metric names onto canonical names with unit, scope and aggregation. Unrecognized metrics are preserved with `canonical=None`, never guessed. |
+| `sparkparse/analyze.py` | `to_plan_summary()` exports raw plan facts; `analyze_dfs()` runs the diagnostic rules and returns an `AnalysisReport` (findings + per-rule `evaluated`/`unsupported`/`insufficient_data` status). `find_*()` helpers are the DataFrame interface. |
 | `sparkparse/capture.py` | `SparkparseCapture` context manager/decorator. Borrows configured sessions, supports explicit owned sessions, and finalizes results on `__exit__`.              |
 
 ## Data model
@@ -47,7 +51,7 @@ Spark event log (JSONL)
 - `query_id`, `query_function`, `query_header`, `query_start/end_timestamp`, `query_duration_seconds`
 - `node_id`, `node_type`, `node_name`, `child_nodes` (comma-separated string), `whole_stage_codegen_id`
 - `details` — JSON string; deserialize with the appropriate model from `NODE_TYPE_DETAIL_MAP`
-- `accumulator_totals` — list of structs: `{metric_name, metric_type, value, readable_str, unit}`
+- `accumulator_totals` — list of structs: `{metric_name, metric_type, value, value_exact, readable_str, unit}`. `value` is `Float64`; `value_exact` is the unrounded `Int64` for metrics that were not rescaled (null for `nsTiming` and `average`), so counts above 2**53 survive.
 - `node_duration_minutes`
 
 ### `combined` DataFrame columns (per task)
@@ -59,6 +63,26 @@ Spark event log (JSONL)
 - Input/output: `bytes_read`, `records_read`, `bytes_written`, `records_written`
 - Shuffle: `shuffle_remote_bytes_read`, `shuffle_local_bytes_read`, `shuffle_bytes_written`
 - Spill: `memory_bytes_spilled`, `disk_bytes_spilled`
+
+### Metric and findings contract
+
+- Raw operator metrics are normalized through `sparkparse/metrics.py`. Use
+  `canonical_metrics(acc_totals, source)` or `metric_value(acc_totals, "output_rows")`
+  rather than matching raw metric names: `number of output rows` (classic) and
+  `numOutputRows` (Photon/Connect) are the same canonical metric.
+- A missing metric is `None`; a measured zero is `0`. Never use `or` to default a
+  metric value — it destroys a legitimate zero. The same applies to task columns:
+  summing a null column yields zero, which reads as "measured zero". Check for
+  usable values (`measured_stages()`) before a rule claims it evaluated anything.
+- Integer counts stay exact end to end: both ingestion paths write `value_exact`
+  alongside the `Float64` `value`, and normalization reads it and never routes an
+  integer through `float`. When adding a metric path, populate `value_exact` for
+  any metric you do not rescale.
+- `scanned_rows` ≠ `output_rows`, operator `spill_bytes` ≠ task memory/disk spill,
+  and `data size` is not scan bytes. Aliases are only registered when verified.
+- Analysis rules return a `RuleAssessment` even when they produce no findings, so a
+  silent rule (`unsupported`, `insufficient_data`) is distinguishable from a clean
+  result. `get_coverage_notes()` surfaces those to the dashboard and CLI.
 
 ### `details` column deserialization
 

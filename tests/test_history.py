@@ -116,9 +116,10 @@ def test_record_from_dfs_duration_wall_clock(dfs_nested):
 
 
 def test_record_from_dfs_cartesian_count(dfs_loop_join):
+    # This log's nested loop join evaluates a condition, so it is counted as a
+    # nested loop join and not as a cartesian product.
     record = record_from_dfs(dfs_loop_join, "nested_loop_join")
-    assert record.n_cartesian_joins is not None
-    assert record.n_cartesian_joins > 0
+    assert record.n_cartesian_joins == 0
 
 
 def test_record_from_dfs_complex(dfs_complex):
