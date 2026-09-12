@@ -1,4 +1,7 @@
-export JAVA_HOME := `/usr/libexec/java_home -v 17 2>/dev/null || echo /opt/homebrew/opt/openjdk@17`
+# A JAVA_HOME already in the environment wins: CI sets one with setup-java, and
+# the macOS lookup below would otherwise replace it with a path that does not
+# exist on a Linux runner.
+export JAVA_HOME := env_var_or_default("JAVA_HOME", `/usr/libexec/java_home -v 17 2>/dev/null || echo /opt/homebrew/opt/openjdk@17`)
 
 ci:
     uv run ruff check sparkparse/ tests/
