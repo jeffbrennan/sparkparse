@@ -171,8 +171,8 @@ class FakeResponse:
     operation_id: str
 
 
-class FakeClient:
-    """A Spark Connect client stub that routes metrics through ``_build_metrics``."""
+class LegacyFakeClient:
+    """A client stub predating ``_verify_response_integrity``, with no response hook."""
 
     def __init__(self, session_id: str = "session-1") -> None:
         self.session_id = session_id
@@ -193,15 +193,13 @@ class FakeClient:
     def _execute_plan_request_with_metadata(self, operation_id: str | None = None):
         return FakeRequest(operation_id or "")
 
-    def _verify_response_integrity(self, response: Any) -> None:
-        return None
-
     def _emit(self, action: str) -> list[Any]:
         self._execute_plan_request_with_metadata()
         response = FakeResponse(f"op-{len(self.operation_ids)}")
         self.operation_ids.append(response.operation_id)
-        if callable(getattr(self, "_verify_response_integrity", None)):
-            self._verify_response_integrity(response)
+        verify = getattr(self, "_verify_response_integrity", None)
+        if callable(verify):
+            verify(response)
         collected: list[Any] = []
         for batch in self._next(action):
             collected.extend(self._build_metrics(batch))
@@ -225,6 +223,14 @@ class FakeClient:
     def execute_command_as_iterator(self, command: Any, observations: Any = None):
         self._emit("execute_command_as_iterator")
         yield {}
+
+
+class FakeClient(LegacyFakeClient):
+    """The current client shape: metrics through ``_build_metrics``, plus the response
+    hook that carries the server-assigned operation id."""
+
+    def _verify_response_integrity(self, response: Any) -> None:
+        return None
 
 
 class FakeSpark:
@@ -933,11 +939,7 @@ def test_a_caller_supplied_request_operation_id_is_still_honoured():
 
 def test_a_client_without_the_response_hook_still_captures():
     """Older clients expose no ``_verify_response_integrity``; capture degrades, not fails."""
-
-    class ClientWithoutResponseHook(FakeClient):
-        _verify_response_integrity = None
-
-    client = ClientWithoutResponseHook()
+    client = LegacyFakeClient()
     client.queue("to_table", [node("Project", 1, 1)])
     with capture_for(client) as capture:
         client.to_table(FakePlan(None))
