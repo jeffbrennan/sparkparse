@@ -172,7 +172,7 @@ displayHTML(plot_dag(dfs))
 # MAGIC ## Live capture: NYC taxi data
 # MAGIC
 # MAGIC `SparkparseCapture` auto-detects the runtime:
-# MAGIC - **Classic cluster**: restarts the SparkSession to enable event logging (resets in-memory DataFrames). Use `cap.spark` inside the block.
+# MAGIC - **Classic cluster**: borrows the existing SparkSession and requires event logging to be enabled before capture. Use `cap.spark` inside the block.
 # MAGIC - **Serverless**: captures plan-level metrics via Spark Connect without restarting the session. `cap.spark` is the same session.
 
 # COMMAND ----------
@@ -191,7 +191,7 @@ with SparkparseCapture(
     )
     display(result.limit(20))
 
-dfs_taxi = cap._parsed_logs
+dfs_taxi = cap.dfs
 assert dfs_taxi is not None
 print(f"dag:      {dfs_taxi.dag.shape}")
 print(f"combined: {dfs_taxi.combined.shape}")
@@ -260,7 +260,7 @@ with SparkparseCapture(
     display(exploded.limit(20))
     print(f"exploded row count: {exploded.count():,}")
 
-dfs_explosion = cap._parsed_logs
+dfs_explosion = cap.dfs
 assert dfs_explosion is not None
 print(f"dag:      {dfs_explosion.dag.shape}")
 print(f"combined: {dfs_explosion.combined.shape}")

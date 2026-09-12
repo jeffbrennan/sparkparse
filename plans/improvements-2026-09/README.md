@@ -1,6 +1,7 @@
 # Project review and implementation queue
 
-Reviewed 2026-09-12 at commit `129318c`. Status: proposals, not implemented.
+Reviewed 2026-09-12 at commit `129318c`. Brief 01 is implemented and serverless-smoke
+validated; the remaining briefs are proposals.
 This queue supersedes the pending-work descriptions in `IMPLEMENTATION.md` and
 `plans/SPARK_CONNECT_CAPTURE.md`; retain those documents as historical context.
 
@@ -20,7 +21,7 @@ access mode. Spark Connect is a transport, not proof that compute is serverless.
 
 | Priority | Brief | Outcome | Relative size / dependency |
 |---|---|---|---|
-| P0 | [01 — Capture and capabilities](01-capture-and-capabilities.md) | Safe session lifecycle, common finalization, explicit missing data | Large; foundation |
+| P0 | [01 — Capture and capabilities](01-capture-and-capabilities.md) | Safe session lifecycle, common finalization, explicit missing data | Implemented + smoke-tested |
 | P0 | [02 — Connect correctness](02-connect-correctness.md) | Reliable query attribution and tolerant operator handling | Medium–large; 01 contract |
 | P0 | [03 — Analysis correctness and depth](03-analysis.md) | Accurate metrics and evidence-based findings | Large; 01–02 |
 | P1 | [04 — Event-log robustness](04-event-logs.md) | Non-AQE, partial, rolled, retried, and larger workloads | Large; 01 identities |

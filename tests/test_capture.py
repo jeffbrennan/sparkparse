@@ -33,11 +33,11 @@ def test_basic_capture_get():
     with sparkparse.capture_context(action="get", spark=spark) as cap:
         _run_broadcast_join(cap.spark, data_path)
 
-    if cap._parsed_logs is None:
+    if cap.dfs is None:
         raise ValueError("No logs found")
 
-    print(cap._parsed_logs.combined.head())
-    assert cap._parsed_logs.combined.shape[0] > 0
+    print(cap.dfs.combined.head())
+    assert cap.dfs.combined.shape[0] > 0
 
 
 def test_capture_with_decorator(headless: bool = True):
@@ -48,7 +48,7 @@ def test_capture_with_decorator(headless: bool = True):
         _run_broadcast_join(spark, data_path)
 
     _, cap = run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
-    assert cap._parsed_logs is None
+    assert cap.result is not None
 
 
 def test_capture_with_decorator_get():
@@ -62,11 +62,11 @@ def test_capture_with_decorator_get():
 
     result, cap = run_broadcast_join_with_decorator(spark=spark, data_path=data_path)
     assert result == {"result": "done"}
-    if cap._parsed_logs is None:
+    if cap.dfs is None:
         raise ValueError("No logs found")
 
-    print(cap._parsed_logs.combined.head())
-    assert cap._parsed_logs.combined.shape[0] > 0
+    print(cap.dfs.combined.head())
+    assert cap.dfs.combined.shape[0] > 0
 
 
 if __name__ == "__main__":
