@@ -821,6 +821,26 @@ def test_probe_reports_unusable_clients():
 # ------------------------------------------------------------------ fixture replay
 
 
+def test_recorded_executions_round_trip_through_replay():
+    client = FakeClient()
+    client.queue(
+        "to_table",
+        [node("PhotonScan parquet main.db.t [a]", 1, 1, numOutputRows=(7, "sum"))],
+    )
+    cap = capture_for(client, log_name="live")
+    with cap:
+        client.to_table(FakePlan(None))
+
+    replayed = SparkConnectCapture.from_plan_metrics(
+        cap.to_plan_metrics(), log_name="live"
+    )
+
+    assert cap.dfs is not None and replayed.dfs is not None
+    compared = ["query_id", "node_id", "node_type", "accumulator_totals", "details"]
+    assert replayed.dfs.dag.select(compared).equals(cap.dfs.dag.select(compared))
+    assert replayed.dfs.dag["source_execution_id"].to_list() == ["op-0"]
+
+
 def test_sanitized_fixture_replays_offline():
     fixture = json.loads((FIXTURE_DIR / "photon_join_execution.json").read_text())
     cap = SparkConnectCapture.from_plan_metrics(

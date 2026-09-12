@@ -47,8 +47,8 @@ from sparkparse.viz import plot_dag
 # COMMAND ----------
 
 # Capture the M:N join so sparkparse can see the physical plan metrics.
-# _map_node_type() now raises ValueError for any unmapped Photon node type —
-# the traceback will show the exact name to add to _PHOTON_NODE_TYPE_MAP.
+# Unmapped Photon operators degrade to NodeType.Unknown with their raw names kept;
+# pass strict=True to raise instead, or read the unknown_operators diagnostic.
 with SparkparseCapture(
     action="analyze",
     spark=spark,
@@ -104,23 +104,20 @@ for row in dfs.dag.sort("node_id").to_dicts():
 
 # COMMAND ----------
 
-# Debug: show logical plans captured from to_table() intercept and extracted join info.
+# Debug: per-execution provenance from the Connect adapter.
 # SparkparseCapture delegates to SparkConnectCapture via ._connect_cap on serverless.
-from sparkparse.connect import _extract_join_info
-
 _inner = cap._connect_cap  # SparkConnectCapture instance
-print(f"captured plans:   {len(_inner._captured_plans)}")
-print(f"captured queries: {len(_inner._captured_queries)}")
-for i, proto_rel in enumerate(_inner._captured_plans):
-    if proto_rel is None:
-        print(f"  plan[{i}]: None (capture failed)")
-        continue
-    try:
-        rel_type = proto_rel.WhichOneof("rel_type")
-        joins = _extract_join_info(proto_rel)
-        print(f"  plan[{i}]: rel_type={rel_type!r}  joins={joins}")
-    except Exception as e:
-        print(f"  plan[{i}]: error — {e}")
+print(f"client support:  {_inner.support}")
+print(f"executions:      {json.dumps(_inner.executions, indent=2, default=str)}")
+print(f"diagnostics:     {[d.code for d in _inner.diagnostics]}")
+for row in dfs.dag.to_dicts():
+    detail = json.loads(row["details"])["detail"]
+    if "join_details_source" in detail:
+        print(
+            f"  query={row['query_id']} node={row['node_id']} "
+            f"source={detail['join_details_source']} type={detail.get('join_type')} "
+            f"left={detail.get('left_keys')} right={detail.get('right_keys')}"
+        )
 
 # COMMAND ----------
 

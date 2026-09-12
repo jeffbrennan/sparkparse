@@ -624,6 +624,34 @@ class SparkConnectCapture:
         self._lock = threading.RLock()
         self._unattributed: ConnectExecution | None = None
 
+    def to_plan_metrics(self) -> list[dict[str, Any]]:
+        """Export recorded executions in the shape ``from_plan_metrics`` accepts."""
+        return [
+            {
+                "action": execution.action,
+                "operation_id": execution.operation_id,
+                "start": execution.start_wall.isoformat(),
+                "elapsed_seconds": execution.elapsed_seconds,
+                "plan_metrics": [
+                    {
+                        "name": node.name,
+                        "plan_id": node.plan_id,
+                        "parent_plan_id": node.parent_plan_id,
+                        "metrics": [
+                            {
+                                "name": metric.name,
+                                "value": metric.value,
+                                "type": metric.metric_type,
+                            }
+                            for metric in node.metrics
+                        ],
+                    }
+                    for node in execution.nodes.values()
+                ],
+            }
+            for execution in self._executions
+        ]
+
     @classmethod
     def from_plan_metrics(
         cls,

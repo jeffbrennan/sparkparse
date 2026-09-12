@@ -35,6 +35,22 @@ resources:
             notebook_path: ./notebooks/sparkparse_demo.py
           environment_key: default
 
+    sparkparse_validate_connect:
+      name: "[dev ${workspace.current_user.userName}] sparkparse-validate-connect"
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/dist/sparkparse-0.1.0-py3-none-any.whl
+              - "polars>=1.24.0"
+              - "pydantic>=2.10.6"
+      tasks:
+        - task_key: validate_connect_capture
+          notebook_task:
+            notebook_path: ./notebooks/validate_connect_capture.py
+          environment_key: default
+
     sparkparse_debug_serverless:
       name: "[dev ${workspace.current_user.userName}] sparkparse-debug-serverless"
       environments:
