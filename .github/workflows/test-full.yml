@@ -2,11 +2,13 @@ name: test-full
 
 on:
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, ready_for_review]
   workflow_dispatch:
 
-# Full CI including JVM/PySpark integration tests. Runs automatically on PRs
-# and can be triggered manually from Actions → test-full → Run workflow.
+# Full CI including JVM/PySpark integration tests. Runs when a PR is opened or
+# reopened, when a draft PR is marked ready, and on demand from
+# Actions → test-full → Run workflow. See test.yml for why only the
+# pull_request events satisfy branch protection.
 
 jobs:
   test-full:

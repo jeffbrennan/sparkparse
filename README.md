@@ -66,6 +66,46 @@ captures retain their temporary logs. User workload exceptions always take prece
 on either backend; it does not launch a dashboard server. Capture-result JSON uses
 Arrow IPC tables to preserve schemas, including empty tables and nested metrics.
 
+### Spark Connect (serverless) capture
+
+Connect capture intercepts the client's action boundaries — `to_table` (`collect`,
+`count`, `show`, `take`), `to_pandas`, `to_table_as_iterator`, and `execute_command`
+(SQL commands and writes). Each action becomes one query with its own operator
+metrics, logical plan, and server operation ID; actions routed through a client
+method that the installed version does not expose are reported as
+`action_not_covered` diagnostics rather than silently dropped. No extra action is
+ever executed to collect telemetry.
+
+```python
+import sparkparse
+
+sparkparse.probe_connect_support(spark)  # what this client version exposes
+```
+
+Semantics worth knowing:
+
+- `query_duration_seconds` is client-observed elapsed time and includes result
+  transfer, so `result.capabilities.query_elapsed_time` is at most `partial`. The
+  server's cumulative operator time is kept per node (`cumulTime`, nanoseconds,
+  summed over the operator subtree and tasks) and is never used as elapsed time.
+- Join keys are attached only when the physical node's plan ID matches a logical
+  join relation, when a query contains exactly one join, or when the operator name
+  itself carries them. Otherwise keys are left unresolved; they are never matched
+  by list position. Child nodes keep the order the server reported and joins record
+  `input_roles: unordered` — build and probe sides are not asserted.
+- Unrecognized operators are preserved as `Unknown` nodes with their raw names and
+  graph edges intact, unless `strict=True` is set. Metric batches are treated as
+  snapshots (last value per plan ID wins), never summed.
+- One client supports one capture at a time; a nested or concurrent capture on the
+  same client is rejected, and overlapping actions across threads are attributed by
+  calling thread and flagged with a `concurrent_executions` diagnostic.
+- Task and stage telemetry is unavailable on this source and is reported as such in
+  `result.capabilities` instead of as zeroes.
+
+Recorded executions can be replayed offline with
+`SparkConnectCapture.from_plan_metrics(executions)`, where each entry carries the
+`PlanMetrics.to_dict()` payload.
+
 ### decorator
 
 ```python

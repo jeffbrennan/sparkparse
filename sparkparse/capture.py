@@ -165,6 +165,30 @@ def _query_capability(
     return overall, coverage
 
 
+_CONNECT_ELAPSED_REASON = (
+    "Client-observed action elapsed time includes result transfer and collection; "
+    "it is not server execution time."
+)
+
+
+def _min_status(left: CapabilityStatus, right: CapabilityStatus) -> CapabilityStatus:
+    """Return the weaker of two coverage states."""
+    order = [
+        CapabilityStatus.unknown,
+        CapabilityStatus.unavailable,
+        CapabilityStatus.not_applicable,
+        CapabilityStatus.partial,
+        CapabilityStatus.available,
+    ]
+    return left if order.index(left) <= order.index(right) else right
+
+
+def _capability_reason(name: str, connect: bool) -> str:
+    if connect and name == "query_elapsed_time":
+        return _CONNECT_ELAPSED_REASON
+    return "Observed fields only; completeness is not established."
+
+
 def _capabilities(dfs: ParsedLogDataFrames, backend: str) -> CaptureCapabilities:
     """Assess observed fields per query; row presence never proves completeness."""
     source = "spark_connect_plan_metrics" if backend == "spark_connect" else "event_log"
@@ -202,11 +226,7 @@ def _capabilities(dfs: ParsedLogDataFrames, backend: str) -> CaptureCapabilities
                 if frame.is_empty():
                     coverage[str(query_id)] = CapabilityStatus.not_applicable
                     continue
-            if connect and name in {
-                "query_elapsed_time",
-                "task_metrics",
-                "stage_timing",
-            }:
+            if connect and name in {"task_metrics", "stage_timing"}:
                 state = CapabilityStatus.unavailable
             elif frame.is_empty() or any(col not in frame.columns for col in columns):
                 state = CapabilityStatus.unavailable
@@ -222,6 +242,9 @@ def _capabilities(dfs: ParsedLogDataFrames, backend: str) -> CaptureCapabilities
                     )
                 else:
                     state = CapabilityStatus.partial
+                if connect and name == "query_elapsed_time":
+                    # Connect only observes client-side action boundaries.
+                    state = _min_status(state, CapabilityStatus.partial)
                 if name == "operator_metrics":
                     if not any(
                         row for row in frame["accumulator_totals"].to_list() if row
@@ -242,7 +265,7 @@ def _capabilities(dfs: ParsedLogDataFrames, backend: str) -> CaptureCapabilities
                 status=overall,
                 source=source,
                 query_coverage=coverage,
-                reason="Observed fields only; completeness is not established."
+                reason=_capability_reason(name, connect)
                 if overall == CapabilityStatus.partial
                 else (
                     "No applicable operators."
@@ -458,9 +481,14 @@ class SparkparseCapture:
             )
             _log.info("Spark Connect runtime detected — using guarded Connect capture")
             self._connect_cap = SparkConnectCapture(
-                spark=self.spark, log_name=self._log_name
+                spark=self.spark, log_name=self._log_name, strict=self._strict
             )
             self._connect_cap.__enter__()
+            support = self._connect_cap.support
+            if support is not None:
+                self._metadata = self._metadata.model_copy(
+                    update={"client_version": support.client_version}
+                )
             return self
 
         self._metadata = self._metadata.model_copy(
@@ -508,14 +536,21 @@ class SparkparseCapture:
             self._triggered_alerts = alerts.check_alerts(record, hist_df, rules)
 
     def _set_result(self, dfs: ParsedLogDataFrames) -> None:
-        dag = dfs.dag.with_columns(
-            pl.lit(self._metadata.capture_id).alias("capture_id"),
-            pl.lit(0, dtype=pl.Int64).alias("plan_version"),
-            (
+        # A backend that observes real execution identifiers supplies them itself;
+        # classic event logs identify an execution by its query id.
+        source_execution_id = (
+            pl.col("source_execution_id").cast(pl.String)
+            if "source_execution_id" in dfs.dag.columns
+            else (
                 pl.col("query_id").cast(pl.String)
                 if self._metadata.backend != "spark_connect"
                 else pl.lit(None, dtype=pl.String)
-            ).alias("source_execution_id"),
+            )
+        )
+        dag = dfs.dag.with_columns(
+            pl.lit(self._metadata.capture_id).alias("capture_id"),
+            pl.lit(0, dtype=pl.Int64).alias("plan_version"),
+            source_execution_id.alias("source_execution_id"),
         )
         self._result = CaptureResult(
             dag=dag,
@@ -619,6 +654,7 @@ class SparkparseCapture:
                 self._owned_stopped = True
             if self._connect_cap is not None:
                 self._connect_cap.__exit__(exc_type, exc_value, traceback)
+                self._diagnostics.extend(self._connect_cap.diagnostics)
                 if self._connect_cap.dfs is not None:
                     if exc_type is None:
                         self._finalize_capture(self._connect_cap.dfs)
