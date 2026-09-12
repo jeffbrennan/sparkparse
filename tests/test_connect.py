@@ -857,7 +857,10 @@ def test_sanitized_fixture_replays_offline():
     """Replay of a real Databricks serverless recording (runtime 4.2.0, client 3.5.0).
 
     Two joined ``spark.range`` frames, recorded by
-    ``notebooks/validate_connect_capture.py``; operator names are sanitized.
+    ``notebooks/validate_connect_capture.py``; operator names are sanitized. The run
+    produced two structurally identical executions and only one is kept: they share a
+    node sequence and metric-name set, so the second exercises no parse path the first
+    does not. Per-query isolation is covered against the fake client instead.
     """
     fixture = json.loads((FIXTURE_DIR / "photon_join_execution.json").read_text())
     assert fixture["source"] == "databricks_serverless"
@@ -867,14 +870,12 @@ def test_sanitized_fixture_replays_offline():
 
     assert cap.dfs is not None
     dag = cap.dfs.dag
-    assert len(dag) == 40
-    assert dag["query_id"].unique().to_list() == [0, 1]
+    assert len(dag) == 20
+    assert dag["query_duration_seconds"].unique().to_list() == [0.568]
 
-    # Server-assigned operation ids, one per execution, carried through to the DAG.
-    execution_ids = dag["source_execution_id"].unique().to_list()
-    assert len(execution_ids) == 2
-    assert all(len(execution_id) == 36 for execution_id in execution_ids)
-    assert sorted(dag["query_duration_seconds"].unique().to_list()) == [0.533, 0.568]
+    # A server-assigned operation id, carried through to the DAG.
+    (execution_id,) = dag["source_execution_id"].unique().to_list()
+    assert len(execution_id) == 36
 
     node_types = {str(node_type) for node_type in dag["node_type"].to_list()}
     assert "BroadcastHashJoin" in node_types
@@ -887,10 +888,7 @@ def test_sanitized_fixture_replays_offline():
 
     # Databricks does not propagate the client-assigned plan id into physical Photon
     # nodes, so join keys stay unresolved rather than being matched by position.
-    for node_id, query_id in ((11726, 0), (11927, 1)):
-        assert (
-            details_for(cap, node_id, query_id)["join_details_source"] == "unresolved"
-        )
+    assert details_for(cap, 11726)["join_details_source"] == "unresolved"
 
 
 def test_operation_id_comes_from_the_response_not_the_request():

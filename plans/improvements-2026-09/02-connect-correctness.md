@@ -29,7 +29,9 @@ observe SQL commands, writes, or other objects' actions.
 Offline validation: `tests/test_connect.py` (46 cases, no Spark/gRPC needed) plus
 `tests/data/connect/photon_join_execution.json`, which is now a **real recording** of a
 Databricks serverless run (runtime 4.2.0, Connect client 3.5.0) with operator names
-sanitized, replacing the earlier synthetic fixture.
+sanitized, replacing the earlier synthetic fixture. The run produced two structurally
+identical executions -- same node sequence, same metric-name set -- and one is kept;
+per-query isolation is covered against the fake client rather than by a second copy.
 
 Live validation from 05 has been run, on 2026-09-12, against a serverless workspace:
 
