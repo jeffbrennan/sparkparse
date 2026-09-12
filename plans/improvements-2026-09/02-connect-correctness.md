@@ -30,7 +30,25 @@ Offline validation: `tests/test_connect.py` (39 cases, no Spark/gRPC needed) plu
 `tests/data/connect/photon_join_execution.json`, a **synthetic** sanitized fixture in
 the `PlanMetrics.to_dict()` shape — it is not a recording of a live Databricks run.
 Live validation from 05 (bounded serverless job, recorded real PlanMetrics and version
-metadata) is still outstanding.
+metadata) is still outstanding. It is prepared but unrun: no Databricks credentials were
+available in the implementing session. To run it:
+
+```bash
+uv build --wheel
+databricks bundle deploy -t dev
+databricks bundle run sparkparse_validate_connect -t dev
+```
+
+`notebooks/validate_connect_capture.py` asserts action coverage per intercepted client
+method, timing semantics, unknown-operator degradation, two-join key isolation, and hook
+lifecycle, then prints a sanitized PlanMetrics payload between `SANITIZED_FIXTURE_BEGIN`
+and `SANITIZED_FIXTURE_END`. Save that payload as
+`tests/data/connect/photon_join_execution.json` to replace the synthetic fixture, and
+record the printed `join_details_source` values: whether Databricks propagates the
+client-assigned plan ID into physical Photon nodes is the one design assumption that
+offline tests cannot settle. If it does not, joins fall back to unresolved with a
+diagnostic rather than to wrong keys. The workload uses `spark.range` frames and a
+`noop` sink only; it creates, reads, and modifies no tables.
 
 ## Evidence
 
