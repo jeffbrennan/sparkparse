@@ -3,10 +3,12 @@ name: test-full
 on:
   pull_request:
     types: [opened, reopened]
+  merge_group:
   workflow_dispatch:
 
-# Full CI including JVM/PySpark integration tests. Runs automatically on PRs
-# and can be triggered manually from Actions → test-full → Run workflow.
+# Full CI including JVM/PySpark integration tests. Runs when a PR is opened or
+# reopened, again when a PR is queued to merge, and on demand from
+# Actions → test-full → Run workflow.
 
 jobs:
   test-full:

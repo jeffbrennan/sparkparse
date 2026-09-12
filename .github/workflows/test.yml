@@ -3,11 +3,17 @@ name: test
 on:
   pull_request:
     types: [opened, reopened]
+  merge_group:
   workflow_dispatch:
 
-# Runs automatically when a PR is opened or reopened, but NOT on every push.
-# To re-run after pushing new commits, use "Re-run all checks" in the PR's
-# Checks tab, or trigger manually from Actions → test → Run workflow.
+# Runs when a PR is opened or reopened, and again when a PR is queued to merge
+# (merge_group) -- not on every push, to keep runner usage down.
+#
+# The merge_group run is what gates the merge. A workflow_dispatch run does NOT:
+# its check suite is not associated with the pull request, so the check lands on
+# the commit but never satisfies the required context on the PR. Before the merge
+# queue was adopted, a PR pushed to after opening stayed BLOCKED with no way to
+# clear it except closing and reopening the PR.
 #
 # Branch protection on `main` requires the `test` check to pass before merge:
 #   gh api -X PUT repos/jeffbrennan/sparkparse/branches/main/protection --input - <<'EOF'
