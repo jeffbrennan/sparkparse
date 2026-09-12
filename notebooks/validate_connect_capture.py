@@ -21,11 +21,13 @@ from sparkparse.capture import SparkparseCapture
 from sparkparse.connect import SparkConnectCapture, probe_connect_support
 
 FAILURES: list[str] = []
+RESULTS: list[dict] = []
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:
     status = "PASS" if condition else "FAIL"
     print(f"[{status}] {name}{f' — {detail}' if detail else ''}")
+    RESULTS.append({"name": name, "status": status, "detail": detail})
     if not condition:
         FAILURES.append(name)
 
@@ -225,6 +227,41 @@ print("SANITIZED_FIXTURE_END")
 
 # COMMAND ----------
 
+# Notebook stdout is not retrievable through the Jobs API: `get-run-output` returns
+# `notebook_output` only when the notebook exits via `dbutils.notebook.exit`, and the
+# `error` field otherwise. So carry the diagnostics out through whichever channel the
+# outcome uses — the exit payload on success, the assertion message on failure.
+
+execution_summary = [
+    {
+        "action": execution["action"],
+        "query_id": execution["query_id"],
+        "operation_id": execution["operation_id"],
+        "attributed": execution["attributed"],
+    }
+    for execution in inner.executions
+]
+
 if FAILURES:
-    raise AssertionError(f"BRIEF02_VALIDATION_FAILED: {FAILURES}")
+    report = {
+        "failed": [r for r in RESULTS if r["status"] == "FAIL"],
+        "executions": execution_summary,
+        "diagnostics": [d.model_dump(mode="json") for d in result.diagnostics],
+    }
+    raise AssertionError(
+        f"BRIEF02_VALIDATION_FAILED: {FAILURES}\n"
+        f"BRIEF02_REPORT_BEGIN\n{json.dumps(report, indent=2, default=str)}\nBRIEF02_REPORT_END"
+    )
+
 print("BRIEF02_VALIDATION_PASSED")
+dbutils.notebook.exit(
+    json.dumps(
+        {
+            "status": "PASSED",
+            "checks": RESULTS,
+            "executions": execution_summary,
+            "fixture": fixture,
+        },
+        default=str,
+    )
+)

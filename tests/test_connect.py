@@ -161,6 +161,13 @@ class FakePlan:
 
 @dataclasses.dataclass(frozen=True)
 class FakeRequest:
+    # Matches the real client: the field is populated only when a caller passes an id
+    # into the builder, which the action paths never do.
+    operation_id: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeResponse:
     operation_id: str
 
 
@@ -184,12 +191,17 @@ class FakeClient:
         return (metric for metric in metrics)
 
     def _execute_plan_request_with_metadata(self, operation_id: str | None = None):
-        request = FakeRequest(f"op-{len(self.operation_ids)}")
-        self.operation_ids.append(request.operation_id)
-        return request
+        return FakeRequest(operation_id or "")
+
+    def _verify_response_integrity(self, response: Any) -> None:
+        return None
 
     def _emit(self, action: str) -> list[Any]:
         self._execute_plan_request_with_metadata()
+        response = FakeResponse(f"op-{len(self.operation_ids)}")
+        self.operation_ids.append(response.operation_id)
+        if callable(getattr(self, "_verify_response_integrity", None)):
+            self._verify_response_integrity(response)
         collected: list[Any] = []
         for batch in self._next(action):
             collected.extend(self._build_metrics(batch))
@@ -842,22 +854,96 @@ def test_recorded_executions_round_trip_through_replay():
 
 
 def test_sanitized_fixture_replays_offline():
+    """Replay of a real Databricks serverless recording (runtime 4.2.0, client 3.5.0).
+
+    Two joined ``spark.range`` frames, recorded by
+    ``notebooks/validate_connect_capture.py``; operator names are sanitized.
+    """
     fixture = json.loads((FIXTURE_DIR / "photon_join_execution.json").read_text())
+    assert fixture["source"] == "databricks_serverless"
     cap = SparkConnectCapture.from_plan_metrics(
         fixture["executions"], log_name="fixture"
     )
 
     assert cap.dfs is not None
     dag = cap.dfs.dag
-    assert dag["node_type"].to_list() == [
-        NodeType.ResultQueryStage,
-        NodeType.SortMergeJoin,
-        NodeType.Scan,
-        NodeType.Scan,
-    ]
-    assert dag["source_execution_id"].unique().to_list() == ["op-fixture-0"]
-    assert dag["query_duration_seconds"].unique().to_list() == [4.219]
-    assert details_for(cap, 3)["location"]["location"] == ["main.sales.orders"]
-    # Join keys are unavailable offline: the logical plan is not serialized.
-    assert details_for(cap, 2)["join_details_source"] == "unresolved"
-    assert cap.diagnostics == []
+    assert len(dag) == 40
+    assert dag["query_id"].unique().to_list() == [0, 1]
+
+    # Server-assigned operation ids, one per execution, carried through to the DAG.
+    execution_ids = dag["source_execution_id"].unique().to_list()
+    assert len(execution_ids) == 2
+    assert all(len(execution_id) == 36 for execution_id in execution_ids)
+    assert sorted(dag["query_duration_seconds"].unique().to_list()) == [0.533, 0.568]
+
+    node_types = {str(node_type) for node_type in dag["node_type"].to_list()}
+    assert "BroadcastHashJoin" in node_types
+    assert "ShuffleQueryStage" in node_types
+
+    # Photon emits operators the mapping does not know; they are preserved as Unknown
+    # nodes rather than dropped, and reported once.
+    assert "Unknown" in node_types
+    assert [d.code for d in cap.diagnostics] == ["unknown_operators"]
+
+    # Databricks does not propagate the client-assigned plan id into physical Photon
+    # nodes, so join keys stay unresolved rather than being matched by position.
+    for node_id, query_id in ((11726, 0), (11927, 1)):
+        assert (
+            details_for(cap, node_id, query_id)["join_details_source"] == "unresolved"
+        )
+
+
+def test_operation_id_comes_from_the_response_not_the_request():
+    """Regression: live serverless recorded no operation ids at all.
+
+    ``ExecutePlanRequest.operation_id`` is an unset optional string unless the caller
+    supplies one, so reading it off the request left every execution with ``None``. The
+    server-assigned id arrives on each ``ExecutePlanResponse``.
+    """
+    client = FakeClient()
+    client.queue("to_table", [node("Project", 1, 1)])
+    client.queue("execute_command", [])
+    with capture_for(client) as capture:
+        client.to_table(FakePlan(None))
+        client.execute_command(object())
+
+    recorded = [execution["operation_id"] for execution in capture.executions]
+    assert recorded == ["op-0", "op-1"]
+
+
+def test_command_executions_record_an_operation_id_without_operator_metrics():
+    client = FakeClient()
+    client.queue("execute_command", [])
+    with capture_for(client) as capture:
+        client.execute_command(object())
+
+    (execution,) = capture.executions
+    assert execution["operation_id"] == "op-0"
+    assert execution["n_nodes"] == 0
+
+
+def test_a_caller_supplied_request_operation_id_is_still_honoured():
+    client = FakeClient()
+    client.queue("to_table", [node("Project", 1, 1)])
+    with capture_for(client) as capture:
+        client._execute_plan_request_with_metadata("caller-supplied")
+        client.to_table(FakePlan(None))
+
+    (execution,) = capture.executions
+    assert execution["operation_id"] == "op-0"
+
+
+def test_a_client_without_the_response_hook_still_captures():
+    """Older clients expose no ``_verify_response_integrity``; capture degrades, not fails."""
+
+    class ClientWithoutResponseHook(FakeClient):
+        _verify_response_integrity = None
+
+    client = ClientWithoutResponseHook()
+    client.queue("to_table", [node("Project", 1, 1)])
+    with capture_for(client) as capture:
+        client.to_table(FakePlan(None))
+
+    (execution,) = capture.executions
+    assert execution["operation_id"] is None
+    assert execution["n_nodes"] == 1

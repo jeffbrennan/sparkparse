@@ -789,6 +789,14 @@ class SparkConnectCapture:
                     self._wrap_request_builder(request_builder),
                 )
             )
+        response_observer = getattr(client, "_verify_response_integrity", None)
+        if callable(response_observer):
+            patches.append(
+                (
+                    "_verify_response_integrity",
+                    self._wrap_response_observer(response_observer),
+                )
+            )
 
         for name, _ in patches:
             if getattr(getattr(client, name, None), "_sparkparse_hook", False):
@@ -842,6 +850,15 @@ class SparkConnectCapture:
         return patched
 
     def _wrap_request_builder(self, original: Any) -> Any:
+        """Record a caller-supplied operation id, on the rare path that sets one.
+
+        ``ExecutePlanRequest.operation_id`` is populated only when the caller passes one
+        into the builder, which the action paths do not do; the field is then an unset
+        optional string. The id that actually identifies the operation is assigned by
+        the server and arrives on the response, so this is a fallback and
+        :meth:`_wrap_response_observer` is the path that normally fills the field in.
+        """
+
         def patched(*args: Any, **kwargs: Any) -> Any:
             request = original(*args, **kwargs)
             execution = self._current_execution()
@@ -850,6 +867,26 @@ class SparkConnectCapture:
                 if operation_id:
                     execution.operation_id = str(operation_id)
             return request
+
+        return patched
+
+    def _wrap_response_observer(self, original: Any) -> Any:
+        """Record the server-assigned operation id from the first response.
+
+        The client calls ``_verify_response_integrity`` once per ``ExecutePlanResponse``,
+        before any branch on response content, so every execution that gets a response at
+        all passes through here -- including commands, which carry no operator metrics.
+        """
+
+        def patched(*args: Any, **kwargs: Any) -> Any:
+            result = original(*args, **kwargs)
+            execution = self._current_execution()
+            if execution is not None and execution.operation_id is None:
+                response = args[0] if args else kwargs.get("response")
+                operation_id = getattr(response, "operation_id", None)
+                if operation_id:
+                    execution.operation_id = str(operation_id)
+            return result
 
         return patched
 
