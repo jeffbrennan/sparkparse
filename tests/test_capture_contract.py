@@ -245,6 +245,7 @@ def test_connect_finalizes_and_restores_hooks_without_logs(action, monkeypatch):
 
     def table(plan):
         return None
+
     client = SimpleNamespace(_build_metrics=build, to_table=table)
     spark = SimpleNamespace(_client=client)
     monkeypatch.setattr(
