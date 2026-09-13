@@ -1,0 +1,75 @@
+{
+  "has_next_page": false,
+  "res": [
+    {
+      "query_id": "aaaa1111-0000-0000-0000-000000000001",
+      "status": "FINISHED",
+      "execution_end_time_ms": 1700000040000,
+      "query_source": {
+        "job_info": {
+          "job_id": "456",
+          "job_task_run_id": "1002"
+        },
+        "notebook_id": "1234567890"
+      },
+      "metrics": {
+        "read_bytes": 1000,
+        "read_cache_bytes": 400,
+        "write_remote_bytes": 200,
+        "spill_to_disk_bytes": 0,
+        "task_total_time_ms": 5000,
+        "execution_time_ms": 6000,
+        "total_time_ms": 7000,
+        "rows_read_count": 100,
+        "rows_produced_count": 50,
+        "network_sent_bytes": 300,
+        "result_from_cache": true
+      }
+    },
+    {
+      "query_id": "aaaa1111-0000-0000-0000-000000000002",
+      "status": "FINISHED",
+      "execution_end_time_ms": 1700000045000,
+      "query_source": {
+        "job_info": {
+          "job_task_run_id": "1002"
+        }
+      },
+      "metrics": {
+        "read_bytes": 2000,
+        "spill_to_disk_bytes": 900,
+        "task_total_time_ms": 8000,
+        "execution_time_ms": 9000,
+        "total_time_ms": 10000,
+        "rows_read_count": 200,
+        "rows_produced_count": 80,
+        "network_sent_bytes": 500
+      }
+    },
+    {
+      "query_id": "aaaa1111-0000-0000-0000-000000000003",
+      "status": "FAILED",
+      "execution_end_time_ms": 1700000048000,
+      "query_source": {
+        "notebook_id": "1234567890"
+      },
+      "error_message": "AnalysisException: Table not found: missing_table",
+      "metrics": {}
+    },
+    {
+      "query_id": "unrelated000-0000-0000-0000-000000000004",
+      "status": "FINISHED",
+      "execution_end_time_ms": 1700000049000,
+      "query_source": {
+        "job_info": {
+          "job_id": "999",
+          "job_task_run_id": "9999"
+        }
+      },
+      "metrics": {
+        "read_bytes": 999999,
+        "task_total_time_ms": 999999
+      }
+    }
+  ]
+}

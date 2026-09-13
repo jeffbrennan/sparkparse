@@ -1,0 +1,198 @@
+{
+  "job_id": 456,
+  "run_id": 123,
+  "job_run_id": 123,
+  "number_in_job": 7,
+  "original_attempt_run_id": 122,
+  "run_name": "join-tuning",
+  "run_type": "JOB_RUN",
+  "run_page_url": "https://example.cloud.databricks.com/?o=0000000000000000#job/456/run/123",
+  "creator_user_name": "user@example.com",
+  "trigger": "ONE_TIME",
+  "start_time": 1700000000000,
+  "end_time": 1700000060000,
+  "setup_duration": 4000,
+  "execution_duration": 42000,
+  "cleanup_duration": 1000,
+  "run_duration": 60000,
+  "effective_performance_target": "PERFORMANCE_OPTIMIZED",
+  "git_source": {
+    "git_url": "https://github.com/example/analytics",
+    "git_provider": "gitHub",
+    "git_branch": "main",
+    "git_snapshot": {
+      "used_commit": "abc123def4567890abc123def4567890abc1234",
+      "commit_timestamp": 1699990000000
+    }
+  },
+  "state": {
+    "life_cycle_state": "TERMINATED",
+    "result_state": "SUCCESS_WITH_FAILURES",
+    "state_message": "",
+    "user_cancelled_or_timedout": false
+  },
+  "status": {
+    "state": "TERMINATED",
+    "termination_details": {
+      "code": "SUCCESS_WITH_FAILURES",
+      "type": "SUCCESS"
+    }
+  },
+  "environments": [
+    {
+      "environment_key": "default",
+      "spec": {
+        "client": "2",
+        "dependencies": [
+          "polars>=1.24.0"
+        ]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "ingest",
+      "run_id": 1001,
+      "attempt_number": 0,
+      "run_if": "ALL_SUCCESS",
+      "environment_key": "default",
+      "start_time": 1700000000000,
+      "end_time": 1700000010000,
+      "setup_duration": 1000,
+      "execution_duration": 8000,
+      "cleanup_duration": 0,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": ""
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SUCCESS",
+          "type": "SUCCESS"
+        }
+      },
+      "new_cluster": {
+        "cluster_id": "0101-010101-abcd",
+        "spark_version": "15.4.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 4,
+        "runtime_engine": "PHOTON",
+        "data_security_mode": "SINGLE_USER"
+      },
+      "notebook_task": {
+        "notebook_path": "/Jobs/ingest",
+        "source": "WORKSPACE"
+      }
+    },
+    {
+      "task_key": "join",
+      "run_id": 1002,
+      "attempt_number": 1,
+      "original_attempt_run_id": 1000,
+      "run_if": "ALL_SUCCESS",
+      "environment_key": "default",
+      "start_time": 1700000010000,
+      "end_time": 1700000050000,
+      "setup_duration": 1000,
+      "execution_duration": 38000,
+      "cleanup_duration": 0,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": ""
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SUCCESS",
+          "type": "SUCCESS"
+        }
+      },
+      "new_cluster": {
+        "cluster_id": "0101-010101-abcd",
+        "spark_version": "15.4.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "runtime_engine": "PHOTON"
+      },
+      "notebook_task": {
+        "notebook_path": "/Jobs/join",
+        "source": "WORKSPACE"
+      }
+    },
+    {
+      "task_key": "optimize",
+      "run_id": 1003,
+      "attempt_number": 0,
+      "run_if": "ALL_DONE",
+      "environment_key": "default",
+      "start_time": 1700000050000,
+      "end_time": 1700000059000,
+      "setup_duration": 0,
+      "execution_duration": 9000,
+      "cleanup_duration": 0,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SKIPPED",
+        "state_message": ""
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SKIPPED",
+          "type": "SUCCESS"
+        }
+      },
+      "notebook_task": {
+        "notebook_path": "/Jobs/optimize",
+        "source": "WORKSPACE"
+      }
+    },
+    {
+      "task_key": "foreach_copy",
+      "run_id": 1004,
+      "attempt_number": 0,
+      "run_if": "ALL_DONE",
+      "environment_key": "default",
+      "start_time": 1700000059000,
+      "end_time": 1700000060000,
+      "execution_duration": 1000,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": ""
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SUCCESS",
+          "type": "SUCCESS"
+        }
+      },
+      "for_each_task": {
+        "inputs": "[{\"table\":\"a\"},{\"table\":\"b\"}]",
+        "concurrency": 2
+      }
+    },
+    {
+      "task_key": "unknown_type",
+      "run_id": 1005,
+      "attempt_number": 0,
+      "run_if": "ALL_DONE",
+      "execution_duration": 500,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": ""
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SUCCESS",
+          "type": "SUCCESS"
+        }
+      }
+    }
+  ]
+}

@@ -11,9 +11,21 @@ import typer
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
 from sparkparse.artifact import save_capture_artifact
+from sparkparse.databricks import (
+    DEFAULT_LIMITS,
+    DatabricksCLI,
+    DatabricksError,
+    collect_run,
+)
 from sparkparse.eventlog import discover_sources
-from sparkparse.models import OutputFormat, ParsedLogDataFrames
+from sparkparse.models import (
+    OutputFormat,
+    ParsedLogDataFrames,
+    TrialMetadata,
+    WorkflowCollectionLimits,
+)
 from sparkparse.parse import get_all_parsed_metrics, get_parsed_metrics
+from sparkparse.runreport import build_report, format_report_text
 from sparkparse.storage import (
     get_path_name,
     get_path_stem,
@@ -61,6 +73,12 @@ class AnalysisFormat(StrEnum):
 class HistoryFormat(StrEnum):
     table = "table"
     json = "json"
+
+
+class OutputsOption(StrEnum):
+    failed = "failed"
+    all = "all"
+    none = "none"
 
 
 def _version_callback(value: bool) -> None:
@@ -528,6 +546,219 @@ def compare_cmd(
         typer.echo("No comparable metrics.")
     for reason in report.excluded:
         typer.echo(f"  excluded: {reason}")
+
+
+databricks_app = typer.Typer(help="Collect Databricks job/run reports.")
+experiments_app = typer.Typer(help="Compare saved performance experiment trials.")
+
+
+@databricks_app.command("analyze")
+def databricks_analyze(
+    run_id: Annotated[
+        str | None, typer.Option("--run-id", help="Job run ID to collect.")
+    ] = None,
+    job_id: Annotated[
+        str | None,
+        typer.Option("--job-id", help="Resolve the latest terminal run for this job."),
+    ] = None,
+    profile: Annotated[
+        str | None, typer.Option("--profile", help="Databricks CLI profile to use.")
+    ] = None,
+    out: Annotated[
+        str | None,
+        typer.Option("--out", help="Local directory to save a portable snapshot."),
+    ] = None,
+    experiment: Annotated[
+        str | None,
+        typer.Option(
+            "--experiment", help="Local experiment directory to record a trial."
+        ),
+    ] = None,
+    variant: Annotated[
+        str, typer.Option("--variant", help="Variant label for the recorded trial.")
+    ] = "default",
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Explicitly asserted code revision fallback."),
+    ] = None,
+    outputs: Annotated[
+        OutputsOption,
+        typer.Option(
+            "--outputs", help="Task output retrieval: failed (default), all, none."
+        ),
+    ] = OutputsOption.failed,
+    format: Annotated[
+        AnalysisFormat,
+        typer.Option(help="Output format: 'json' (default) or human-readable 'text'."),
+    ] = AnalysisFormat.json,
+    deadline_seconds: Annotated[
+        float, typer.Option(help="Wall-clock collection deadline in seconds.")
+    ] = DEFAULT_LIMITS.deadline_seconds,
+    max_pages: Annotated[
+        int, typer.Option(help="Maximum pages to follow per paged collection.")
+    ] = DEFAULT_LIMITS.max_pages,
+    max_requests: Annotated[
+        int, typer.Option(help="Maximum CLI requests per collection.")
+    ] = DEFAULT_LIMITS.max_requests,
+    max_retries: Annotated[
+        int, typer.Option(help="Maximum rate-limit retries per request.")
+    ] = DEFAULT_LIMITS.max_retries,
+) -> None:
+    """Collect a Databricks run report without launching or waiting for a workload."""
+    if (run_id is None) == (job_id is None):
+        raise typer.BadParameter("pass exactly one of --run-id or --job-id")
+    if out is not None and experiment is not None:
+        raise typer.BadParameter("pass at most one of --out or --experiment")
+
+    limits = WorkflowCollectionLimits(
+        deadline_seconds=deadline_seconds,
+        max_pages=max_pages,
+        max_requests=max_requests,
+        max_retries=max_retries,
+        retry_backoff_seconds=DEFAULT_LIMITS.retry_backoff_seconds,
+        outputs=outputs.value,
+    )
+    client = DatabricksCLI(profile=profile, limits=limits)
+    target = run_id if run_id is not None else f"job {job_id}"
+    typer.echo(f"Collecting {target}...", err=True)
+    try:
+        raw = collect_run(
+            client,
+            run_id=run_id,
+            job_id=job_id,
+            outputs=outputs.value,
+        )
+        report = build_report(raw, asserted_revision=revision)
+    except DatabricksError as exc:
+        typer.echo(f"Collection failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if experiment is not None:
+        from sparkparse import experiments as experiments_mod
+
+        try:
+            _ref, path = experiments_mod.record_trial(
+                experiment, report, variant=variant, revision=revision
+            )
+        except experiments_mod.ExperimentError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        typer.echo(f"Trial recorded at {path}", err=True)
+    elif out is not None:
+        from sparkparse import experiments as experiments_mod
+
+        snapshot = experiments_mod.build_snapshot(
+            report, trial=TrialMetadata(variant=variant, revision=revision)
+        )
+        path = experiments_mod.save_snapshot(out, snapshot)
+        typer.echo(f"Snapshot written to {path}", err=True)
+
+    if format == AnalysisFormat.json:
+        sys.stdout.write(report.model_dump_json(indent=2) + "\n")
+    else:
+        sys.stdout.write(format_report_text(report) + "\n")
+
+
+@experiments_app.command("compare")
+def experiments_compare(
+    experiment_dir: Annotated[str, typer.Argument(help="Local experiment directory.")],
+    baseline: Annotated[
+        str | None, typer.Option("--baseline", help="Baseline run ID.")
+    ] = None,
+    candidate: Annotated[
+        str | None, typer.Option("--candidate", help="Candidate run ID.")
+    ] = None,
+    baseline_variant: Annotated[
+        str | None,
+        typer.Option("--baseline-variant", help="Baseline variant label group."),
+    ] = None,
+    candidate_variant: Annotated[
+        str | None,
+        typer.Option("--candidate-variant", help="Candidate variant label group."),
+    ] = None,
+    format: Annotated[
+        AnalysisFormat,
+        typer.Option(help="Output format: 'json' (default) or human-readable 'text'."),
+    ] = AnalysisFormat.json,
+) -> None:
+    """Compare explicit trials in a saved experiment, entirely offline."""
+    from sparkparse import experiments as experiments_mod
+
+    if (baseline is None) == (baseline_variant is None):
+        raise typer.BadParameter("pass exactly one of --baseline or --baseline-variant")
+    if (candidate is None) == (candidate_variant is None):
+        raise typer.BadParameter(
+            "pass exactly one of --candidate or --candidate-variant"
+        )
+
+    try:
+        comparison = experiments_mod.compare_experiment(
+            experiment_dir,
+            baseline_run_id=baseline,
+            candidate_run_id=candidate,
+            baseline_variant=baseline_variant,
+            candidate_variant=candidate_variant,
+        )
+    except experiments_mod.ExperimentError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if format == AnalysisFormat.json:
+        typer.echo(comparison.model_dump_json(indent=2))
+        return
+    typer.echo(
+        f"Experiment {comparison.experiment_id} "
+        f"(baseline n={comparison.baseline.sample_count}, "
+        f"candidate n={comparison.candidate.sample_count})"
+    )
+    rows = pl.DataFrame(
+        [
+            {
+                "metric": m.metric,
+                "baseline": m.baseline_median,
+                "candidate": m.candidate_median,
+                "delta": m.delta,
+                "pct_change": m.pct_change,
+                "caveat": m.caveat,
+            }
+            for m in comparison.metrics
+        ]
+    )
+    typer.echo(str(rows) if comparison.metrics else "No comparable metrics.")
+    for note in comparison.notes:
+        typer.echo(f"  note: {note}")
+
+
+@experiments_app.command("viz")
+def experiments_viz(
+    experiment_dir: Annotated[str, typer.Argument(help="Local experiment directory.")],
+    force_port: Annotated[
+        bool,
+        typer.Option(help="Force kill any process using port 8050 before starting."),
+    ] = False,
+) -> None:
+    """Launch the local experiment dashboard (read-only, loopback only)."""
+    try:
+        from sparkparse.dashboard import run_app
+        from sparkparse.experiments_dashboard import init_experiments_dashboard
+    except ImportError as exc:  # pragma: no cover - exercised only without [viz]
+        raise typer.BadParameter(
+            "The dashboard requires the 'viz' extra: install with "
+            "`pip install sparkparse[viz]`."
+        ) from exc
+
+    from sparkparse import experiments as experiments_mod
+
+    try:
+        dash_app = init_experiments_dashboard(experiment_dir)
+    except experiments_mod.ExperimentError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    run_app(app=dash_app, force_port=force_port)
+
+
+app.add_typer(databricks_app, name="databricks", no_args_is_help=True)
+app.add_typer(experiments_app, name="experiments", no_args_is_help=True)
 
 
 if __name__ == "__main__":
