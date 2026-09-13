@@ -24,6 +24,7 @@ from sparkparse.models import (
     ComparisonGroup,
     ExperimentComparison,
     ExperimentManifest,
+    MetricCompleteness,
     MetricDelta,
     MetricUnit,
     OutputAttachment,
@@ -188,7 +189,7 @@ def record_trial(
     artifact_digest: str | None = None,
     config_fingerprint: str | None = None,
     input_snapshot: str | None = None,
-    warmup: bool = False,
+    warmup: bool | None = None,
     correctness: str | None = None,
     hypothesis: str | None = None,
     notes: str | None = None,
@@ -196,26 +197,12 @@ def record_trial(
 ) -> tuple[TrialRef, Path]:
     """Save a snapshot and add or update its trial in the manifest.
 
-    A recollection for the same ``(run_id, variant)`` updates the existing
-    trial's snapshot reference instead of adding a trial.
+    A trial is identified by its run. Recollecting a run updates its existing
+    trial instead of adding another, so relabeling a run with a new variant
+    moves the trial rather than duplicating the execution. Metadata supplied on
+    a recollection overrides the stored value; omitted metadata is preserved.
     """
     exp = Path(_require_local(str(exp_dir), "experiment directory"))
-    trial = TrialMetadata(
-        variant=variant,
-        revision=revision,
-        artifact_digest=artifact_digest,
-        config_fingerprint=config_fingerprint,
-        input_snapshot=input_snapshot,
-        warmup=warmup,
-        correctness=correctness,
-        hypothesis=hypothesis,
-        notes=notes,
-        workspace_host=report.identity.workspace_host,
-        job_id=report.identity.job_id,
-    )
-    snapshot = build_snapshot(report, trial=trial, snapshot_id=snapshot_id)
-    path = save_snapshot(exp, snapshot)
-
     if manifest_path(exp).exists():
         manifest = load_manifest(exp)
         _check_compatible(manifest, report)
@@ -228,16 +215,46 @@ def record_trial(
             created_at=now,
             updated_at=now,
         )
+    existing = _find_trial(manifest, report.identity.run_id)
 
-    existing = _find_trial(manifest, report.identity.run_id, variant)
+    derived_config = _compute_fingerprint(report)
+    trial = TrialMetadata(
+        variant=variant,
+        revision=revision if revision is not None else _existing(existing, "revision"),
+        artifact_digest=artifact_digest,
+        config_fingerprint=(
+            config_fingerprint
+            if config_fingerprint is not None
+            else _existing(existing, "config_fingerprint") or derived_config
+        ),
+        input_snapshot=(
+            input_snapshot
+            if input_snapshot is not None
+            else _existing(existing, "input_snapshot")
+        ),
+        warmup=warmup if warmup is not None else _existing(existing, "warmup", False),
+        correctness=(
+            correctness
+            if correctness is not None
+            else _existing(existing, "correctness")
+        ),
+        hypothesis=hypothesis,
+        notes=notes,
+        workspace_host=report.identity.workspace_host,
+        job_id=report.identity.job_id,
+    )
+    snapshot = build_snapshot(report, trial=trial, snapshot_id=snapshot_id)
+    path = save_snapshot(exp, snapshot)
+
     if existing is not None:
+        existing.variant = variant
         existing.snapshot_id = snapshot.snapshot_id
         existing.created_at = snapshot.collected_at
-        existing.revision = revision
-        existing.config_fingerprint = config_fingerprint
-        existing.input_snapshot = input_snapshot
-        existing.warmup = warmup
-        existing.correctness = correctness
+        existing.revision = trial.revision
+        existing.config_fingerprint = trial.config_fingerprint
+        existing.input_snapshot = trial.input_snapshot
+        existing.warmup = trial.warmup
+        existing.correctness = trial.correctness
         ref = existing
     else:
         ref = TrialRef(
@@ -245,20 +262,24 @@ def record_trial(
             variant=variant,
             run_id=report.identity.run_id,
             snapshot_id=snapshot.snapshot_id,
-            revision=revision,
-            config_fingerprint=config_fingerprint,
-            input_snapshot=input_snapshot,
+            revision=trial.revision,
+            config_fingerprint=trial.config_fingerprint,
+            input_snapshot=trial.input_snapshot,
             workspace_host=report.identity.workspace_host,
             job_id=report.identity.job_id,
             created_at=snapshot.collected_at,
-            warmup=warmup,
-            correctness=correctness,
+            warmup=trial.warmup,
+            correctness=trial.correctness,
         )
         manifest.trials.append(ref)
     if manifest.baseline_trial_id is None:
         manifest.baseline_trial_id = ref.trial_id
     save_manifest(exp, manifest)
     return ref, path
+
+
+def _existing(trial: TrialRef | None, field: str, default: Any = None) -> Any:
+    return getattr(trial, field) if trial is not None else default
 
 
 def _check_compatible(manifest: ExperimentManifest, report: RunReport) -> None:
@@ -275,11 +296,9 @@ def _check_compatible(manifest: ExperimentManifest, report: RunReport) -> None:
         )
 
 
-def _find_trial(
-    manifest: ExperimentManifest, run_id: str, variant: str
-) -> TrialRef | None:
+def _find_trial(manifest: ExperimentManifest, run_id: str) -> TrialRef | None:
     for trial in manifest.trials:
-        if trial.run_id == run_id and trial.variant == variant:
+        if trial.run_id == run_id:
             return trial
     return None
 
@@ -322,6 +341,15 @@ def _select_group(
         trials = [t for t in manifest.trials if t.variant == variant]
         if not trials:
             raise ExperimentError(f"{label}: no trials with variant {variant!r}")
+        fingerprints = {
+            t.config_fingerprint for t in trials if t.config_fingerprint is not None
+        }
+        if len(fingerprints) > 1:
+            raise ExperimentError(
+                f"{label}: variant {variant!r} mixes {len(fingerprints)} "
+                "configurations; record runs of one configuration under one "
+                "variant or compare explicit run IDs"
+            )
 
     group = ComparisonGroup(label=label, variant=variant)
     for trial in trials:
@@ -394,11 +422,22 @@ def compare_experiment(
             "both groups have no eligible trials; see excluded counts and notes"
         )
 
-    metrics = _compare_metrics(baseline, candidate, snapshots)
+    metrics, partial_metrics = _compare_metrics(baseline, candidate, snapshots)
     tasks = _compare_tasks(baseline, candidate, snapshots)
     comparability, revision_confidence = _compare_context(
         manifest, baseline, candidate, snapshots
     )
+    if partial_metrics:
+        comparability.append(
+            ComparabilityNote(
+                aspect="metric_completeness",
+                status="partial",
+                detail=(
+                    "partial observations were excluded from samples: "
+                    + ", ".join(sorted(partial_metrics))
+                ),
+            )
+        )
     notes = _group_notes(baseline, candidate)
     return ExperimentComparison(
         experiment_id=manifest.experiment_id,
@@ -414,8 +453,15 @@ def compare_experiment(
 
 def _measure_values(
     group: ComparisonGroup, snapshots: dict[str, TrialSnapshot]
-) -> dict[str, list[float]]:
+) -> tuple[dict[str, list[float]], set[str]]:
+    """Collect comparable per-trial values and the metrics that were partial.
+
+    Query measures enter a sample only when their aggregate is complete. An
+    observed subtotal over queries that merely reported the metric is not a
+    total, so pooling it with complete totals would bias the median.
+    """
     values: dict[str, list[float]] = {}
+    partial: set[str] = set()
     for trial_id in group.trial_ids:
         snapshot = snapshots[trial_id]
         report = snapshot.report
@@ -425,22 +471,27 @@ def _measure_values(
         }
         if report.query_metrics is not None:
             for aggregate in report.query_metrics.aggregates:
-                if aggregate.value is not None:
-                    raw[aggregate.metric] = aggregate.value
+                if aggregate.value is None:
+                    continue
+                if aggregate.completeness is not MetricCompleteness.complete:
+                    partial.add(aggregate.metric)
+                    continue
+                raw[aggregate.metric] = aggregate.value
         for metric, value in raw.items():
             if value is None:
                 continue
             values.setdefault(metric, []).append(float(value))
-    return values
+    return values, partial
 
 
 def _compare_metrics(
     baseline: ComparisonGroup,
     candidate: ComparisonGroup,
     snapshots: dict[str, TrialSnapshot],
-) -> list[MetricDelta]:
-    baseline_values = _measure_values(baseline, snapshots)
-    candidate_values = _measure_values(candidate, snapshots)
+) -> tuple[list[MetricDelta], set[str]]:
+    baseline_values, baseline_partial = _measure_values(baseline, snapshots)
+    candidate_values, candidate_partial = _measure_values(candidate, snapshots)
+    partial = baseline_partial | candidate_partial
     deltas: list[MetricDelta] = []
     for metric in sorted(set(baseline_values) | set(candidate_values)):
         b = baseline_values.get(metric, [])
@@ -450,6 +501,11 @@ def _compare_metrics(
         b_median = statistics.median(b)
         c_median = statistics.median(c)
         delta = c_median - b_median
+        caveat = (
+            "sample excludes partial observations for this metric"
+            if metric in partial
+            else _metric_caveat(metric, snapshots)
+        )
         deltas.append(
             MetricDelta(
                 metric=metric,
@@ -466,10 +522,10 @@ def _compare_metrics(
                 delta=delta,
                 pct_change=None if b_median == 0 else delta / b_median,
                 single_observation=len(b) == 1 and len(c) == 1,
-                caveat=_metric_caveat(metric, snapshots),
+                caveat=caveat,
             )
         )
-    return deltas
+    return deltas, partial
 
 
 def _metric_unit(metric: str, snapshots: dict[str, TrialSnapshot]) -> MetricUnit:
@@ -531,28 +587,37 @@ def _task_values(report: RunReport) -> dict[str, dict[str, float | None]]:
     return values
 
 
+def _task_samples(
+    group: ComparisonGroup, snapshots: dict[str, TrialSnapshot]
+) -> dict[str, dict[str, list[float]]]:
+    """Per-task, per-measure samples across every eligible trial in a group."""
+    samples: dict[str, dict[str, list[float]]] = {}
+    for trial_id in group.trial_ids:
+        for key, measures in _task_values(snapshots[trial_id].report).items():
+            for measure, value in measures.items():
+                if value is None:
+                    continue
+                samples.setdefault(key, {}).setdefault(measure, []).append(value)
+    return samples
+
+
+def _median_map(samples: dict[str, list[float]]) -> dict[str, float]:
+    return {measure: statistics.median(values) for measure, values in samples.items()}
+
+
 def _compare_tasks(
     baseline: ComparisonGroup,
     candidate: ComparisonGroup,
     snapshots: dict[str, TrialSnapshot],
 ) -> list[TaskDelta]:
-    def merged(group: ComparisonGroup) -> dict[str, dict[str, float | None]]:
-        result: dict[str, dict[str, float | None]] = {}
-        for trial_id in group.trial_ids:
-            for key, measures in _task_values(snapshots[trial_id].report).items():
-                current = result.setdefault(key, {})
-                for measure, value in measures.items():
-                    if value is None:
-                        continue
-                    current[measure] = max(current.get(measure) or value, value)
-        return result
-
-    base = merged(baseline)
-    cand = merged(candidate)
+    base = _task_samples(baseline, snapshots)
+    cand = _task_samples(candidate, snapshots)
     deltas: list[TaskDelta] = []
     for key in sorted(set(base) | set(cand)):
-        b = base.get(key, {})
-        c = cand.get(key, {})
+        b_samples = base.get(key, {})
+        c_samples = cand.get(key, {})
+        b = _median_map(b_samples)
+        c = _median_map(c_samples)
         if key not in base:
             change = "added"
         elif key not in cand:
@@ -571,34 +636,72 @@ def _compare_tasks(
                 delta_map[measure] = cand_value - base_value
         deltas.append(
             TaskDelta(
-                task_key=key, change=change, baseline=b, candidate=c, deltas=delta_map
+                task_key=key,
+                change=change,
+                baseline=b,
+                candidate=c,
+                deltas=delta_map,
+                baseline_values=b_samples,
+                candidate_values=c_samples,
+                baseline_min={
+                    measure: min(values) for measure, values in b_samples.items()
+                },
+                baseline_max={
+                    measure: max(values) for measure, values in b_samples.items()
+                },
+                candidate_min={
+                    measure: min(values) for measure, values in c_samples.items()
+                },
+                candidate_max={
+                    measure: max(values) for measure, values in c_samples.items()
+                },
             )
         )
     return deltas
 
 
-def _measures_equal(a: dict[str, float | None], b: dict[str, float | None]) -> bool:
+def _measures_equal(a: dict[str, float], b: dict[str, float]) -> bool:
     return all(a.get(k) == b.get(k) for k in set(a) | set(b))
 
 
 def _compute_fingerprint(report: RunReport) -> str:
-    parts = []
-    for reference in sorted(report.compute, key=lambda r: r.task_key):
-        parts.append(
-            "|".join(
-                str(value)
-                for value in (
-                    reference.cluster_id,
-                    reference.environment_key,
-                    reference.runtime_engine,
-                    reference.spark_version,
-                    reference.node_type_id,
-                    reference.num_workers,
-                    reference.performance_target,
-                )
+    """Derive configuration identity from measured run facts, not user labels.
+
+    Compute snapshot, run environments and the effective performance target all
+    participate so that two different configurations cannot be mistaken for one.
+    """
+    compute_parts = [
+        "|".join(
+            str(value)
+            for value in (
+                reference.cluster_id,
+                reference.environment_key,
+                reference.runtime_engine,
+                reference.spark_version,
+                reference.node_type_id,
+                reference.num_workers,
+                reference.performance_target,
             )
         )
-    return ";".join(parts)
+        for reference in sorted(report.compute, key=lambda r: r.task_key)
+    ]
+    environment_parts = [
+        "|".join(
+            [
+                environment.environment_key,
+                environment.client or "",
+                ",".join(sorted(environment.dependencies)),
+            ]
+        )
+        for environment in sorted(report.environments, key=lambda e: e.environment_key)
+    ]
+    return "||".join(
+        [
+            ";".join(compute_parts),
+            "&".join(environment_parts),
+            report.effective_performance_target or "",
+        ]
+    )
 
 
 def _compare_context(

@@ -2296,6 +2296,12 @@ class TaskDelta(BaseModel):
     baseline: dict[str, float | None] = Field(default_factory=dict)
     candidate: dict[str, float | None] = Field(default_factory=dict)
     deltas: dict[str, float | None] = Field(default_factory=dict)
+    baseline_values: dict[str, list[float]] = Field(default_factory=dict)
+    candidate_values: dict[str, list[float]] = Field(default_factory=dict)
+    baseline_min: dict[str, float | None] = Field(default_factory=dict)
+    baseline_max: dict[str, float | None] = Field(default_factory=dict)
+    candidate_min: dict[str, float | None] = Field(default_factory=dict)
+    candidate_max: dict[str, float | None] = Field(default_factory=dict)
 
 
 class ComparisonGroup(BaseModel):

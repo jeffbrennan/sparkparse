@@ -25,6 +25,7 @@ def make_report(
     commit: str = "aaaabbbbcccc",
     variant_git: bool = True,
     config: str | None = None,
+    query_final: bool = True,
 ) -> RunReport:
     run = load_fixture("job_run_multi.json")
     run["run_id"] = int(run_id)
@@ -44,7 +45,7 @@ def make_report(
         {
             "query_id": f"q-{run_id}",
             "status": "FINISHED",
-            "is_final": True,
+            "is_final": query_final,
             "execution_end_time_ms": 2000,
             "query_source": {"job_info": {"job_task_run_id": "1001"}},
             "metrics": {"read_bytes": read_bytes, "task_total_time_ms": execution_ms},
@@ -191,6 +192,88 @@ def test_same_sha_different_configurations_are_separate_variants(tmp_path):
         n for n in comparison.comparability if n.aspect == "configuration"
     )
     assert config_note.status == "different"
+
+
+def test_relabeling_a_run_does_not_duplicate_the_sample(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1"), "baseline")
+    record(exp_dir, make_report("1"), "broadcast")
+    manifest, _ = exp.load_experiment(exp_dir)
+    assert len(manifest.trials) == 1
+    assert manifest.trials[0].variant == "broadcast"
+    # An explicit run-ID comparison selects the one execution, not two.
+    comparison = exp.compare_experiment(
+        exp_dir, baseline_run_id="1", candidate_run_id="1"
+    )
+    assert comparison.baseline.sample_count == 1
+    assert comparison.candidate.sample_count == 1
+
+
+def test_recollection_preserves_existing_metadata(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(
+        exp_dir,
+        make_report("1"),
+        "baseline",
+        warmup=True,
+        correctness="verified",
+        input_snapshot="snapshot-a",
+        config_fingerprint="cfg-explicit",
+    )
+    record(exp_dir, make_report("1"), "baseline")
+    manifest, _ = exp.load_experiment(exp_dir)
+    trial = manifest.trials[0]
+    assert trial.warmup is True
+    assert trial.correctness == "verified"
+    assert trial.input_snapshot == "snapshot-a"
+    assert trial.config_fingerprint == "cfg-explicit"
+
+
+def test_variant_with_mixed_configurations_is_rejected(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1"), "baseline", config_fingerprint="c1")
+    record(exp_dir, make_report("2"), "baseline", config_fingerprint="c2")
+    with pytest.raises(exp.ExperimentError):
+        exp.compare_experiment(
+            exp_dir, baseline_variant="baseline", candidate_variant="baseline"
+        )
+
+
+def test_config_fingerprint_is_derived_when_not_supplied(tmp_path):
+    exp_dir = tmp_path / "exp"
+    ref, _ = record(exp_dir, make_report("1"), "baseline")
+    assert ref.config_fingerprint
+
+
+def test_partial_metric_is_excluded_from_samples(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1", read_bytes=1000), "baseline")
+    record(exp_dir, make_report("2", read_bytes=500, query_final=False), "candidate")
+    comparison = exp.compare_experiment(
+        exp_dir, baseline_run_id="1", candidate_run_id="2"
+    )
+    assert not any(m.metric == "read_bytes" for m in comparison.metrics)
+    note = next(
+        n for n in comparison.comparability if n.aspect == "metric_completeness"
+    )
+    assert note.status == "partial"
+
+
+def test_per_task_comparison_uses_medians_and_keeps_spread(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1", execution_ms=1000), "baseline")
+    record(exp_dir, make_report("2", execution_ms=3000), "baseline")
+    record(exp_dir, make_report("3", execution_ms=500), "candidate")
+    comparison = exp.compare_experiment(
+        exp_dir, baseline_variant="baseline", candidate_variant="candidate"
+    )
+    task = next(t for t in comparison.tasks if t.task_key == "ingest")
+    assert task.baseline["execution_ms"] == 2000
+    assert task.baseline_values["execution_ms"] == [1000.0, 3000.0]
+    assert task.baseline_min["execution_ms"] == 1000
+    assert task.baseline_max["execution_ms"] == 3000
+    assert task.candidate["execution_ms"] == 500
+    assert task.deltas["execution_ms"] == -1500
 
 
 def test_unequal_sample_counts_use_medians(tmp_path):
