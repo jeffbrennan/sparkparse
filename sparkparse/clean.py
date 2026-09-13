@@ -1,26 +1,66 @@
 import logging
 from pathlib import Path
+from typing import Any
 
 import polars as pl
+from pydantic import BaseModel
 
 from sparkparse.common import resolve_dir, timeit, write_dataframe
 from sparkparse.models import (
     Job,
+    Metrics,
     OutputFormat,
     ParsedLog,
     PhysicalPlan,
     QueryEvent,
     Stage,
+    StageStatus,
     Task,
+    TaskStatus,
 )
+from sparkparse.schemas import COMBINED_SCHEMA, DAG_SCHEMA
 from sparkparse.storage import is_cloud_path, join_path
+
+_JOB_SCHEMA: dict[str, Any] = {
+    "job_id": pl.Int64,
+    "stage_id": pl.Int64,
+    "job_start_timestamp": pl.Int64,
+    "job_end_timestamp": pl.Int64,
+    "job_duration_seconds": pl.Float64,
+}
+
+_STAGE_SCHEMA: dict[str, Any] = {
+    "stage_id": pl.Int64,
+    "stage_attempt_id": pl.Int64,
+    "stage_start_timestamp": pl.Int64,
+    "stage_end_timestamp": pl.Int64,
+    "stage_duration_seconds": pl.Float64,
+    "stage_num_tasks": pl.Int64,
+    "stage_failure_reason": pl.Utf8,
+    "stage_status": pl.Utf8,
+}
 
 
 def clean_jobs(jobs: list[Job]) -> pl.DataFrame:
+    """One row per (job, stage) declared by JobStart, with the job's timings.
+
+    A job still running when the log ended contributes no ``end`` row, so the
+    pivot has no ``end`` column at all; the duration is unknown, not zero.
+    """
+    if not jobs:
+        return pl.DataFrame(schema=_JOB_SCHEMA)
+
     jobs_df = pl.DataFrame(jobs)
     jobs_with_duration = (
-        jobs_df.select("job_id", "event_type", "job_timestamp")
-        .pivot("event_type", index="job_id", values="job_timestamp")
+        _with_missing_columns(
+            jobs_df.select("job_id", "event_type", "job_timestamp").pivot(
+                "event_type",
+                index="job_id",
+                values="job_timestamp",
+                aggregate_function="first",
+            ),
+            {"start": pl.Int64, "end": pl.Int64},
+        )
         .with_columns(
             (pl.col("end") - pl.col("start"))
             .mul(1 / 1_000)
@@ -32,36 +72,123 @@ def clean_jobs(jobs: list[Job]) -> pl.DataFrame:
         jobs_df.select("job_id", "stages")
         .explode("stages")
         .rename({"stages": "stage_id"})
+        # JobEnd events carry no stage list; their null row is not a relation.
+        .filter(pl.col("stage_id").is_not_null())
         .join(jobs_with_duration, on="job_id", how="left")
     )
     return jobs_final
 
 
+def _with_missing_columns(df: pl.DataFrame, columns: dict[str, Any]) -> pl.DataFrame:
+    """Add any of ``columns`` the frame lacks, typed and null-filled.
+
+    A stage that never completed contributes no ``end`` row, so the pivot has
+    no ``end`` column at all. The column has to exist and be null — its absence
+    is missing data, not a zero-length stage.
+    """
+    missing = [
+        pl.lit(None, dtype=dtype).alias(name)
+        for name, dtype in columns.items()
+        if name not in df.columns
+    ]
+    return df.with_columns(missing) if missing else df
+
+
 def clean_stages(stages: list[Stage]) -> pl.DataFrame:
+    """One row per stage *attempt*.
+
+    ``stage_id`` alone repeats across retries, so the key is
+    ``(stage_id, stage_attempt_id)``; keying on stage id alone would fold a
+    retry's task metrics into the original attempt.
+    """
+    if not stages:
+        return pl.DataFrame(schema=_STAGE_SCHEMA)
+
     stages_df = pl.DataFrame(stages)
+    index = ["stage_id", "stage_attempt_id"]
+
+    timings = _with_missing_columns(
+        stages_df.pivot(
+            "event_type",
+            index=index,
+            values="stage_timestamp",
+            aggregate_function="first",
+        ),
+        {"start": pl.Int64, "end": pl.Int64},
+    )
+
+    attributes = stages_df.group_by(index).agg(
+        pl.col("num_tasks").drop_nulls().last().alias("stage_num_tasks"),
+        pl.col("failure_reason").drop_nulls().last().alias("stage_failure_reason"),
+        pl.when(pl.col("event_type").eq("end"))
+        .then(pl.col("status"))
+        .otherwise(None)
+        .drop_nulls()
+        .last()
+        .alias("stage_status"),
+    )
+
     stages_final = (
-        stages_df.pivot("event_type", index="stage_id", values="stage_timestamp")
-        .with_columns(
+        timings.with_columns(
             (pl.col("end") - pl.col("start"))
             .mul(1 / 1000)
             .alias("stage_duration_seconds")
         )
         .rename({"start": "stage_start_timestamp", "end": "stage_end_timestamp"})
+        .join(attributes, on=index, how="left")
+        .with_columns(
+            pl.col("stage_status").fill_null(StageStatus.running.value),
+        )
     )
     return stages_final
 
 
+def _null_metrics_template() -> dict:
+    """Nested all-null dict matching the ``Metrics`` model shape.
+
+    Used only when *no* task in the log reported metrics: polars would infer a
+    Null column and refuse to unnest it. Every leaf stays null, so the frame
+    says "not measured" rather than "measured zero".
+    """
+
+    def fields(model: type[BaseModel]) -> dict:
+        out: dict = {}
+        for name, field in model.model_fields.items():
+            annotation = field.annotation
+            if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+                out[name] = fields(annotation)
+            else:
+                out[name] = None
+        return out
+
+    return fields(Metrics)
+
+
 def clean_tasks(tasks: list[Task]) -> pl.DataFrame:
+    """One row per task *attempt*, including failed and speculative attempts."""
     task_df = pl.DataFrame(tasks)
-    tasks_final = task_df.with_columns(
-        (pl.col("task_finish_time") - pl.col("task_start_time"))
-        .mul(1 / 1_000)
-        .alias("task_duration_seconds")
-    ).rename(
-        {
-            "task_start_time": "task_start_timestamp",
-            "task_finish_time": "task_end_timestamp",
-        }
+    if task_df.height and task_df.schema["metrics"] == pl.Null:
+        task_df = task_df.with_columns(
+            pl.Series("metrics", [_null_metrics_template()] * task_df.height)
+        )
+
+    tasks_final = (
+        task_df.with_columns(
+            (pl.col("task_finish_time") - pl.col("task_start_time"))
+            .mul(1 / 1_000)
+            .alias("task_duration_seconds")
+        )
+        .with_columns(
+            pl.col("status").eq(TaskStatus.success.value).alias("task_succeeded")
+        )
+        .rename(
+            {
+                "task_start_time": "task_start_timestamp",
+                "task_finish_time": "task_end_timestamp",
+                "status": "task_status",
+                "failure_reason": "task_failure_reason",
+            }
+        )
     )
     return tasks_final
 
@@ -69,21 +196,37 @@ def clean_tasks(tasks: list[Task]) -> pl.DataFrame:
 def clean_plan(
     query_times: list[QueryEvent], queries: list[PhysicalPlan]
 ) -> pl.DataFrame:
-    plan = pl.DataFrame()
-    for query in queries:
-        plan = pl.concat(
-            [
-                plan,
-                pl.DataFrame([node.model_dump() for node in query.nodes]).with_columns(
-                    pl.lit(query.query_id).alias("query_id")
-                ),
-            ]
-        )
+    # One frame for every query at once: per-query frames disagree on dtype
+    # whenever a column is all-null in one plan (an initial plan with no
+    # codegen ids) and populated in another.
+    node_rows = [
+        {**node.model_dump(), "query_id": query.query_id}
+        for query in queries
+        for node in query.nodes
+    ]
+    plan = pl.DataFrame(
+        node_rows,
+        schema_overrides={
+            "node_id": pl.Int64,
+            "whole_stage_codegen_id": pl.Int64,
+            "query_id": pl.Int64,
+        },
+    )
 
     query_times_df = pl.DataFrame([qt.model_dump() for qt in query_times])
     query_times_pivoted = (
         (
-            query_times_df.pivot("event_type", index="query_id", values="query_time")
+            _with_missing_columns(
+                query_times_df.pivot(
+                    "event_type",
+                    index="query_id",
+                    values="query_time",
+                    aggregate_function="first",
+                ),
+                # A query that failed or was still running when the log ended
+                # has no end event at all.
+                {"start": pl.Int64, "end": pl.Int64},
+            )
             .rename({"start": "query_start_timestamp", "end": "query_end_timestamp"})
             .with_columns(
                 (pl.col("query_end_timestamp") - pl.col("query_start_timestamp"))
@@ -100,16 +243,19 @@ def clean_plan(
             how="left",
         )
         .with_columns(
+            # A query still running when the log ended has no duration. The
+            # label has to say so; concat_str would null the whole header.
             pl.concat_str(
                 [
                     pl.col("query_id"),
                     pl.lit(" - "),
-                    pl.col("query_function"),
+                    pl.col("query_function").fill_null("unknown"),
                     pl.lit(" ["),
                     pl.col("query_duration_seconds")
                     .mul(1 / 60)
                     .round(2)
-                    .cast(pl.String),
+                    .cast(pl.String)
+                    .fill_null("unknown"),
                     pl.lit(" min]"),
                 ]
             ).alias("query_header")
@@ -399,7 +545,10 @@ def get_node_metrics(
             .replace_strict(metric_type_order)
             .alias("metric_order")
         )
-        .sort("metric_order", "metric_name")
+        # Tie-break on the physical identity so the accumulator list order is
+        # reproducible: metric type and name alone leave ties, and the input
+        # order shifts whenever an unrelated query is added to the log.
+        .sort("metric_order", "metric_name", "stage_id", "task_id", "accumulator_id")
         .drop("metric_order")
         .group_by(*dag_base_cols)
         .agg(pl.col("accumulators"))
@@ -421,7 +570,7 @@ def get_node_metrics(
             .replace_strict(metric_type_order)
             .alias("metric_order")
         )
-        .sort("metric_order", "metric_name")
+        .sort("metric_order", "metric_name", "accumulator_id")
         .drop("metric_order")
         .group_by("query_id", "node_id")
         .agg(pl.col("accumulator_totals"))
@@ -554,6 +703,11 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
 
     extra_cols = ["details", "query_function", "query_header"]
 
+    if not result.queries:
+        # No SQL executions: jobs and tasks may still exist, but there is no
+        # plan to hang them on. An empty typed frame says that explicitly.
+        return pl.DataFrame(schema=DAG_SCHEMA)
+
     plan = clean_plan(result.query_times, result.queries)
     dag_long = get_dag_long(result, plan)
 
@@ -594,24 +748,42 @@ def log_to_dag_df(result: ParsedLog) -> pl.DataFrame:
         )
     )
 
+    # Per-task accumulator rows should outnumber the per-node totals. That
+    # holds for any query with more than one task, but not for a plan-only or
+    # single-task query, so it is a signal rather than an invariant.
     total_same_as_task = dag_final.filter(
         pl.col("n_accumulators") == pl.col("n_accumulator_totals")
     )
-    assert total_same_as_task.shape[0] < dag_final.shape[0]
+    if total_same_as_task.shape[0] >= dag_final.shape[0]:
+        logging.debug(
+            "Every node has as many task accumulators as totals; the log may "
+            "cover only single-task stages or carry no task metrics."
+        )
+    # A join that multiplied plan rows would silently double every metric.
     assert dag_final.shape[0] == plan.shape[0]
 
     return dag_final
 
 
-@timeit
-def log_to_combined_df(
-    result: ParsedLog, dag: pl.DataFrame, log_name: str
-) -> pl.DataFrame:
-    stages_final = clean_stages(result.stages)
-    jobs_final = clean_jobs(result.jobs)
+_QUERY_TASK_SCHEMA: dict[str, Any] = {
+    "query_id": pl.Int64,
+    "query_function": pl.Utf8,
+    "query_start_timestamp": pl.Utf8,
+    "query_end_timestamp": pl.Utf8,
+    "query_duration_seconds": pl.Float64,
+    "stage_id": pl.Int64,
+    "task_id": pl.Int64,
+    "nodes": pl.List(pl.Utf8),
+}
 
-    tasks = clean_tasks(result.tasks)
-    query_task_lookup = (
+
+def _query_task_nodes(dag: pl.DataFrame) -> pl.DataFrame:
+    """One row per (query, stage, task) with the plan nodes that task fed."""
+    if dag.is_empty() or "accumulators" not in dag.columns:
+        # No plan to attribute tasks to; every task stays unattributed rather
+        # than disappearing from the frame.
+        return pl.DataFrame(schema=_QUERY_TASK_SCHEMA)
+    return (
         dag.filter(pl.col("node_id").le(100_000))
         .explode("accumulators")
         .with_columns(
@@ -636,9 +808,121 @@ def log_to_combined_df(
         .agg(pl.col("node_name").alias("nodes"))
     )
 
+
+def query_stage_associations(dag: pl.DataFrame) -> pl.DataFrame:
+    """Every (query, stage) pair observed in the plan accumulators.
+
+    A stage reused by several queries appears once per query. This is kept as
+    its own table because joining it into the task frame would duplicate task
+    rows and double-count their metrics.
+    """
+    if dag.is_empty() or "accumulators" not in dag.columns:
+        return pl.DataFrame(schema={"query_id": pl.Int64, "stage_id": pl.Int64})
+    return (
+        dag.filter(pl.col("node_id").le(100_000))
+        .explode("accumulators")
+        .with_columns(pl.col("accumulators").struct.field("stage_id").alias("stage_id"))
+        .filter(pl.col("stage_id").is_not_null())
+        .select("query_id", "stage_id")
+        .unique()
+        .sort("query_id", "stage_id")
+    )
+
+
+def job_stage_associations(result: ParsedLog) -> pl.DataFrame:
+    """Every (job, stage) pair declared by JobStart events.
+
+    A stage skipped because its output was already available is still listed by
+    the later job, so this relation is genuinely many-to-many.
+    """
+    jobs_with_stages = [job for job in result.jobs if job.stages]
+    if not jobs_with_stages:
+        return pl.DataFrame(schema={"job_id": pl.Int64, "stage_id": pl.Int64})
+    return (
+        pl.DataFrame(
+            [{"job_id": job.job_id, "stage_id": job.stages} for job in jobs_with_stages]
+        )
+        .explode("stage_id")
+        .unique()
+        .sort("job_id", "stage_id")
+    )
+
+
+def _primary_job_per_stage(
+    jobs_final: pl.DataFrame, stages_final: pl.DataFrame
+) -> pl.DataFrame:
+    """Pick one job per stage attempt so the task frame stays one row per task.
+
+    The full relation lives in :func:`job_stage_associations`. The job chosen
+    here is the lowest-numbered job whose window contains the stage's start —
+    the job that actually ran it, rather than a later job that merely listed
+    it as already-computed.
+    """
+    if jobs_final.is_empty():
+        return jobs_final
+    stage_starts = stages_final.select(
+        "stage_id", "stage_attempt_id", "stage_start_timestamp"
+    )
+    ranked = (
+        jobs_final.join(stage_starts, on="stage_id", how="left")
+        .with_columns(
+            (
+                pl.col("stage_start_timestamp").is_not_null()
+                & pl.col("job_start_timestamp").le(pl.col("stage_start_timestamp"))
+                & (
+                    pl.col("job_end_timestamp").is_null()
+                    | pl.col("job_end_timestamp").ge(pl.col("stage_start_timestamp"))
+                )
+            ).alias("ran_in_job")
+        )
+        .sort(
+            ["stage_id", "stage_attempt_id", "ran_in_job", "job_id"],
+            descending=[False, False, True, False],
+            nulls_last=True,
+        )
+        .unique(
+            subset=["stage_id", "stage_attempt_id"], keep="first", maintain_order=True
+        )
+    )
+    return ranked.drop("ran_in_job", "stage_start_timestamp")
+
+
+@timeit
+def log_to_combined_df(
+    result: ParsedLog, dag: pl.DataFrame, log_name: str
+) -> pl.DataFrame:
+    if not result.tasks:
+        return pl.DataFrame(schema=COMBINED_SCHEMA)
+
+    stages_final = clean_stages(result.stages)
+    jobs_final = clean_jobs(result.jobs)
+    primary_jobs = _primary_job_per_stage(jobs_final, stages_final)
+
+    tasks = clean_tasks(result.tasks)
+    query_task_nodes = _query_task_nodes(dag)
+
+    # One task belongs to one physical stage attempt, but a shared stage can
+    # serve several queries. Attribute the task to the earliest query and keep
+    # the whole relation in query_stage instead of duplicating the task row.
+    query_task_lookup = (
+        query_task_nodes.sort("query_id")
+        .group_by("stage_id", "task_id")
+        .agg(
+            pl.col("query_id").first(),
+            pl.col("query_function").first(),
+            pl.col("query_start_timestamp").first(),
+            pl.col("query_end_timestamp").first(),
+            pl.col("query_duration_seconds").first(),
+            # Already node_id-ordered per query; keep that order across the
+            # queries a shared task serves instead of re-sorting as text.
+            pl.col("nodes").flatten().unique(maintain_order=True).alias("nodes"),
+            pl.col("query_id").n_unique().alias("query_count"),
+        )
+    )
+
     combined = (
-        tasks.join(stages_final, on="stage_id", how="left")
-        .join(jobs_final, on="stage_id", how="left")
+        tasks.join(stages_final, on=["stage_id", "stage_attempt_id"], how="left")
+        .join(primary_jobs, on=["stage_id", "stage_attempt_id"], how="left")
         .sort("job_id", "stage_id", "task_id")
         .unnest("metrics")
         .unnest("task_metrics")
@@ -662,14 +946,19 @@ def log_to_combined_df(
         "query_start_timestamp",
         "query_end_timestamp",
         "query_duration_seconds",
+        "query_count",
         "job_id",
         "stage_id",
+        "stage_attempt_id",
         "job_start_timestamp",
         "job_end_timestamp",
         "job_duration_seconds",
         "stage_start_timestamp",
         "stage_end_timestamp",
         "stage_duration_seconds",
+        "stage_num_tasks",
+        "stage_status",
+        "stage_failure_reason",
         # core task info
         "task_id",
         "task_start_timestamp",
@@ -722,7 +1011,13 @@ def log_to_combined_df(
         "executor_id",
         "host",
         "index",
+        "partition_id",
         "attempt",
+        # Resource usage is per attempt; output accounting is per *successful*
+        # attempt. Keeping both means a retried task is not counted twice.
+        "task_status",
+        "task_succeeded",
+        "task_failure_reason",
         "failed",
         "killed",
         "speculative",
@@ -779,8 +1074,14 @@ def log_to_combined_df(
             ]
         )
         .join(query_task_lookup, on=["stage_id", "task_id"], how="left")
-        .filter(pl.col("query_id").is_not_null())
-        .sort("query_id", "stage_id", "task_id")
+        # Tasks from jobs no SQL execution claims (schema inference, RDD work)
+        # keep a null query_id. Dropping them would erase real resource usage
+        # from the ledger.
+        .with_columns(
+            pl.col("query_count").fill_null(0),
+            pl.col("nodes").fill_null(pl.lit([], dtype=pl.List(pl.Utf8))),
+        )
+        .sort("query_id", "stage_id", "task_id", nulls_last=True)
     )
 
     final = combined_clean.select(final_cols)

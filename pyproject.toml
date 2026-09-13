@@ -27,6 +27,9 @@ azure = ["adlfs>=2024.1.0"]
 gcs = ["gcsfs>=2024.1.0"]
 cloud = ["s3fs>=2024.1.0", "adlfs>=2024.1.0", "gcsfs>=2024.1.0"]
 delta = ["deltalake>=0.25"]
+# Zstd-compressed event logs. Spark's lz4/lzf/snappy codecs use Java-specific
+# framing and cannot be read from Python at all.
+zstd = ["zstandard>=0.22"]
 
 
 [tool.hatch.build.targets.wheel]
@@ -50,6 +53,7 @@ dev-dependencies = [
     "pyspark>=3.5.5",
     "pytest>=8.3.5",
     "ruff>=0.9.9",
+    "zstandard>=0.25.0",
 ]
 
 [tool.ruff]

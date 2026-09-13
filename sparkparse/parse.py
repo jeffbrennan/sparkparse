@@ -2,23 +2,41 @@ import datetime
 import json
 import logging
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
 import polars as pl
 
-from sparkparse.clean import log_to_combined_df, log_to_dag_df, write_parsed_log
+from sparkparse.clean import (
+    job_stage_associations,
+    log_to_combined_df,
+    log_to_dag_df,
+    query_stage_associations,
+    write_parsed_log,
+)
 from sparkparse.common import resolve_dir, timeit
+from sparkparse.eventlog import (
+    IGNORED_NAMES,
+    EventLogNotFoundError,
+    UnsupportedCodecError,
+    discover_sources,
+    iter_lines,
+    resolve_source,
+    single_file_source,
+)
 from sparkparse.models import (
     NODE_ID_PATTERN,
     NODE_TYPE_DETAIL_MAP,
     NODE_TYPE_PATTERN,
     Accumulator,
     DriverAccumUpdates,
+    EventLogSource,
     EventType,
     ExecutorMetrics,
     InputMetrics,
     Job,
+    LogDiagnostic,
     Metrics,
     NodeType,
     OutputFormat,
@@ -38,18 +56,14 @@ from sparkparse.models import (
     ShuffleReadMetrics,
     ShuffleWriteMetrics,
     Stage,
+    StageStatus,
     Task,
     TaskMetrics,
+    TaskStatus,
     deserialize_insert_into_hadoop_fs_relation_command_detail,
     deserialize_scan_detail,
 )
-from sparkparse.storage import (
-    get_path_stem,
-    is_cloud_path,
-    join_path,
-    list_files,
-    open_file,
-)
+from sparkparse.storage import get_path_name, is_cloud_path
 
 logger = logging.getLogger(__name__)
 
@@ -69,44 +83,91 @@ def parse_job(line_dict: dict) -> Job:
 
 
 def parse_stage(line_dict: dict) -> Stage:
+    stage_info = line_dict["Stage Info"]
+    failure_reason = stage_info.get("Failure Reason")
     if line_dict["Event"].endswith("Submitted"):
         event_type = EventType.start
-        timestamp = line_dict["Stage Info"]["Submission Time"]
+        timestamp = stage_info.get("Submission Time")
+        status = StageStatus.running
     else:
         event_type = EventType.end
-        timestamp = line_dict["Stage Info"]["Completion Time"]
+        timestamp = stage_info.get("Completion Time")
+        status = StageStatus.failed if failure_reason else StageStatus.succeeded
 
     return Stage(
-        stage_id=line_dict["Stage Info"]["Stage ID"],
+        stage_id=stage_info["Stage ID"],
+        # A retried stage reuses its stage id, so the attempt id is part of
+        # the key. Older logs spell it "Attempt ID".
+        stage_attempt_id=stage_info.get(
+            "Stage Attempt ID", stage_info.get("Attempt ID", 0)
+        ),
         event_type=event_type,
         stage_timestamp=timestamp,
+        num_tasks=stage_info.get("Number of Tasks"),
+        status=status,
+        failure_reason=failure_reason,
     )
+
+
+def _task_end_reason(line_dict: dict) -> tuple[TaskStatus, str | None]:
+    """Map ``Task End Reason`` onto a status and a human-readable reason."""
+    reason = line_dict.get("Task End Reason") or {}
+    kind = reason.get("Reason", "Success")
+    if kind == "Success":
+        return TaskStatus.success, None
+    # Prefer the short summary Spark already composed; the stack trace is a
+    # last resort because the reason is stored, not just logged.
+    class_name = reason.get("Class Name")
+    description = reason.get("Description")
+    if class_name and description:
+        detail = f"{class_name}: {description}"
+    else:
+        detail = (
+            class_name
+            or description
+            or reason.get("Kill Reason")
+            or reason.get("Full Stack Trace")
+            or kind
+        )
+    status = TaskStatus.killed if kind == "TaskKilled" else TaskStatus.failed
+    return status, str(detail)[:500]
 
 
 def parse_task(line_dict: dict) -> Task:
     task_info = line_dict["Task Info"]
     task_info["Stage ID"] = line_dict["Stage ID"]
+    task_info["Stage Attempt ID"] = line_dict.get("Stage Attempt ID", 0)
     task_info["Task Type"] = line_dict["Task Type"]
 
     task_id = task_info["Task ID"]
-    task_metrics = line_dict["Task Metrics"]
-    metrics = Metrics(
-        task_metrics=TaskMetrics(**task_metrics),
-        executor_metrics=ExecutorMetrics(**line_dict["Task Executor Metrics"]),
-        shuffle_read_metrics=ShuffleReadMetrics(**task_metrics["Shuffle Read Metrics"]),
-        shuffle_write_metrics=ShuffleWriteMetrics(
-            **task_metrics["Shuffle Write Metrics"]
-        ),
-        input_metrics=InputMetrics(**task_metrics["Input Metrics"]),
-        output_metrics=OutputMetrics(**task_metrics["Output Metrics"]),
-    )
+    task_metrics = line_dict.get("Task Metrics")
+    # A task that failed before its metrics were serialized reports none. That
+    # is missing data, not a task that consumed nothing.
+    if task_metrics is None:
+        metrics = None
+    else:
+        metrics = Metrics(
+            task_metrics=TaskMetrics(**task_metrics),
+            executor_metrics=ExecutorMetrics(**line_dict["Task Executor Metrics"]),
+            shuffle_read_metrics=ShuffleReadMetrics(
+                **task_metrics["Shuffle Read Metrics"]
+            ),
+            shuffle_write_metrics=ShuffleWriteMetrics(
+                **task_metrics["Shuffle Write Metrics"]
+            ),
+            input_metrics=InputMetrics(**task_metrics["Input Metrics"]),
+            output_metrics=OutputMetrics(**task_metrics["Output Metrics"]),
+        )
     accumulators = [
-        Accumulator(task_id=task_id, **i) for i in task_info["Accumulables"]
+        Accumulator(task_id=task_id, **i) for i in task_info.get("Accumulables", [])
     ]
+    status, failure_reason = _task_end_reason(line_dict)
     return Task(
         metrics=metrics,
         accumulators=accumulators,
-        **line_dict["Task Info"],
+        status=status,
+        failure_reason=failure_reason,
+        **task_info,
     )
 
 
@@ -509,11 +570,24 @@ def parse_physical_plan(line_dict: dict, strict: bool = False) -> PhysicalPlan:
     )
 
 
-def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
+def get_parsed_log_name(
+    parsed_plan: PhysicalPlan | None,
+    out_name: str | None,
+    source: EventLogSource | None = None,
+) -> str:
+    """Derive the output identity for a parsed log.
+
+    Query ids restart at zero in every application, so the name carries the
+    timestamp and, when no plan paths are available, the application identity.
+    """
     name_len_limit = 100
     today = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     if out_name is not None:
         return out_name[:name_len_limit]
+
+    if parsed_plan is None:
+        fallback = (source.application_id or source.name) if source else "no_queries"
+        return f"{today}__{fallback}"[: name_len_limit + 21]
 
     source_model_strings = []
     target_model_strings = []
@@ -528,8 +602,8 @@ def get_parsed_log_name(parsed_plan: PhysicalPlan, out_name: str | None) -> str:
             target_model_strings.append(node.details)
 
     sources = []
-    for source in source_model_strings:
-        locations = deserialize_scan_detail(source).location.location
+    for scan_detail in source_model_strings:
+        locations = deserialize_scan_detail(scan_detail).location.location
         sources.extend(locations)
 
     targets = []
@@ -565,87 +639,195 @@ def parse_driver_accum_update(line_dict: dict) -> list[DriverAccumUpdates]:
 
 
 def check_if_log_has_queries(log_path: str | Path) -> bool:
+    """Return True if the log contains at least one SQL execution.
+
+    Reads incrementally and stops at the first match, so a multi-gigabyte log
+    is not copied into memory to answer a yes/no question.
+    """
     log_path_str = str(log_path)
-    if ".DS_Store" in log_path_str:
+    if get_path_name(log_path_str) in IGNORED_NAMES:
         return False
 
-    with open_file(log_path_str, "r") as f:
-        all_contents = f.read()
+    return source_has_queries(single_file_source(log_path_str))
 
-    return "SparkListenerSQLExecutionStart" in all_contents
+
+def source_has_queries(source: EventLogSource) -> bool:
+    """Return True if ``source`` contains at least one SQL execution."""
+    try:
+        for _, _, line in iter_lines(source):
+            if "SparkListenerSQLExecutionStart" in line:
+                return True
+    except (UnsupportedCodecError, OSError) as exc:
+        logger.warning("Could not read %s: %s", source.root_uri, exc)
+        return False
+    return False
+
+
+# Plans arrive strongest-last: the initial plan is available at
+# SQLExecutionStart, adaptive updates refine it, and the final adaptive plan is
+# authoritative. A query that never reaches AQE keeps its initial plan.
+PLAN_RANK_INITIAL = 0
+PLAN_RANK_ADAPTIVE = 1
+PLAN_RANK_FINAL = 2
+
+
+def _is_final_adaptive_plan(line_dict: dict) -> bool:
+    simple_string = line_dict.get("sparkPlanInfo", {}).get("simpleString", "")
+    return simple_string.split("isFinalPlan=")[-1] == "true"
+
+
+def iter_events(
+    source: EventLogSource,
+    strict: bool = False,
+    diagnostics: list[LogDiagnostic] | None = None,
+) -> Iterator[tuple[str, int, dict]]:
+    """Yield decoded events from ``source``, one line at a time.
+
+    A line that fails to decode is corruption when more lines follow it and a
+    truncated tail when it is the last line of the last segment — a log that
+    was still being written. Tolerant mode records both as diagnostics; strict
+    mode raises with the source URI and line number.
+    """
+    sink = diagnostics if diagnostics is not None else []
+    pending: tuple[str, int, str] | None = None
+
+    for uri, line_number, line in iter_lines(source):
+        if pending is not None:
+            bad_uri, bad_line, bad_msg = pending
+            pending = None
+            message = f"Corrupt event at {bad_uri}:{bad_line} ({bad_msg})"
+            if strict:
+                raise ValueError(message)
+            logger.warning(message)
+            sink.append(
+                LogDiagnostic(
+                    code="corrupt_line", message=message, uri=bad_uri, line=bad_line
+                )
+            )
+        if not line.strip():
+            continue
+        try:
+            yield uri, line_number, json.loads(line)
+        except json.JSONDecodeError as exc:
+            pending = (uri, line_number, str(exc))
+
+    if pending is not None:
+        bad_uri, bad_line, bad_msg = pending
+        message = (
+            f"Truncated final event at {bad_uri}:{bad_line} ({bad_msg}); "
+            "the log was still being written or was copied mid-flush"
+        )
+        if strict:
+            raise ValueError(message)
+        logger.warning(message)
+        sink.append(
+            LogDiagnostic(
+                code="truncated_tail", message=message, uri=bad_uri, line=bad_line
+            )
+        )
 
 
 @timeit
-def parse_log(
-    log_path: str | Path, out_name: str | None = None, strict: bool = False
+def parse_source(
+    source: EventLogSource, out_name: str | None = None, strict: bool = False
 ) -> ParsedLog:
-    log_path_str = str(log_path)
-    logger.debug(f"Starting to parse log file: {log_path_str}")
-    with open_file(log_path_str, "r") as f:
-        all_contents = f.readlines()
+    """Parse one logical event log into a :class:`ParsedLog`.
 
-    start_point = "SparkListenerApplicationStart"
-    start_index: int | None = None
-    for i, line in enumerate(all_contents):
-        line_dict = json.loads(line)
-        if line_dict["Event"] == start_point:
-            start_index = i + 1
-            break
+    Neither ``SparkListenerApplicationStart`` nor an adaptive execution update
+    is required: a log missing either is incomplete, not invalid.
+    """
+    logger.debug("Starting to parse event log source: %s", source.uris)
 
-    if start_index is None:
-        raise ValueError(
-            f"Could not find '{start_point}' event in log file: {log_path_str}"
-        )
+    diagnostics: list[LogDiagnostic] = []
+    jobs: list[Job] = []
+    stages: list[Stage] = []
+    tasks: list[Task] = []
+    query_times: list[QueryEvent] = []
+    driver_accum_updates: list[DriverAccumUpdates] = []
+    unknown_events: dict[str, int] = {}
 
-    contents_to_parse = all_contents[start_index:]
+    # query_id -> (rank, event) so a later, stronger plan replaces a weaker one
+    # without keeping every intermediate plan in memory.
+    plans: dict[int, tuple[int, dict]] = {}
 
-    jobs = []
-    stages = []
-    tasks = []
-    queries = []
-    query_times = []
-    driver_accum_updates = []
-    for i, line in enumerate(contents_to_parse, start_index):
-        logger.debug("-" * 40)
-        logger.debug(f"[line {i:04d}] parse start")
-        line_dict = json.loads(line)
-        event_type = line_dict["Event"]
-        if event_type.startswith("SparkListenerJob"):
+    spark_version: str | None = None
+    application_id: str | None = None
+    application_name: str | None = None
+    events_read = 0
+    tasks_missing_metrics = 0
+
+    for uri, line_number, line_dict in iter_events(source, strict, diagnostics):
+        events_read += 1
+        event_type = line_dict.get("Event")
+        if event_type is None:
+            message = f"Event with no 'Event' field at {uri}:{line_number}"
+            if strict:
+                raise ValueError(message)
+            diagnostics.append(
+                LogDiagnostic(
+                    code="malformed_event",
+                    message=message,
+                    uri=uri,
+                    line=line_number,
+                )
+            )
+            continue
+
+        if event_type == "SparkListenerLogStart":
+            spark_version = line_dict.get("Spark Version")
+        elif event_type == "SparkListenerApplicationStart":
+            application_id = line_dict.get("App ID")
+            application_name = line_dict.get("App Name")
+        elif event_type.startswith("SparkListenerJob"):
             job = parse_job(line_dict)
             jobs.append(job)
+            # %-style so the message is only built when debug logging is on;
+            # this runs once per event.
             logger.debug(
-                f"[line {i:04d}] parse finish - job#{job.job_id}  type:{job.event_type}"
+                "[%s:%d] job#%d %s", uri, line_number, job.job_id, job.event_type
             )
         elif event_type.startswith("SparkListenerStage"):
             stage = parse_stage(line_dict)
             stages.append(stage)
             logger.debug(
-                f"[line {i:04d}] parse finish - stage#{stage.stage_id} type:{stage.event_type}"
+                "[%s:%d] stage#%d.%d %s",
+                uri,
+                line_number,
+                stage.stage_id,
+                stage.stage_attempt_id,
+                stage.event_type,
             )
         elif event_type == "SparkListenerTaskEnd":
             task = parse_task(line_dict)
+            if task.metrics is None:
+                tasks_missing_metrics += 1
             tasks.append(task)
             logger.debug(
-                f"[line {i:04d}] parse finish - task#{task.task_id} stage#{task.stage_id}"
+                "[%s:%d] task#%d stage#%d.%d %s",
+                uri,
+                line_number,
+                task.task_id,
+                task.stage_id,
+                task.stage_attempt_id,
+                task.status,
             )
         elif event_type.endswith("SparkListenerSQLAdaptiveExecutionUpdate"):
-            is_final_plan = (
-                line_dict["sparkPlanInfo"]["simpleString"].split("isFinalPlan=")[-1]
-                == "true"
+            rank = (
+                PLAN_RANK_FINAL
+                if _is_final_adaptive_plan(line_dict)
+                else PLAN_RANK_ADAPTIVE
             )
-            if is_final_plan:
-                logger.debug(f"Found final plan at line {i}")
-                queries.append(line_dict)
-            logger.debug(
-                f"[line {i:04d}] parse skip - unhandled event type {event_type}"
-            )
+            _record_plan(plans, line_dict, rank)
         elif event_type.endswith("SparkListenerSQLExecutionStart"):
+            # The initial physical plan ships with the start event. Without it
+            # a non-AQE workload would have no plan at all.
+            if "physicalPlanDescription" in line_dict:
+                _record_plan(plans, line_dict, PLAN_RANK_INITIAL)
+            description = line_dict.get("description", "")
             try:
-                query_function = QueryFunction(line_dict["description"].split(" ")[0])
+                query_function = QueryFunction(description.split(" ")[0])
             except ValueError:
-                msg = (
-                    f"Unknown query function: {line_dict['description'].split(' ')[0]}"
-                )
+                msg = f"Unknown query function: {description.split(' ')[0]}"
                 if strict:
                     raise ValueError(msg)
                 logger.warning(msg)
@@ -668,16 +850,92 @@ def parse_log(
             )
         elif event_type.endswith("DriverAccumUpdates"):
             driver_accum_updates.extend(parse_driver_accum_update(line_dict))
+        else:
+            unknown_events[event_type] = unknown_events.get(event_type, 0) + 1
 
-    if len(queries) == 0:
-        raise ValueError("No queries found in log file")
+    if application_id is None and source.application_id is not None:
+        # No ApplicationStart record: fall back to the identity in the path.
+        application_id = source.application_id
+        diagnostics.append(
+            LogDiagnostic(
+                code="missing_application_start",
+                message=(
+                    "No SparkListenerApplicationStart event; application identity "
+                    "was taken from the log file name."
+                ),
+                uri=source.uris[0] if source.uris else None,
+            )
+        )
 
-    parsed_queries = [parse_physical_plan(query, strict=strict) for query in queries]
+    if tasks_missing_metrics:
+        diagnostics.append(
+            LogDiagnostic(
+                code="tasks_missing_metrics",
+                message=(
+                    f"{tasks_missing_metrics} task(s) reported no Task Metrics; "
+                    "their resource usage is unknown, not zero."
+                ),
+            )
+        )
+
+    parsed_queries: list[PhysicalPlan] = []
+    for query_id, (rank, plan_event) in sorted(plans.items()):
+        try:
+            parsed_queries.append(parse_physical_plan(plan_event, strict=strict))
+        except Exception as exc:
+            message = f"Could not parse physical plan for query {query_id}: {exc}"
+            if strict:
+                raise
+            logger.warning(message)
+            diagnostics.append(LogDiagnostic(code="plan_parse_failed", message=message))
+            continue
+        if rank < PLAN_RANK_FINAL:
+            diagnostics.append(
+                LogDiagnostic(
+                    code="non_final_plan",
+                    message=(
+                        f"Query {query_id} has no final adaptive plan; using the "
+                        f"{'initial' if rank == PLAN_RANK_INITIAL else 'in-progress adaptive'}"
+                        " plan. Node metrics may be incomplete."
+                    ),
+                )
+            )
+
+    if not parsed_queries:
+        diagnostics.append(
+            LogDiagnostic(
+                code="no_queries",
+                message=(
+                    "No SQL executions found in the event log. Non-SQL "
+                    "applications produce jobs and tasks but no query plans."
+                ),
+                uri=source.uris[0] if source.uris else None,
+            )
+        )
+
+    if not source.complete:
+        diagnostics.append(
+            LogDiagnostic(
+                code="incomplete_source",
+                message=(
+                    "The event log is still in progress; results cover only the "
+                    "events written so far."
+                ),
+                uri=source.uris[-1] if source.uris else None,
+            )
+        )
+
     logger.debug(
-        f"Finished parsing log [n={len(jobs)} jobs | n={len(stages)} stages | n={len(tasks)} tasks | n={len(parsed_queries)} queries]"
+        "Finished parsing log [n=%d jobs | n=%d stages | n=%d tasks | n=%d queries]",
+        len(jobs),
+        len(stages),
+        len(tasks),
+        len(parsed_queries),
     )
 
-    parsed_log_name = get_parsed_log_name(parsed_queries[0], out_name)
+    parsed_log_name = get_parsed_log_name(
+        _plan_for_naming(parsed_queries), out_name, source
+    )
 
     return ParsedLog(
         name=parsed_log_name,
@@ -687,7 +945,50 @@ def parse_log(
         queries=parsed_queries,
         query_times=query_times,
         driver_accum_updates=driver_accum_updates,
+        source=source,
+        diagnostics=diagnostics,
+        spark_version=spark_version,
+        application_id=application_id,
+        application_name=application_name,
+        unknown_events=unknown_events,
+        events_read=events_read,
     )
+
+
+_NAMING_NODE_TYPES = (NodeType.Scan, NodeType.InsertIntoHadoopFsRelationCommand)
+
+
+def _plan_for_naming(queries: list[PhysicalPlan]) -> PhysicalPlan | None:
+    """Pick the query whose plan names the data the run touched.
+
+    The first query is often a schema probe with no scan detail; naming the
+    output after it loses the identity the paths would have given.
+    """
+    for query in queries:
+        if any(
+            node.node_type in _NAMING_NODE_TYPES and node.details is not None
+            for node in query.nodes
+        ):
+            return query
+    return queries[0] if queries else None
+
+
+def _record_plan(
+    plans: dict[int, tuple[int, dict]], line_dict: dict, rank: int
+) -> None:
+    """Keep the strongest plan seen for a query; later ties win."""
+    query_id = line_dict["executionId"]
+    existing = plans.get(query_id)
+    if existing is None or rank >= existing[0]:
+        plans[query_id] = (rank, line_dict)
+
+
+def parse_log(
+    log_path: str | Path, out_name: str | None = None, strict: bool = False
+) -> ParsedLog:
+    """Parse a single event-log file. See :func:`parse_source` for directories
+    of rolled segments."""
+    return parse_source(single_file_source(str(log_path)), out_name, strict=strict)
 
 
 def get_parsed_metrics(
@@ -699,9 +1000,45 @@ def get_parsed_metrics(
     verbose: bool = False,
     strict: bool = False,
 ) -> ParsedLogDataFrames:
-    log_dir_str = str(log_dir)
-    cloud = is_cloud_path(log_dir_str)
+    """Parse one event-log source from ``log_dir`` into DataFrames.
 
+    ``log_file`` selects a source explicitly (file name, rolling-log directory
+    name, application id, or full path). Without it the newest source is used.
+    Use :func:`get_all_parsed_metrics` to parse every application in a
+    directory.
+    """
+    _configure_logging(verbose)
+    source = resolve_source(_resolve_log_dir(log_dir), log_file)
+    return _parse_and_write(source, out_dir, out_name, out_format, strict)
+
+
+def get_all_parsed_metrics(
+    log_dir: str | Path = "data/logs/raw",
+    out_dir: str | None = "data/logs/parsed",
+    out_format: OutputFormat | None = OutputFormat.csv,
+    verbose: bool = False,
+    strict: bool = False,
+) -> dict[str, ParsedLogDataFrames]:
+    """Parse every application under ``log_dir``, keyed by source name.
+
+    Query ids restart at zero in each application, so results are kept per
+    source rather than concatenated.
+    """
+    _configure_logging(verbose)
+    resolved_dir = _resolve_log_dir(log_dir)
+    sources = discover_sources(resolved_dir)
+    if not sources:
+        raise EventLogNotFoundError(f"No event log files found in: {resolved_dir}")
+
+    results: dict[str, ParsedLogDataFrames] = {}
+    for source in sorted(sources, key=lambda item: item.name):
+        results[source.name] = _parse_and_write(
+            source, out_dir, None, out_format, strict, disambiguate=True
+        )
+    return results
+
+
+def _configure_logging(verbose: bool) -> None:
     if verbose:
         logging.basicConfig(
             level=logging.DEBUG,
@@ -711,34 +1048,47 @@ def get_parsed_metrics(
     else:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    if cloud:
-        if log_file is None:
-            candidates = sorted(list_files(log_dir_str))
-            if not candidates:
-                raise ValueError(f"No log files found in cloud path: {log_dir_str}")
-            log_to_parse = candidates[-1]
-        else:
-            log_to_parse = join_path(log_dir_str, log_file)
-        log_stem = get_path_stem(log_to_parse)
-    else:
-        log_dir_path = Path(resolve_dir(log_dir))
-        if log_file is None:
-            log_to_parse = sorted(log_dir_path.glob("*"))[-1]
-        else:
-            log_to_parse = log_dir_path / log_file
-        log_stem = log_to_parse.stem
 
-    logging.info(f"Reading log file: {log_to_parse}")
+def _resolve_log_dir(log_dir: str | Path) -> str:
+    if is_cloud_path(str(log_dir)):
+        return str(log_dir)
+    return str(resolve_dir(log_dir))
 
-    result = parse_log(log_to_parse, out_name, strict=strict)
+
+def _parse_and_write(
+    source: EventLogSource,
+    out_dir: str | None,
+    out_name: str | None,
+    out_format: OutputFormat | None,
+    strict: bool,
+    disambiguate: bool = False,
+) -> ParsedLogDataFrames:
+    logging.info(f"Reading event log: {source.root_uri or source.uris}")
+
+    result = parse_source(source, out_name, strict=strict)
+    for diagnostic in result.diagnostics:
+        logging.info(f"[{diagnostic.code}] {diagnostic.message}")
+
     dag_df = log_to_dag_df(result)
-    combined_df = log_to_combined_df(result, dag_df, log_stem)
+    combined_df = log_to_combined_df(result, dag_df, source.name)
 
-    output = ParsedLogDataFrames(combined=combined_df, dag=dag_df)
+    output = ParsedLogDataFrames(
+        combined=combined_df,
+        dag=dag_df,
+        job_stage=job_stage_associations(result),
+        query_stage=query_stage_associations(dag_df),
+        diagnostics=result.diagnostics,
+    )
 
     if out_dir is None or out_format is None:
         logging.info("Skipping writing parsed log")
         return output
+
+    parsed_name = result.name
+    if disambiguate and out_name is None:
+        # Two applications reading the same paths in the same second derive the
+        # same name; the application identity keeps their outputs apart.
+        parsed_name = f"{parsed_name}__{source.name}"[:160]
 
     if out_format == OutputFormat.csv:
         dag_df = (
@@ -766,7 +1116,7 @@ def get_parsed_metrics(
         df=dag_df,
         out_dir=out_dir,
         out_format=out_format,
-        parsed_name=result.name,
+        parsed_name=parsed_name,
         suffix="_dag",
     )
 
@@ -774,7 +1124,7 @@ def get_parsed_metrics(
         df=combined_df,
         out_dir=out_dir,
         out_format=out_format,
-        parsed_name=result.name,
+        parsed_name=parsed_name,
         suffix="_combined",
     )
 

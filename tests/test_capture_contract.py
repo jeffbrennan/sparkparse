@@ -176,7 +176,9 @@ def test_selects_application_log_not_last_filename(tmp_path):
     cap = SparkparseCapture("get", spark=_BorrowedSpark(tmp_path))
     cap._log_dir = str(tmp_path)
     cap._metadata = cap._metadata.model_copy(update={"source_application_id": "app-1"})
-    assert cap._select_log() == "app-1"
+    # The selection is a resolvable source path, so rolled and compressed
+    # logs (a directory, or a name with a codec suffix) can be selected too.
+    assert cap._select_log() == str(tmp_path / "app-1")
     cap._metadata = cap._metadata.model_copy(
         update={"source_application_id": "missing"}
     )

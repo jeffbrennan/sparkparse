@@ -1,6 +1,7 @@
 # 04 — Event-log coverage and scalable ingestion
 
-Status: proposed. Priority: P1, with non-AQE support an early correctness fix.
+Status: implemented offline (increments 1-3); live rolled/compressed Databricks
+validation outstanding. Priority: P1, with non-AQE support an early correctness fix.
 Depends on 01's identity/partial-result contract. Files: `parse.py`, `clean.py`,
 `models.py`, `storage.py` and event-log fixtures.
 

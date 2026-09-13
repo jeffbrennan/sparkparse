@@ -446,6 +446,78 @@ _TOTAL_UNITS = {
 
 _COMPACT_DEFAULT_NODES = 25
 
+# Output that a failed or killed attempt produced is discarded and recomputed,
+# so counting it would inflate the ledger. The resources that attempt burned
+# were still spent, so those are counted for every attempt.
+OUTPUT_ACCOUNTING_COLUMNS: frozenset[str] = frozenset(
+    {
+        "bytes_read",
+        "records_read",
+        "bytes_written",
+        "records_written",
+        "shuffle_bytes_read",
+        "shuffle_bytes_written",
+    }
+)
+
+
+def _partition_key(columns: set[str]) -> pl.Expr | None:
+    """Expression identifying the partition a task attempt computed."""
+    available = [name for name in ("partition_id", "index") if name in columns]
+    if not available:
+        return None
+    return pl.coalesce([pl.col(name) for name in available]).alias("_partition")
+
+
+def retained_outputs(combined: pl.DataFrame) -> pl.DataFrame:
+    """Rows for the task attempts whose output was actually kept.
+
+    Success is necessary but not sufficient. Two successful attempts can exist
+    for the same partition — a speculative copy that finished after the commit
+    was already awarded, or a partition recomputed in a later stage attempt
+    after its output was lost — and only one of them contributes bytes and
+    rows. Counting both inflates every output total.
+
+    One attempt survives per ``(stage_id, partition)``: the latest stage
+    attempt (its output supersedes the lost one), and within it the attempt
+    that finished first, which is the one Spark's commit coordinator would have
+    authorized. Every attempt stays in ``combined`` for resource accounting.
+
+    Sources that do not report task status (Spark Connect plan metrics) have no
+    ``task_succeeded`` column; every row they do report is treated as kept.
+    """
+    columns = set(combined.columns)
+    if "task_succeeded" not in columns:
+        return combined
+
+    kept = combined.filter(pl.col("task_succeeded").fill_null(True))
+    partition = _partition_key(columns)
+    if partition is None or "stage_id" not in columns or kept.is_empty():
+        return kept
+
+    order = [("stage_id", False), ("_partition", False)]
+    if "stage_attempt_id" in columns:
+        order.append(("stage_attempt_id", True))
+    if "task_end_timestamp" in columns:
+        order.append(("task_end_timestamp", False))
+    if "task_id" in columns:
+        order.append(("task_id", False))
+
+    return (
+        kept.with_columns(partition)
+        .sort(
+            [name for name, _ in order],
+            descending=[descending for _, descending in order],
+            nulls_last=True,
+        )
+        .unique(subset=["stage_id", "_partition"], keep="first", maintain_order=True)
+        .drop("_partition")
+    )
+
+
+def total_basis(column: str) -> str:
+    return "retained_outputs" if column in OUTPUT_ACCOUNTING_COLUMNS else "all_attempts"
+
 
 def _safe_node_name(row: dict[str, Any], redactor: Redactor) -> str | None:
     """Return the node's display name, redacted when it carries workload text.
@@ -606,9 +678,11 @@ def to_plan_summary(
         # An empty task table is a valid Connect result, not evidence of zero work.
         agg: dict[str, Any] = dict.fromkeys(_TOTAL_COLUMNS)
     else:
-        agg = combined.select(
-            *(pl.sum(column).alias(column) for column in _TOTAL_COLUMNS)
-        ).row(0, named=True)
+        kept = retained_outputs(combined)
+        agg = {}
+        for column in _TOTAL_COLUMNS:
+            frame = kept if column in OUTPUT_ACCOUNTING_COLUMNS else combined
+            agg[column] = frame.select(pl.sum(column)).item() if frame.height else None
 
     summary: dict[str, Any] = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
@@ -618,6 +692,9 @@ def to_plan_summary(
         "total_units": {
             column: _TOTAL_UNITS[column].value for column in _TOTAL_COLUMNS
         },
+        # Which attempts each total covers: resource usage counts every
+        # attempt, output accounting counts only the attempts that were kept.
+        "total_basis": {column: total_basis(column) for column in _TOTAL_COLUMNS},
         "coverage": capabilities.model_dump(mode="json"),
     }
 
