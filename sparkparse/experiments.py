@@ -830,6 +830,65 @@ def _group_notes(baseline: ComparisonGroup, candidate: ComparisonGroup) -> list[
     return notes
 
 
+def _compute_summary(report: RunReport) -> str:
+    parts: list[str] = []
+    for reference in sorted(report.compute, key=lambda r: r.task_key):
+        bits = [
+            reference.runtime_engine or "?",
+            reference.spark_version or "?",
+            reference.node_type_id or "?",
+            f"{reference.num_workers}w" if reference.num_workers is not None else "?w",
+        ]
+        suffix = " (current lookup)" if reference.source == "current_lookup" else ""
+        parts.append(f"{reference.task_key}: {'/'.join(bits)}{suffix}")
+    if report.effective_performance_target:
+        parts.append(f"perf_target={report.effective_performance_target}")
+    return "; ".join(parts)
+
+
+def _top_queries(report: RunReport, limit: int = 5) -> list[dict[str, Any]]:
+    if report.query_metrics is None:
+        return []
+    queries: list[dict[str, Any]] = []
+    for observation in report.query_metrics.observations:
+        total = observation.metrics.get("total_time_ms")
+        if not isinstance(total, int | float) or isinstance(total, bool):
+            total = observation.metrics.get("execution_time_ms")
+        if not isinstance(total, int | float) or isinstance(total, bool):
+            continue
+        queries.append(
+            {
+                "query_id": observation.query_id,
+                "status": observation.status,
+                "total_ms": int(total),
+                "read_bytes": observation.metrics.get("read_bytes"),
+            }
+        )
+    queries.sort(key=lambda q: q["total_ms"], reverse=True)
+    return queries[:limit]
+
+
+def _failure_excerpts(report: RunReport) -> list[dict[str, Any]]:
+    return [
+        {"task_key": task.task_key, "excerpt": task.error_excerpt}
+        for task in report.tasks
+        if task.result_state in ("FAILED", "TIMEDOUT", "CANCELED")
+        and task.error_excerpt
+    ]
+
+
+def _eligibility(status: str, warmup: bool, correctness: str | None) -> str:
+    if status == "failed":
+        return "failed"
+    if status == "active":
+        return "active"
+    if warmup:
+        return "warmup"
+    if correctness in ("pending", "incomplete"):
+        return "incomplete"
+    return "ok"
+
+
 def trial_rows(
     manifest: ExperimentManifest, snapshots: dict[str, TrialSnapshot]
 ) -> list[dict[str, Any]]:
@@ -853,6 +912,15 @@ def trial_rows(
                 values[aggregate.metric] = float(aggregate.value)
                 if aggregate.completeness.value != "complete":
                     partial.append(aggregate.metric)
+        status = _trial_status(snapshot)
+        task_values = {
+            task.task_key: (
+                float(task.timing.execution_ms)
+                if task.timing.execution_ms is not None
+                else None
+            )
+            for task in report.tasks
+        }
         rows.append(
             {
                 "trial_id": trial.trial_id,
@@ -863,15 +931,20 @@ def trial_rows(
                     report.revision.executed_commit or trial.revision or "unknown"
                 )[:8],
                 "collected_at": snapshot.collected_at.isoformat(),
-                "status": _trial_status(snapshot),
+                "status": status,
+                "eligibility": _eligibility(status, trial.warmup, trial.correctness),
                 "warmup": trial.warmup,
                 "correctness": trial.correctness,
                 "config_fingerprint": trial.config_fingerprint,
                 "input_snapshot": trial.input_snapshot,
                 "run_page_url": report.identity.run_page_url,
                 "values": values,
+                "task_values": task_values,
                 "partial_metrics": partial,
                 "coverage": dict(report.coverage),
+                "compute_summary": _compute_summary(report),
+                "top_queries": _top_queries(report),
+                "failure_excerpts": _failure_excerpts(report),
                 "failed_tasks": [
                     t.task_key for t in report.tasks if t.result_state == "FAILED"
                 ],

@@ -1,13 +1,14 @@
 """Dash/Plotly view for a saved experiment directory.
 
 This is a standalone, read-only app: it loads the manifest and immutable
-snapshots once, binds to loopback on launch, and refreshes only on request.
-The same comparison functions used by the CLI and JSON output back every
-number shown here.
+snapshots once, binds to loopback on launch, and reloads from disk on request so
+a refresh reflects newly recorded trials. The same comparison functions used by
+the CLI and JSON output back every number shown here.
 """
 
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 import dash
@@ -43,6 +44,8 @@ _OTHER_METRICS = {
 }
 _ALL_METRICS = {**_TIME_METRICS, **_BYTE_METRICS, **_OTHER_METRICS}
 
+_ELIGIBILITY = ("ok", "warmup", "failed", "active", "incomplete")
+
 _SCALE = {
     MetricUnit.milliseconds: ("seconds", 1000.0),
     MetricUnit.bytes: ("MB", 1024.0 * 1024.0),
@@ -50,14 +53,6 @@ _SCALE = {
     MetricUnit.items: ("count", 1.0),
     MetricUnit.none: ("value", 1.0),
 }
-
-
-def _scaled(metric: str, value: float) -> tuple[str, float]:
-    if metric in _TIME_METRICS:
-        return "seconds", value / 1000.0
-    if metric in _BYTE_METRICS:
-        return "MB", value / (1024.0 * 1024.0)
-    return "value", value
 
 
 def _unit_for(metric: str) -> MetricUnit:
@@ -78,8 +73,30 @@ def _run_options(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     ]
 
 
+def _multi_options(values: list[str]) -> list[dict[str, str]]:
+    return [{"label": value, "value": value} for value in values]
+
+
+def _filter_rows(
+    rows: list[dict[str, Any]],
+    variants: list[str] | None,
+    revisions: list[str] | None,
+    eligibility: list[str] | None,
+) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in rows
+        if (not variants or row["variant"] in variants)
+        and (not revisions or row["short_revision"] in revisions)
+        and (not eligibility or row["eligibility"] in eligibility)
+    ]
+
+
 def _trend_figure(
-    rows: list[dict[str, Any]], metric: str, baseline_run: str, candidate_run: str
+    rows: list[dict[str, Any]],
+    metric: str,
+    baseline_run: str | None,
+    candidate_run: str | None,
 ) -> go.Figure:
     unit = _unit_for(metric)
     scale_label, scale = _SCALE[unit]
@@ -115,7 +132,10 @@ def _trend_figure(
             else MetricUnit.bytes
         ]
         context_values = [
-            row["values"].get(context_metric, 0.0) / context_scale for row in rows
+            row["values"].get(context_metric) / context_scale
+            if context_metric in row["values"]
+            else None
+            for row in rows
         ]
         context_label = (
             "seconds"
@@ -169,8 +189,90 @@ def _add_median_line(
     ]
     if not values:
         return
-    median = sorted(values)[len(values) // 2]
+    median = statistics.median(values)
     fig.add_hline(y=median, line_dash="dash", line_color=color, row=1, col=1)
+
+
+def _task_samples_for_variant(
+    rows: list[dict[str, Any]], task_key: str, variant: str
+) -> list[float]:
+    return [
+        row["task_values"][task_key]
+        for row in rows
+        if row["variant"] == variant and row["task_values"].get(task_key) is not None
+    ]
+
+
+def _task_trend_figure(
+    rows: list[dict[str, Any]],
+    task_key: str | None,
+    baseline_run: str | None,
+    candidate_run: str | None,
+) -> go.Figure:
+    fig = go.Figure()
+    if task_key is None:
+        return fig
+    xs = [row["run_id"] for row in rows]
+    ys = [
+        row["task_values"].get(task_key)
+        if row["task_values"].get(task_key) is not None
+        else None
+        for row in rows
+    ]
+    fig.add_trace(
+        go.Scatter(
+            x=xs,
+            y=ys,
+            mode="markers+lines",
+            name=f"{task_key} execution",
+            text=[f"{row['variant']} {row['short_revision']}" for row in rows],
+            hovertemplate="%{text}<br>%{y:.0f} ms<extra></extra>",
+            connectgaps=False,
+        )
+    )
+    variant_by_run = {row["run_id"]: row["variant"] for row in rows}
+    for run_id, color, label in (
+        (baseline_run, "#1f77b4", "baseline"),
+        (candidate_run, "#ff7f0e", "candidate"),
+    ):
+        if not run_id:
+            continue
+        variant = variant_by_run.get(run_id)
+        if variant is None:
+            continue
+        samples = _task_samples_for_variant(rows, task_key, variant)
+        if not samples:
+            continue
+        median = statistics.median(samples)
+        fig.add_trace(
+            go.Scatter(
+                x=[run_id],
+                y=[median],
+                mode="markers",
+                marker={"size": 14, "color": color, "symbol": "diamond"},
+                error_y={
+                    "type": "data",
+                    "symmetric": False,
+                    "array": [max(samples) - median],
+                    "arrayminus": [median - min(samples)],
+                },
+                name=f"{label} variant spread (n={len(samples)})",
+                hovertemplate=(
+                    f"{label} variant median %{{y:.0f}} ms"
+                    f"<br>min {min(samples):.0f} / max {max(samples):.0f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+    fig.update_layout(
+        margin={"l": 40, "r": 20, "t": 40, "b": 30},
+        height=360,
+        yaxis_title="ms",
+        legend={"orientation": "h"},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
 
 
 def _metric_table(comparison: ExperimentComparison) -> list[dict[str, Any]]:
@@ -191,6 +293,12 @@ def _metric_table(comparison: ExperimentComparison) -> list[dict[str, Any]]:
     return rows
 
 
+def _fmt_samples(values: list[float] | None) -> str:
+    if not values:
+        return ""
+    return ", ".join(f"{value:.0f}" for value in values)
+
+
 def _task_table(comparison: ExperimentComparison) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for task in comparison.tasks:
@@ -201,13 +309,29 @@ def _task_table(comparison: ExperimentComparison) -> list[dict[str, Any]]:
                 "baseline_execution_ms": task.baseline.get("execution_ms"),
                 "candidate_execution_ms": task.candidate.get("execution_ms"),
                 "delta_execution_ms": task.deltas.get("execution_ms"),
-                "baseline_setup_ms": task.baseline.get("setup_ms"),
-                "candidate_setup_ms": task.candidate.get("setup_ms"),
-                "baseline_cleanup_ms": task.baseline.get("cleanup_ms"),
-                "candidate_cleanup_ms": task.candidate.get("cleanup_ms"),
+                "baseline_samples": _fmt_samples(
+                    task.baseline_values.get("execution_ms")
+                ),
+                "candidate_samples": _fmt_samples(
+                    task.candidate_values.get("execution_ms")
+                ),
+                "baseline_range": _fmt_range(
+                    task.baseline_min.get("execution_ms"),
+                    task.baseline_max.get("execution_ms"),
+                ),
+                "candidate_range": _fmt_range(
+                    task.candidate_min.get("execution_ms"),
+                    task.candidate_max.get("execution_ms"),
+                ),
             }
         )
     return rows
+
+
+def _fmt_range(low: float | None, high: float | None) -> str:
+    if low is None or high is None:
+        return ""
+    return f"{low:.0f}–{high:.0f}"
 
 
 def _detail_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -218,16 +342,51 @@ def _detail_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "revision": row["short_revision"],
             "collected_at": row["collected_at"],
             "status": row["status"],
+            "eligibility": row["eligibility"],
             "config": row["config_fingerprint"],
             "input": row["input_snapshot"],
+            "compute": row["compute_summary"],
             "coverage": ", ".join(
                 f"{key}={value}" for key, value in sorted(row["coverage"].items())
             ),
-            "failed_tasks": ", ".join(row["failed_tasks"]),
+            "top_queries": " | ".join(
+                f"{q['query_id'][:8]} {q['total_ms']}ms" for q in row["top_queries"]
+            ),
+            "failure_excerpts": " || ".join(
+                f"{f['task_key']}: {f['excerpt']}" for f in row["failure_excerpts"]
+            ),
             "run_url": row["run_page_url"],
         }
         for row in rows
     ]
+
+
+_CONTEXT_KEYS = {
+    "revision": "short_revision",
+    "input_snapshot": "input_snapshot",
+    "configuration": "config_fingerprint",
+    "compute": "compute_summary",
+}
+
+
+def _context_table(
+    comparison: ExperimentComparison,
+    baseline_row: dict[str, Any] | None,
+    candidate_row: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for note in comparison.comparability:
+        key = _CONTEXT_KEYS.get(note.aspect)
+        rows.append(
+            {
+                "aspect": note.aspect,
+                "status": note.status,
+                "baseline": (baseline_row or {}).get(key) if key else None,
+                "candidate": (candidate_row or {}).get(key) if key else None,
+                "detail": note.detail,
+            }
+        )
+    return rows
 
 
 def _table(columns: list[str], data: list[dict[str, Any]], table_id: str) -> html.Div:
@@ -246,10 +405,15 @@ def _table(columns: list[str], data: list[dict[str, Any]], table_id: str) -> htm
     )
 
 
-def build_layout(rows: list[dict[str, Any]]) -> html.Div:
+def build_layout(
+    rows: list[dict[str, Any]],
+    default_baseline: str | None = None,
+    default_candidate: str | None = None,
+) -> html.Div:
     options = _run_options(rows)
-    default_baseline = rows[0]["run_id"] if rows else None
-    default_candidate = rows[-1]["run_id"] if rows else None
+    variants = sorted({row["variant"] for row in rows})
+    revisions = sorted({row["short_revision"] for row in rows})
+    task_keys = sorted({key for row in rows for key in row["task_values"]})
     metric_options = [
         {"label": _ALL_METRICS[m], "value": m}
         for m in _ALL_METRICS
@@ -263,6 +427,47 @@ def build_layout(rows: list[dict[str, Any]]) -> html.Div:
                 [
                     dbc.Col(
                         [
+                            html.Label("Variants"),
+                            dcc.Dropdown(
+                                id="variant-filter",
+                                options=_multi_options(variants),
+                                value=variants,
+                                multi=True,
+                            ),
+                        ],
+                        width=4,
+                    ),
+                    dbc.Col(
+                        [
+                            html.Label("Commits"),
+                            dcc.Dropdown(
+                                id="revision-filter",
+                                options=_multi_options(revisions),
+                                value=revisions,
+                                multi=True,
+                            ),
+                        ],
+                        width=4,
+                    ),
+                    dbc.Col(
+                        [
+                            html.Label("Eligibility"),
+                            dcc.Dropdown(
+                                id="eligibility-filter",
+                                options=_multi_options(list(_ELIGIBILITY)),
+                                value=list(_ELIGIBILITY),
+                                multi=True,
+                            ),
+                        ],
+                        width=4,
+                    ),
+                ]
+            ),
+            html.Br(),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
                             html.Label("Baseline run"),
                             dcc.Dropdown(
                                 id="baseline-select",
@@ -271,7 +476,7 @@ def build_layout(rows: list[dict[str, Any]]) -> html.Div:
                                 clearable=False,
                             ),
                         ],
-                        width=4,
+                        width=3,
                     ),
                     dbc.Col(
                         [
@@ -283,7 +488,7 @@ def build_layout(rows: list[dict[str, Any]]) -> html.Div:
                                 clearable=False,
                             ),
                         ],
-                        width=4,
+                        width=3,
                     ),
                     dbc.Col(
                         [
@@ -295,17 +500,33 @@ def build_layout(rows: list[dict[str, Any]]) -> html.Div:
                                 clearable=False,
                             ),
                         ],
-                        width=4,
+                        width=3,
+                    ),
+                    dbc.Col(
+                        [
+                            html.Label("Task"),
+                            dcc.Dropdown(
+                                id="task-select",
+                                options=_multi_options(task_keys),
+                                value=task_keys[0] if task_keys else None,
+                                clearable=False,
+                            ),
+                        ],
+                        width=3,
                     ),
                 ]
             ),
             html.Br(),
             dcc.Graph(id="trend-figure"),
+            html.H5("Task trend and group spread"),
+            dcc.Graph(id="task-trend-figure"),
             html.Div(id="comparison-notes", style={"padding": "8px"}),
             html.H5("Metrics"),
             html.Div(id="metrics-table-container"),
             html.H5("Tasks"),
             html.Div(id="tasks-table-container"),
+            html.H5("Run context"),
+            html.Div(id="context-table-container"),
             html.H5("Run detail"),
             html.Div(id="detail-table-container"),
             html.Br(),
@@ -322,25 +543,39 @@ def build_layout(rows: list[dict[str, Any]]) -> html.Div:
     )
 
 
+def default_runs(
+    manifest: exp.ExperimentManifest, rows: list[dict[str, Any]]
+) -> tuple[str | None, str | None]:
+    """Default selectors: the manifest's pinned baseline, and the newest trial."""
+    pinned = next(
+        (t.run_id for t in manifest.trials if t.trial_id == manifest.baseline_trial_id),
+        None,
+    )
+    return pinned or (rows[0]["run_id"] if rows else None), (
+        rows[-1]["run_id"] if rows else None
+    )
+
+
 def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
     manifest, snapshots = exp.load_experiment(exp_dir)
     rows = exp.trial_rows(manifest, snapshots)
+    default_baseline, default_candidate = default_runs(manifest, rows)
 
     app = dash.Dash(
         __name__,
         external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME],
         suppress_callback_exceptions=True,
     )
-    app.layout = build_layout(rows)
+    app.layout = build_layout(rows, default_baseline, default_candidate)
     app.server.config["EXPERIMENT_DIR"] = exp_dir
-    app.server.config["EXPERIMENT_ROWS"] = rows
-    app.server.config["EXPERIMENT_MANIFEST"] = manifest
 
     @app.callback(  # type: ignore[missing-attribute]
         [
             Output("trend-figure", "figure"),
+            Output("task-trend-figure", "figure"),
             Output("metrics-table-container", "children"),
             Output("tasks-table-container", "children"),
+            Output("context-table-container", "children"),
             Output("detail-table-container", "children"),
             Output("comparison-notes", "children"),
             Output("experiment-summary", "children"),
@@ -350,43 +585,120 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
             Input("baseline-select", "value"),
             Input("candidate-select", "value"),
             Input("metric-select", "value"),
+            Input("task-select", "value"),
+            Input("variant-filter", "value"),
+            Input("revision-filter", "value"),
+            Input("eligibility-filter", "value"),
         ],
     )
-    def refresh(baseline_run: str, candidate_run: str, metric: str):
-        result = exp.compare_experiment(
-            exp_dir,
-            baseline_run_id=baseline_run,
-            candidate_run_id=candidate_run,
+    def refresh(
+        baseline_run: str | None,
+        candidate_run: str | None,
+        metric: str,
+        task_key: str | None,
+        variants: list[str] | None,
+        revisions: list[str] | None,
+        eligibility: list[str] | None,
+    ):
+        manifest, snapshots = exp.load_experiment(exp_dir)
+        rows = exp.trial_rows(manifest, snapshots)
+        filtered = _filter_rows(rows, variants, revisions, eligibility)
+
+        comparison: ExperimentComparison | None = None
+        error: str | None = None
+        if baseline_run and candidate_run:
+            try:
+                comparison = exp.compare_experiment(
+                    exp_dir,
+                    baseline_run_id=baseline_run,
+                    candidate_run_id=candidate_run,
+                )
+            except exp.ExperimentError as exc:
+                error = str(exc)
+
+        baseline_row = next(
+            (row for row in rows if row["run_id"] == baseline_run), None
         )
-        figure = _trend_figure(rows, metric, baseline_run, candidate_run)
-        notes = (
-            html.Ul([html.Li(note) for note in result.notes]) if result.notes else ""
+        candidate_row = next(
+            (row for row in rows if row["run_id"] == candidate_run), None
+        )
+        figure = _trend_figure(filtered, metric, baseline_run, candidate_run)
+        task_figure = _task_trend_figure(
+            filtered, task_key, baseline_run, candidate_run
+        )
+
+        if comparison is None:
+            notes = html.Div(error or "Select two runs to compare.")
+            return (
+                figure,
+                task_figure,
+                html.Div("No comparison.", style={"padding": "8px"}),
+                html.Div("No comparison.", style={"padding": "8px"}),
+                html.Div("No comparison.", style={"padding": "8px"}),
+                _table(
+                    [
+                        "run_id",
+                        "variant",
+                        "revision",
+                        "collected_at",
+                        "status",
+                        "eligibility",
+                        "config",
+                        "input",
+                        "compute",
+                        "coverage",
+                        "top_queries",
+                        "failure_excerpts",
+                        "run_url",
+                    ],
+                    _detail_table(filtered),
+                    "detail-table",
+                ),
+                notes,
+                html.Div(error or ""),
+                {
+                    "trend": [
+                        {
+                            "run_id": row["run_id"],
+                            "variant": row["variant"],
+                            **row["values"],
+                        }
+                        for row in filtered
+                    ],
+                    "error": error,
+                },
+            )
+
+        notes_children = (
+            html.Ul([html.Li(note) for note in comparison.notes])
+            if comparison.notes
+            else ""
         )
         summary = html.Div(
             [
-                html.Span(f"experiment_id: {result.experiment_id}  "),
-                html.Span(f"revision confidence: {result.revision_confidence}  "),
+                html.Span(f"experiment_id: {comparison.experiment_id}  "),
+                html.Span(f"revision confidence: {comparison.revision_confidence}  "),
                 html.Span(
-                    f"baseline n={result.baseline.sample_count} "
-                    f"candidate n={result.candidate.sample_count}"
+                    f"baseline n={comparison.baseline.sample_count} "
+                    f"candidate n={comparison.candidate.sample_count}  "
                 ),
+                html.Span(f"showing {len(filtered)}/{len(rows)} trial(s)"),
             ]
         )
-        comparability = [
-            {"aspect": note.aspect, "status": note.status, "detail": note.detail}
-            for note in result.comparability
-        ]
         payload = {
             "trend": [
                 {"run_id": row["run_id"], "variant": row["variant"], **row["values"]}
-                for row in rows
+                for row in filtered
             ],
-            "metrics": [m.model_dump(mode="json") for m in result.metrics],
-            "tasks": [t.model_dump(mode="json") for t in result.tasks],
-            "comparability": comparability,
+            "metrics": [m.model_dump(mode="json") for m in comparison.metrics],
+            "tasks": [t.model_dump(mode="json") for t in comparison.tasks],
+            "comparability": [
+                note.model_dump(mode="json") for note in comparison.comparability
+            ],
         }
         return (
             figure,
+            task_figure,
             _table(
                 [
                     "metric",
@@ -398,7 +710,7 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
                     "candidate_n",
                     "caveat",
                 ],
-                _metric_table(result),
+                _metric_table(comparison),
                 "metrics-table",
             ),
             _table(
@@ -408,13 +720,18 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
                     "baseline_execution_ms",
                     "candidate_execution_ms",
                     "delta_execution_ms",
-                    "baseline_setup_ms",
-                    "candidate_setup_ms",
-                    "baseline_cleanup_ms",
-                    "candidate_cleanup_ms",
+                    "baseline_samples",
+                    "candidate_samples",
+                    "baseline_range",
+                    "candidate_range",
                 ],
-                _task_table(result),
+                _task_table(comparison),
                 "tasks-table",
+            ),
+            _table(
+                ["aspect", "status", "baseline", "candidate", "detail"],
+                _context_table(comparison, baseline_row, candidate_row),
+                "context-table",
             ),
             _table(
                 [
@@ -423,16 +740,19 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
                     "revision",
                     "collected_at",
                     "status",
+                    "eligibility",
                     "config",
                     "input",
+                    "compute",
                     "coverage",
-                    "failed_tasks",
+                    "top_queries",
+                    "failure_excerpts",
                     "run_url",
                 ],
-                _detail_table(rows),
+                _detail_table(filtered),
                 "detail-table",
             ),
-            notes,
+            notes_children,
             summary,
             payload,
         )
