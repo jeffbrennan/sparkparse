@@ -5,13 +5,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
+import polars as pl
 import typer
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
 from sparkparse.artifact import save_capture_artifact
 from sparkparse.eventlog import discover_sources
-from sparkparse.models import OutputFormat, ParsedLogDataFrames, RunRecord
+from sparkparse.models import OutputFormat, ParsedLogDataFrames
 from sparkparse.parse import get_all_parsed_metrics, get_parsed_metrics
 from sparkparse.storage import (
     get_path_name,
@@ -441,12 +442,92 @@ def check_alerts_cmd(
         raise typer.Exit(1)
 
     latest_row = hist_df.sort("run_at").row(-1, named=True)
-    latest = RunRecord(**latest_row)
+    latest = history.row_to_record(latest_row)
 
     rules = alerts.load_alert_config(alert_config)
-    triggered = alerts.check_alerts(latest, hist_df, rules, alert_output_path)
+    assessments = alerts.check_alerts(latest, hist_df, rules, alert_output_path)
 
-    typer.echo(json.dumps(triggered, indent=2, default=str))
+    typer.echo(
+        json.dumps(
+            [assessment.model_dump(mode="json") for assessment in assessments],
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@app.command("compare")
+def compare_cmd(
+    history_path: Annotated[
+        str, typer.Argument(help="Path to history store (Delta dir or JSONL file).")
+    ],
+    log_name: Annotated[
+        str, typer.Option(help="Workload identifier to compare the latest run for.")
+    ],
+    window: Annotated[
+        int, typer.Option(help="Maximum baseline samples per metric.")
+    ] = 10,
+    min_samples: Annotated[
+        int, typer.Option(help="Minimum comparable baseline samples per metric.")
+    ] = 1,
+    match_fingerprint: Annotated[
+        bool, typer.Option(help="Restrict the cohort to the same plan fingerprint.")
+    ] = True,
+    match_backend: Annotated[
+        bool, typer.Option(help="Restrict the cohort to the same backend.")
+    ] = False,
+    match_runtime: Annotated[
+        bool, typer.Option(help="Restrict the cohort to the same runtime version.")
+    ] = False,
+    format: Annotated[
+        HistoryFormat,
+        typer.Option(help="Output format: 'table' (default) or 'json'."),
+    ] = HistoryFormat.table,
+) -> None:
+    """Compare the latest run against comparable history."""
+    try:
+        report = history.compare_runs(
+            history_path,
+            log_name,
+            window=window,
+            min_samples=min_samples,
+            match_fingerprint=match_fingerprint,
+            match_backend=match_backend,
+            match_runtime=match_runtime,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if format == HistoryFormat.json:
+        typer.echo(report.model_dump_json(indent=2))
+        return
+
+    typer.echo(f"Workload: {report.log_name}")
+    typer.echo(f"Current run: {report.current_run_id} at {report.current_run_at}")
+    typer.echo(
+        f"Cohort: {report.cohort_size} sample(s) "
+        f"(window={report.window}), plan_changed={report.plan_changed}"
+    )
+    if report.metrics:
+        rows = pl.DataFrame(
+            [
+                {
+                    "metric": m.metric,
+                    "current": m.current,
+                    "baseline": m.baseline,
+                    "delta": m.delta,
+                    "pct_change": m.pct_change,
+                    "samples": m.sample_count,
+                }
+                for m in report.metrics
+            ]
+        )
+        typer.echo(str(rows))
+    else:
+        typer.echo("No comparable metrics.")
+    for reason in report.excluded:
+        typer.echo(f"  excluded: {reason}")
 
 
 if __name__ == "__main__":

@@ -1649,6 +1649,7 @@ class CaptureMetadata(BaseModel):
     status: CaptureStatus = CaptureStatus.complete
     schema_version: str = "1"
     workload_label: str | None = None
+    configuration: dict[str, Any] = Field(default_factory=dict)
 
 
 class CaptureDiagnostic(BaseModel):
@@ -1758,21 +1759,78 @@ NODE_TYPE_DETAIL_MAP: dict[NodeType, type[BaseModel]] = {
 }
 
 
+RUN_RECORD_VERSION = 2
+
+
 class RunRecord(BaseModel):
+    """Compact, versioned snapshot of one run for trending and regression checks.
+
+    Absent measures are ``None``; a measured zero stays ``0``. Timing keeps the
+    wall-clock (``duration_s``) and aggregate (``cumulative_time_s``) meanings
+    apart, and memory and disk spill stay separate rather than being summed.
+    ``coverage`` records which capability families were available so a later
+    comparison never reads a missing measure as a knowable zero.
+    """
+
+    record_version: int = RUN_RECORD_VERSION
     run_id: str
     run_at: datetime.datetime
     log_name: str
-    duration_s: float | None
-    bytes_read: int | None
-    bytes_written: int | None
-    shuffle_bytes: int | None
-    spill_bytes: int | None
-    n_queries: int | None
-    n_stages: int | None
-    n_tasks: int | None
-    n_cartesian_joins: int | None
-    max_node_duration_min: float | None
-    max_scan_bytes: int | None
+    status: str | None = None
+    backend: str | None = None
+    transport: str | None = None
+    compute_type: str | None = None
+    access_mode: str | None = None
+    runtime_version: str | None = None
+    client_version: str | None = None
+    workload_fingerprint: str | None = None
+    coverage: dict[str, str] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
+    # Wall-clock elapsed time across queries. Connect client-observed elapsed
+    # time is only used when timestamps are unavailable.
+    duration_s: float | None = None
+    # Aggregate per-query time (sum of measured query durations). Distinct from
+    # wall-clock elapsed and never a substitute for it.
+    cumulative_time_s: float | None = None
+    bytes_read: int | None = None
+    bytes_written: int | None = None
+    records_read: int | None = None
+    records_written: int | None = None
+    shuffle_read_bytes: int | None = None
+    shuffle_write_bytes: int | None = None
+    memory_bytes_spilled: int | None = None
+    disk_bytes_spilled: int | None = None
+    n_queries: int | None = None
+    n_stages: int | None = None
+    n_tasks: int | None = None
+    n_cartesian_joins: int | None = None
+    max_node_duration_min: float | None = None
+    max_scan_bytes: int | None = None
+
+
+class MetricComparison(BaseModel):
+    """One measure compared between the current run and its baseline cohort."""
+
+    metric: str
+    current: float | None
+    baseline: float | None
+    delta: float | None
+    pct_change: float | None
+    sample_count: int
+    cohort: str | None = None
+
+
+class ComparisonReport(BaseModel):
+    """Result of comparing the latest run against comparable history."""
+
+    log_name: str
+    current_run_id: str
+    current_run_at: datetime.datetime
+    cohort_size: int
+    window: int
+    metrics: list[MetricComparison] = Field(default_factory=list)
+    excluded: list[str] = Field(default_factory=list)
+    plan_changed: bool | None = None
 
 
 class MetricUnit(StrEnum):
