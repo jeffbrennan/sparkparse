@@ -444,6 +444,37 @@ def test_job_parameters_are_normalized_for_config_identity():
     assert report.job_parameters == {"shuffle_partitions": "200", "unused": ""}
 
 
+def test_credentials_are_excluded_from_parameter_capture():
+    run = load_fixture("job_run_multi.json")
+    run["job_parameters"] = [
+        {"name": "shuffle_partitions", "value": "200"},
+        {"name": "api_token", "value": "dummy-token-value"},
+    ]
+    run["tasks"][0]["new_cluster"]["spark_conf"] = {
+        "spark.sql.shuffle.partitions": "800",
+        "fs.s3a.secret.key": "dummy-s3-secret",
+        "fs.s3a.access.key": "dummy-s3-access",
+    }
+    run["tasks"][0]["notebook_task"]["base_parameters"] = {
+        "widget": "visible",
+        "db_password": "dummy-password",
+    }
+    raw = collect_run(client(make_runner(run=run)), run_id="123", outputs="none")
+    report = build_report(raw)
+    assert report.job_parameters == {"shuffle_partitions": "200"}
+    task = next(t for t in report.tasks if t.task_key == "ingest")
+    assert task.spark_conf == {"spark.sql.shuffle.partitions": "800"}
+    assert task.parameters == {"widget": "visible"}
+    serialized = report.model_dump_json()
+    for secret in (
+        "dummy-token-value",
+        "dummy-s3-secret",
+        "dummy-s3-access",
+        "dummy-password",
+    ):
+        assert secret not in serialized
+
+
 def test_run_environments_and_performance_mode_are_normalized():
     raw = collect_run(
         client(make_runner(run=load_fixture("job_run_single.json"))),
@@ -527,6 +558,18 @@ def test_duplicate_query_pages_keep_the_fresher_observation():
     assert metrics is not None
     assert len(metrics.observations) == 1
     assert metrics.observations[0].metrics["read_bytes"] == 7
+
+
+def test_incomplete_run_pagination_marks_task_list_partial():
+    run = load_fixture("job_run_multi.json")
+    raw = RawRunCollection(
+        run=run,
+        tasks=run["tasks"],
+        queries=[],
+        run_pagination_complete=False,
+    )
+    report = build_report(raw)
+    assert report.coverage["task_list"] == "partial"
 
 
 def test_incomplete_discovery_prevents_complete_coverage():

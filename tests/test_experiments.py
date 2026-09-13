@@ -26,11 +26,15 @@ def make_report(
     variant_git: bool = True,
     config: str | None = None,
     query_final: bool = True,
+    task_list_partial: bool = False,
+    task_count: int | None = None,
 ) -> RunReport:
     run = load_fixture("job_run_multi.json")
     run["run_id"] = int(run_id)
     run["job_run_id"] = int(run_id)
     run["state"] = {"life_cycle_state": "TERMINATED", "result_state": result_state}
+    if task_count is not None:
+        run["tasks"] = run["tasks"][:task_count]
     if variant_git:
         run["git_source"] = {
             "git_url": "https://example/repo",
@@ -56,6 +60,7 @@ def make_report(
         tasks=tasks,
         queries=queries,
         discovered_query_count=1,
+        run_pagination_complete=not task_list_partial,
     )
     report = build_report(raw)
     if config is not None:
@@ -273,6 +278,50 @@ def test_execution_parameters_change_config_fingerprint(tmp_path):
     ref_baseline, _ = record(exp_dir, baseline, "baseline")
     ref_candidate, _ = record(exp_dir, candidate, "candidate")
     assert ref_baseline.config_fingerprint != ref_candidate.config_fingerprint
+
+
+def test_partial_task_list_marks_timing_partial_and_suppresses_added(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1", execution_ms=1000), "baseline")
+    record(
+        exp_dir,
+        make_report("2", execution_ms=1000, task_list_partial=True, task_count=1),
+        "candidate",
+    )
+    comparison = exp.compare_experiment(
+        exp_dir, baseline_run_id="1", candidate_run_id="2"
+    )
+    timing = next(m for m in comparison.metrics if m.metric == "task_execution_ms")
+    assert timing.partial is True
+    assert timing.caveat
+    # Missing pages must not be presented as removed tasks.
+    assert [t for t in comparison.tasks if t.change == "removed"] == []
+    assert any(t.change == "unknown" for t in comparison.tasks)
+    assert any(
+        note.aspect == "task_coverage" and note.status == "partial"
+        for note in comparison.comparability
+    )
+
+
+def test_derived_fingerprint_refreshes_on_recollection(tmp_path):
+    exp_dir = tmp_path / "exp"
+    first, _ = record(exp_dir, make_report("1"), "baseline")
+    assert first.config_fingerprint_derived is True
+    enriched = make_report("1")
+    enriched.job_parameters = {"shuffle_partitions": "800"}
+    refreshed, _ = record(exp_dir, enriched, "baseline")
+    assert refreshed.config_fingerprint != first.config_fingerprint
+    assert refreshed.config_fingerprint_derived is True
+
+
+def test_asserted_fingerprint_is_preserved_on_recollection(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1"), "baseline", config_fingerprint="asserted-cfg")
+    enriched = make_report("1")
+    enriched.job_parameters = {"shuffle_partitions": "800"}
+    refreshed, _ = record(exp_dir, enriched, "baseline")
+    assert refreshed.config_fingerprint == "asserted-cfg"
+    assert refreshed.config_fingerprint_derived is False
 
 
 def test_recollection_keeps_first_trial_ordering(tmp_path):

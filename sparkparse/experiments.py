@@ -218,15 +218,28 @@ def record_trial(
     existing = _find_trial(manifest, report.identity.run_id)
 
     derived_config = _compute_fingerprint(report)
+    if config_fingerprint is not None:
+        config_value = config_fingerprint
+        config_derived = False
+    elif (
+        existing is not None
+        and not existing.config_fingerprint_derived
+        and existing.config_fingerprint
+    ):
+        # An explicitly asserted fingerprint is authoritative and preserved.
+        config_value = existing.config_fingerprint
+        config_derived = False
+    else:
+        # Derived identity is recomputed so late enrichment cannot leave a
+        # stale fingerprint attached to an updated report.
+        config_value = derived_config
+        config_derived = True
     trial = TrialMetadata(
         variant=variant,
         revision=revision if revision is not None else _existing(existing, "revision"),
         artifact_digest=artifact_digest,
-        config_fingerprint=(
-            config_fingerprint
-            if config_fingerprint is not None
-            else _existing(existing, "config_fingerprint") or derived_config
-        ),
+        config_fingerprint=config_value,
+        config_fingerprint_derived=config_derived,
         input_snapshot=(
             input_snapshot
             if input_snapshot is not None
@@ -251,6 +264,7 @@ def record_trial(
         existing.snapshot_id = snapshot.snapshot_id
         existing.revision = trial.revision
         existing.config_fingerprint = trial.config_fingerprint
+        existing.config_fingerprint_derived = trial.config_fingerprint_derived
         existing.input_snapshot = trial.input_snapshot
         existing.warmup = trial.warmup
         existing.correctness = trial.correctness
@@ -263,6 +277,7 @@ def record_trial(
             snapshot_id=snapshot.snapshot_id,
             revision=trial.revision,
             config_fingerprint=trial.config_fingerprint,
+            config_fingerprint_derived=trial.config_fingerprint_derived,
             input_snapshot=trial.input_snapshot,
             workspace_host=report.identity.workspace_host,
             job_id=report.identity.job_id,
@@ -437,6 +452,20 @@ def compare_experiment(
                 ),
             )
         )
+    if any(
+        not _task_coverage_complete(snapshots[trial_id].report)
+        for trial_id in baseline.trial_ids + candidate.trial_ids
+    ):
+        comparability.append(
+            ComparabilityNote(
+                aspect="task_coverage",
+                status="partial",
+                detail=(
+                    "task list was page-limited; summed task time is a partial "
+                    "subtotal and added/removed classification is unreliable"
+                ),
+            )
+        )
     notes = _group_notes(baseline, candidate)
     return ExperimentComparison(
         experiment_id=manifest.experiment_id,
@@ -448,6 +477,15 @@ def compare_experiment(
         revision_confidence=revision_confidence,
         notes=notes,
     )
+
+
+def _task_coverage_complete(report: RunReport) -> bool:
+    """Whether the collected task list is complete for the run.
+
+    A page-limited run reports only the tasks that were fetched; its summed task
+    duration is a partial subtotal, not a comparable total.
+    """
+    return report.coverage.get("task_list", "complete") != "partial"
 
 
 def _measure_values(
@@ -467,9 +505,15 @@ def _measure_values(
         report = snapshot.report
         raw: dict[str, float | None] = {
             "workflow_elapsed_ms": report.timing.workflow_elapsed_ms,
-            "task_execution_ms": report.timing.summed_task_execution_ms,
         }
         raw_partial: dict[str, float] = {}
+        if report.timing.summed_task_execution_ms is not None:
+            if _task_coverage_complete(report):
+                raw["task_execution_ms"] = report.timing.summed_task_execution_ms
+            else:
+                raw_partial["task_execution_ms"] = (
+                    report.timing.summed_task_execution_ms
+                )
         if report.query_metrics is not None:
             for aggregate in report.query_metrics.aggregates:
                 if aggregate.value is None:
@@ -628,6 +672,10 @@ def _compare_tasks(
 ) -> list[TaskDelta]:
     base = _task_samples(baseline, snapshots)
     cand = _task_samples(candidate, snapshots)
+    coverage_partial = any(
+        not _task_coverage_complete(snapshots[trial_id].report)
+        for trial_id in baseline.trial_ids + candidate.trial_ids
+    )
     deltas: list[TaskDelta] = []
     for key in sorted(set(base) | set(cand)):
         b_samples = base.get(key, {})
@@ -635,9 +683,9 @@ def _compare_tasks(
         b = _median_map(b_samples)
         c = _median_map(c_samples)
         if key not in base:
-            change = "added"
+            change = "unknown" if coverage_partial else "added"
         elif key not in cand:
-            change = "removed"
+            change = "unknown" if coverage_partial else "removed"
         elif _measures_equal(b, c):
             change = "same"
         else:

@@ -13,6 +13,7 @@ complete total.
 from __future__ import annotations
 
 import datetime
+import re
 import statistics
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +41,31 @@ from sparkparse.models import (
 
 QUERY_METRIC_SOURCE_VERSION = "query_history.v1"
 MAX_OUTPUT_CHARS = 4000
+
+# Configuration metadata is captured only when its key is not credential-like.
+# Keys are normalized so separators (fs.s3a.secret.key, api-token) still match.
+_SENSITIVE_KEY_MARKERS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "credential",
+    "access_key",
+    "private_key",
+    "api_key",
+    "apikey",
+    "connection_string",
+    "client_secret",
+    "authorization",
+    "sas",
+)
+
+
+def is_sensitive_key(name: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return any(marker in normalized for marker in _SENSITIVE_KEY_MARKERS)
+
+
 SHORT_EXCERPT_CHARS = 280
 
 
@@ -114,7 +140,9 @@ def _string_map(mapping: Any) -> dict[str, str]:
     if not isinstance(mapping, dict):
         return {}
     return {
-        str(key): "" if value is None else str(value) for key, value in mapping.items()
+        str(key): "" if value is None else str(value)
+        for key, value in mapping.items()
+        if not is_sensitive_key(str(key))
     }
 
 
@@ -128,8 +156,11 @@ def normalize_job_parameters(run: dict[str, Any]) -> dict[str, str]:
     for entry in run.get("job_parameters") or []:
         if not isinstance(entry, dict) or entry.get("name") is None:
             continue
+        name = str(entry["name"])
+        if is_sensitive_key(name):
+            continue
         value = entry.get("value")
-        parameters[str(entry["name"])] = "" if value is None else str(value)
+        parameters[name] = "" if value is None else str(value)
     return parameters
 
 
@@ -631,6 +662,7 @@ def _coverage(
     return {
         "jobs": "available" if raw.run else "unavailable",
         "tasks": status(bool(tasks)),
+        "task_list": ("complete" if raw.run_pagination_complete else "partial"),
         "task_timing": status(any(t.timing.execution_ms is not None for t in tasks)),
         "query_history": (
             "denied"

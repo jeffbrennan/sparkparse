@@ -284,6 +284,7 @@ class RawRunCollection:
     outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     diagnostics: list[ReportDiagnostic] = field(default_factory=list)
     collection_status: CollectionStatus = CollectionStatus.complete
+    run_pagination_complete: bool = True
     query_discovery_complete: bool = True
     query_denied: bool = False
     discovered_query_count: int = 0
@@ -510,6 +511,7 @@ def collect_run(
         outputs=outputs_by_run,
         diagnostics=diagnostics,
         collection_status=status,
+        run_pagination_complete=run_complete,
         query_discovery_complete=query_discovery_complete,
         query_denied=query_denied,
         discovered_query_count=discovered_query_count,

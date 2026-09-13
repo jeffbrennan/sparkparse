@@ -2225,6 +2225,7 @@ class TrialMetadata(BaseModel):
     revision: str | None = None
     artifact_digest: str | None = None
     config_fingerprint: str | None = None
+    config_fingerprint_derived: bool = False
     input_snapshot: str | None = None
     warmup: bool = False
     correctness: str | None = None
@@ -2254,6 +2255,7 @@ class TrialRef(BaseModel):
     snapshot_id: str
     revision: str | None = None
     config_fingerprint: str | None = None
+    config_fingerprint_derived: bool = False
     input_snapshot: str | None = None
     workspace_host: str | None = None
     job_id: str | None = None
