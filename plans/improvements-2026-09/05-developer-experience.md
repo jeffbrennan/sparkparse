@@ -1,6 +1,9 @@
 # 05 — Packaging, CLI, reports, and a practical test matrix
 
-Status: proposed. Priority: P1 (small packaging fixes can precede 01).
+Status: implementation landed in #23 (`0e0a079`); source reviewed 2026-09-13.
+The evidence below describes the original gaps, not current behavior. Retain the
+acceptance and live validation matrix as checks, not claims of completed validation.
+Priority: P1.
 
 ## Evidence
 

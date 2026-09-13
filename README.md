@@ -166,6 +166,8 @@ result, cap = run_job()
 
 See the [September 2026 review and implementation queue](plans/improvements-2026-09/README.md)
 for prioritized standard/serverless parity and developer experience improvements.
+Databricks job/run-ID analysis and commit performance experiments are not yet
+supported; see the [proposed run-report workflow](plans/improvements-2026-09/07-databricks-runs.md).
 [IMPLEMENTATION.md](IMPLEMENTATION.md) contains the earlier roadmap.
 
 ```bash

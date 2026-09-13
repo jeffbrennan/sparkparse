@@ -1,7 +1,9 @@
 # Project review and implementation queue
 
-Reviewed 2026-09-12 at commit `129318c`. Brief 01 is implemented and serverless-smoke
-validated; the remaining briefs are proposals.
+Initial review: 2026-09-12 at commit `129318c`. Updated source review: 2026-09-13
+at `523e1cd`. Briefs 01–06 have implementation in the current source; this does
+not establish every acceptance item or live validation lane. Brief 07 is an
+implementation guide for work that is not yet implemented.
 This queue supersedes the pending-work descriptions in `IMPLEMENTATION.md` and
 `plans/SPARK_CONNECT_CAPTURE.md`; retain those documents as historical context.
 
@@ -25,14 +27,28 @@ access mode. Spark Connect is a transport, not proof that compute is serverless.
 | P0 | [02 — Connect correctness](02-connect-correctness.md) | Reliable query attribution and tolerant operator handling | Implemented offline; live validation outstanding |
 | P0 | [03 — Analysis correctness and depth](03-analysis.md) | Accurate metrics and evidence-based findings | Implemented offline; increments 1–3 |
 | P1 | [04 — Event-log robustness](04-event-logs.md) | Non-AQE, partial, rolled, retried, and larger workloads | Implemented offline; increments 1–3 |
-| P1 | [05 — Developer experience and validation](05-developer-experience.md) | Installable CLI, reproducible checks, serverless-friendly reports | Medium; packaging can start immediately |
-| P1 | [06 — History and comparisons](06-history.md) | Comparable runs and meaningful regression alerts | Medium; 01 and 03 |
+| P1 | [05 — Developer experience and validation](05-developer-experience.md) | Installable CLI, reproducible checks, serverless-friendly reports | Implementation landed in #23; validation matrix remains relevant |
+| P1 | [06 — History and comparisons](06-history.md) | Comparable runs and meaningful regression alerts | Implementation landed in #24; experiment safeguards continue in 07 |
+| P1 | [07 — Databricks runs and performance experiments](07-databricks-runs.md) | Job/run reports, commit/configuration comparisons and local plots | Ready for implementation; A: run collection, B: query metrics, C: compare/dashboard |
 
 Split each brief into its listed reviewable increments. Start with dependency/CLI
 fixes from 05 and the capability contract from 01, then complete capture and metric
 correctness before adding analytical rules. Do not implement every brief in one PR.
 
-## Current parity, established by source review
+## Current review: Databricks performance workflow
+
+The README's parsing, analysis and capture features have source/test support.
+History and `compare` also exist but are underdocumented there. The repo has no
+Databricks job/run-ID ingestion, workflow-task output/compute collector, or explicit
+commit experiment workflow. Follow the scope, contracts and acceptance criteria in
+[07](07-databricks-runs.md). Start with its collection-contract check and increment A;
+reuse the existing analysis/history foundations.
+
+Validation on 2026-09-13: offline suite **477 passed, 2 skipped**, six `melt`
+deprecation warnings; Ruff lint passed. No remote execution, JVM suite or clean-wheel
+validation was performed for this review.
+
+## Historical parity at the initial review (not current behavior)
 
 | Feature | Classic path today | Connect path today | Target |
 |---|---|---|---|
@@ -53,7 +69,7 @@ query profiles are the supported UI alternative. An optional profile importer ma
 be investigated, but should not become a mandatory account-level dependency.
 [Databricks serverless limitations](https://docs.databricks.com/aws/en/compute/serverless/limitations).
 
-## Validation performed
+## Historical validation performed on 2026-09-12
 
 Used existing `.venv` tools, without dependency upgrades:
 

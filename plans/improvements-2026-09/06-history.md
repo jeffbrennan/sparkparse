@@ -1,6 +1,11 @@
 # 06 — Comparable history and trustworthy regression alerts
 
-Status: proposed. Priority: P1. Depends on 01 and 03. Files: `history.py`,
+Status: implementation landed in #24 (`523e1cd`); source reviewed 2026-09-13.
+Versioned records, baseline assessments and a comparison CLI exist. The evidence
+below describes original gaps. Input/compute/status comparison safeguards and
+explicit commit experiments remain work in [07](07-databricks-runs.md); the current
+plan comparison reports a fingerprint change, not a detailed structural diff.
+Priority: P1. Depends on 01 and 03. Files: `history.py`,
 `alerts.py`, `models.py`, capture finalizer, and CLI.
 
 ## Evidence
