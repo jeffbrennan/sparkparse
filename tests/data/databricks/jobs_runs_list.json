@@ -1,0 +1,109 @@
+{
+  "has_more": false,
+  "next_page_token": "CAEQmsmJvIk0IK-77cG3h08=",
+  "prev_page_token": "CAAQx764vIk0IOTFmIq5h9AB",
+  "runs": [
+    {
+      "cleanup_duration": 0,
+      "creator_user_name": "user@example.com",
+      "effective_performance_target": "PERFORMANCE_OPTIMIZED",
+      "end_time": 1789249110616,
+      "execution_duration": 0,
+      "format": "MULTI_TASK",
+      "job_id": 240570464625850,
+      "job_run_id": 915049514672868,
+      "number_in_job": 915049514672868,
+      "original_attempt_run_id": 915049514672868,
+      "run_duration": 41745,
+      "run_id": 915049514672868,
+      "run_name": "[dev user] [dev user@example.com] sparkparse-validate-connect",
+      "run_page_url": "https://example.cloud.databricks.com/?o=0000000000000000#job/240570464625850/run/915049514672868",
+      "run_type": "JOB_RUN",
+      "setup_duration": 0,
+      "start_time": 1789249068871,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": "",
+        "user_cancelled_or_timedout": false
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SUCCESS",
+          "message": "",
+          "type": "SUCCESS"
+        }
+      },
+      "trigger": "ONE_TIME"
+    },
+    {
+      "cleanup_duration": 0,
+      "creator_user_name": "user@example.com",
+      "effective_performance_target": "PERFORMANCE_OPTIMIZED",
+      "end_time": 1789248802671,
+      "execution_duration": 0,
+      "format": "MULTI_TASK",
+      "job_id": 240570464625850,
+      "job_run_id": 786861458138844,
+      "number_in_job": 786861458138844,
+      "original_attempt_run_id": 786861458138844,
+      "run_duration": 84980,
+      "run_id": 786861458138844,
+      "run_name": "[dev user] [dev user@example.com] sparkparse-validate-connect",
+      "run_page_url": "https://example.cloud.databricks.com/?o=0000000000000000#job/240570464625850/run/786861458138844",
+      "run_type": "JOB_RUN",
+      "setup_duration": 0,
+      "start_time": 1789248717691,
+      "state": {
+        "life_cycle_state": "INTERNAL_ERROR",
+        "result_state": "FAILED",
+        "state_message": "Task validate_connect_capture failed with message: Workload failed, see run output for details.",
+        "user_cancelled_or_timedout": false
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "RUN_EXECUTION_ERROR",
+          "message": "Task validate_connect_capture failed with message: Workload failed, see run output for details.",
+          "type": "CLIENT_ERROR"
+        }
+      },
+      "trigger": "ONE_TIME"
+    },
+    {
+      "cleanup_duration": 0,
+      "creator_user_name": "user@example.com",
+      "effective_performance_target": "PERFORMANCE_OPTIMIZED",
+      "end_time": 1789248423328,
+      "execution_duration": 0,
+      "format": "MULTI_TASK",
+      "job_id": 240570464625850,
+      "job_run_id": 347701094604207,
+      "number_in_job": 347701094604207,
+      "original_attempt_run_id": 347701094604207,
+      "run_duration": 123142,
+      "run_id": 347701094604207,
+      "run_name": "[dev user] [dev user@example.com] sparkparse-validate-connect",
+      "run_page_url": "https://example.cloud.databricks.com/?o=0000000000000000#job/240570464625850/run/347701094604207",
+      "run_type": "JOB_RUN",
+      "setup_duration": 0,
+      "start_time": 1789248300186,
+      "state": {
+        "life_cycle_state": "INTERNAL_ERROR",
+        "result_state": "FAILED",
+        "state_message": "Task validate_connect_capture failed with message: Workload failed, see run output for details.",
+        "user_cancelled_or_timedout": false
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "RUN_EXECUTION_ERROR",
+          "message": "Task validate_connect_capture failed with message: Workload failed, see run output for details.",
+          "type": "CLIENT_ERROR"
+        }
+      },
+      "trigger": "ONE_TIME"
+    }
+  ]
+}

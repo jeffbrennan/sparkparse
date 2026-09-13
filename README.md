@@ -56,6 +56,33 @@ sparkparse analyze ./logs
 sparkparse analyze ./logs --compact --top-n 25 --redact
 ```
 
+### Databricks runs and experiments
+
+Collect an existing job/run (it never launches or waits for a workload), save a
+portable snapshot, and compare explicit trials offline. See
+[docs/databricks-runs.md](docs/databricks-runs.md) for the tested collection
+contract and measure semantics.
+
+```bash
+# report only (JSON to stdout, progress to stderr)
+sparkparse databricks analyze --run-id 123 --profile free
+
+# save a snapshot, or record a trial in an explicit experiment
+sparkparse databricks analyze --run-id 123 --profile free --out runs/123
+sparkparse databricks analyze --run-id 124 --profile free \
+  --experiment ./experiments/join-tuning --variant broadcast --revision abc123
+
+# compare and view saved trials entirely offline
+sparkparse experiments compare ./experiments/join-tuning --baseline 123 --candidate 124
+sparkparse experiments viz ./experiments/join-tuning
+```
+
+Workflow elapsed time is kept separate from summed task durations, physical plan
+changes never exclude a comparison, and a Query History subtotal over only the
+queries that reported a metric is labelled an observed subtotal. Failed, active
+and warmup trials stay visible but are excluded from default aggregates.
+
+
 ### context manager
 
 ```python

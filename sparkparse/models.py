@@ -1970,3 +1970,349 @@ class AnalysisReport(BaseModel):
     log_name: str
     findings: list[Finding] = Field(default_factory=list)
     assessments: list[RuleAssessment] = Field(default_factory=list)
+
+
+DATABRICKS_REPORT_VERSION = "1"
+EXPERIMENT_SCHEMA_VERSION = "1"
+
+
+class CollectionStatus(StrEnum):
+    """Whether collection finished within its configured bounds."""
+
+    complete = "complete"
+    partial = "partial"
+    failed = "failed"
+
+
+class MetricCompleteness(StrEnum):
+    """Coverage of an aggregate over the discovered query population."""
+
+    complete = "complete"
+    observed_subtotal = "observed_subtotal"
+    unavailable = "unavailable"
+
+
+class WorkflowCollectionLimits(BaseModel):
+    """Bounds persisted with every report so partial collection is explainable."""
+
+    deadline_seconds: float
+    max_pages: int
+    max_requests: int
+    max_retries: int
+    retry_backoff_seconds: float
+    outputs: str = "failed"
+
+
+class WorkflowRunIdentity(BaseModel):
+    run_id: str
+    job_id: str | None = None
+    run_name: str | None = None
+    run_type: str | None = None
+    number_in_job: int | None = None
+    original_attempt_run_id: str | None = None
+    run_page_url: str | None = None
+    workspace_host: str | None = None
+    creator_user_name: str | None = None
+
+
+class WorkflowRunStatus(BaseModel):
+    life_cycle_state: str | None = None
+    result_state: str | None = None
+    state_message: str | None = None
+    termination_code: str | None = None
+    termination_type: str | None = None
+    user_cancelled_or_timedout: bool | None = None
+
+
+class WorkflowTiming(BaseModel):
+    """Run-level timing.
+
+    ``workflow_elapsed_ms`` is wall-clock and is never the sum of task durations:
+    workflow tasks may overlap. ``summed_task_execution_ms`` is an aggregate, not
+    an elapsed measure.
+    """
+
+    workflow_elapsed_ms: int | None = None
+    setup_ms: int | None = None
+    execution_ms: int | None = None
+    cleanup_ms: int | None = None
+    summed_task_execution_ms: int | None = None
+    tasks_may_overlap: bool = True
+
+
+class ComputeReference(BaseModel):
+    """A task's compute snapshot.
+
+    ``source`` is ``run_snapshot`` for fields embedded in the run response and
+    ``current_lookup`` for a later cluster query, which describes the cluster
+    now rather than at run time.
+    """
+
+    task_key: str
+    environment_key: str | None = None
+    cluster_id: str | None = None
+    source: str = "run_snapshot"
+    runtime_engine: str | None = None
+    spark_version: str | None = None
+    node_type_id: str | None = None
+    num_workers: int | None = None
+    data_security_mode: str | None = None
+    performance_target: str | None = None
+
+
+class RevisionEvidence(BaseModel):
+    """Executed-code provenance, kept separate from asserted revisions.
+
+    ``confidence`` is ``executed`` when a Git snapshot reports the used commit,
+    ``asserted`` when only ``--revision`` was supplied, ``mixed`` when tasks
+    disagree, and ``unknown`` otherwise. Branch names and local HEAD are never
+    treated as proof of executed code.
+    """
+
+    executed_commit: str | None = None
+    repository_url: str | None = None
+    repository_provider: str | None = None
+    branch: str | None = None
+    commit_timestamp_ms: int | None = None
+    scope: str | None = None
+    asserted_revision: str | None = None
+    artifact_digest: str | None = None
+    confidence: str = "unknown"
+
+
+class TaskTiming(BaseModel):
+    setup_ms: int | None = None
+    execution_ms: int | None = None
+    cleanup_ms: int | None = None
+    start_time_ms: int | None = None
+    end_time_ms: int | None = None
+
+
+class WorkflowTask(BaseModel):
+    """One task run. Identity is retained even when its task type is unknown."""
+
+    task_key: str
+    run_id: str | None = None
+    attempt_number: int | None = None
+    original_attempt_run_id: str | None = None
+    run_if: str | None = None
+    state: str | None = None
+    result_state: str | None = None
+    timing: TaskTiming = Field(default_factory=TaskTiming)
+    compute: ComputeReference | None = None
+    task_kind: str | None = None
+    is_nested_job: bool = False
+    output_path: str | None = None
+    output_status: str | None = None
+    error_excerpt: str | None = None
+
+
+class OutputAttachment(BaseModel):
+    task_key: str
+    run_id: str | None = None
+    status: str
+    path: str | None = None
+    error: str | None = None
+    excerpt: str | None = None
+
+
+class QueryObservation(BaseModel):
+    """One query's facts, kept once per query ID across recollections."""
+
+    query_id: str
+    status: str | None = None
+    is_final: bool | None = None
+    execution_end_time_ms: int | None = None
+    collected_at: datetime.datetime
+    job_id: str | None = None
+    job_run_id: str | None = None
+    job_task_run_id: str | None = None
+    attribution: str = "unattributed"
+    task_key: str | None = None
+    warehouse_id: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetricAggregate(BaseModel):
+    """One canonical measure aggregated over a matched query population.
+
+    A subtotal over only the queries that reported a metric is an *observed
+    subtotal*, never a complete total. ``observed_query_count`` is the matched
+    query population; ``counted_query_count`` is how many reported the metric.
+    """
+
+    metric: str
+    unit: MetricUnit
+    source: str
+    source_version: str
+    aggregation: str
+    observed_query_count: int
+    counted_query_count: int
+    value: float | None
+    value_exact: int | None = None
+    completeness: MetricCompleteness
+    detail: str | None = None
+
+
+class QueryMetrics(BaseModel):
+    discovered_query_count: int
+    matched_query_count: int
+    attribution_counts: dict[str, int] = Field(default_factory=dict)
+    aggregates: list[MetricAggregate] = Field(default_factory=list)
+    discovery_complete: bool = False
+    denied: bool = False
+    observations: list[QueryObservation] = Field(default_factory=list)
+    unavailable_measures: list[str] = Field(default_factory=list)
+
+
+class ReportDiagnostic(BaseModel):
+    code: str
+    message: str
+    severity: str = "warning"
+    scope: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReportObservation(BaseModel):
+    """A measured fact plus an optional proposed cause, kept distinct."""
+
+    kind: str
+    summary: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    hypothesis: str | None = None
+
+
+class RunReport(BaseModel):
+    """Versioned, portable workflow-run report envelope."""
+
+    schema_version: str = DATABRICKS_REPORT_VERSION
+    collection_status: CollectionStatus = CollectionStatus.complete
+    collected_at: datetime.datetime
+    collection_time_ms: int | None = None
+    identity: WorkflowRunIdentity
+    status: WorkflowRunStatus
+    timing: WorkflowTiming
+    tasks: list[WorkflowTask] = Field(default_factory=list)
+    query_metrics: QueryMetrics | None = None
+    compute: list[ComputeReference] = Field(default_factory=list)
+    revision: RevisionEvidence
+    coverage: dict[str, str] = Field(default_factory=dict)
+    limits: WorkflowCollectionLimits
+    diagnostics: list[ReportDiagnostic] = Field(default_factory=list)
+    observations: list[ReportObservation] = Field(default_factory=list)
+    next_checks: list[str] = Field(default_factory=list)
+    outputs: list[OutputAttachment] = Field(default_factory=list)
+
+
+class TrialMetadata(BaseModel):
+    """The experiment-specific metadata attached to one collected snapshot."""
+
+    variant: str
+    revision: str | None = None
+    artifact_digest: str | None = None
+    config_fingerprint: str | None = None
+    input_snapshot: str | None = None
+    warmup: bool = False
+    correctness: str | None = None
+    hypothesis: str | None = None
+    notes: str | None = None
+    workspace_host: str | None = None
+    job_id: str | None = None
+
+
+class TrialSnapshot(BaseModel):
+    """A report plus its experiment context, stored immutably on disk."""
+
+    schema_version: str = EXPERIMENT_SCHEMA_VERSION
+    snapshot_id: str
+    collected_at: datetime.datetime
+    run_id: str
+    workspace_host: str | None = None
+    job_id: str | None = None
+    trial: TrialMetadata
+    report: RunReport
+
+
+class TrialRef(BaseModel):
+    trial_id: str
+    variant: str
+    run_id: str
+    snapshot_id: str
+    revision: str | None = None
+    config_fingerprint: str | None = None
+    input_snapshot: str | None = None
+    workspace_host: str | None = None
+    job_id: str | None = None
+    created_at: datetime.datetime
+    warmup: bool = False
+    correctness: str | None = None
+
+
+class ExperimentManifest(BaseModel):
+    schema_version: str = EXPERIMENT_SCHEMA_VERSION
+    experiment_id: str
+    name: str | None = None
+    objective: str | None = None
+    workspace_host: str | None = None
+    job_id: str | None = None
+    baseline_trial_id: str | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    trials: list[TrialRef] = Field(default_factory=list)
+
+
+class MetricDelta(BaseModel):
+    metric: str
+    unit: MetricUnit
+    aggregation: str
+    baseline_values: list[float]
+    candidate_values: list[float]
+    baseline_median: float | None = None
+    candidate_median: float | None = None
+    baseline_min: float | None = None
+    baseline_max: float | None = None
+    candidate_min: float | None = None
+    candidate_max: float | None = None
+    delta: float | None = None
+    pct_change: float | None = None
+    single_observation: bool = False
+    caveat: str | None = None
+
+
+class TaskDelta(BaseModel):
+    task_key: str
+    change: str
+    baseline: dict[str, float | None] = Field(default_factory=dict)
+    candidate: dict[str, float | None] = Field(default_factory=dict)
+    deltas: dict[str, float | None] = Field(default_factory=dict)
+
+
+class ComparisonGroup(BaseModel):
+    label: str
+    variant: str | None = None
+    trial_ids: list[str] = Field(default_factory=list)
+    run_ids: list[str] = Field(default_factory=list)
+    snapshot_ids: list[str] = Field(default_factory=list)
+    sample_count: int = 0
+    excluded_failed: int = 0
+    excluded_active: int = 0
+    excluded_warmup: int = 0
+    excluded_incomplete: int = 0
+
+
+class ComparabilityNote(BaseModel):
+    aspect: str
+    status: str
+    detail: str | None = None
+
+
+class ExperimentComparison(BaseModel):
+    schema_version: str = EXPERIMENT_SCHEMA_VERSION
+    experiment_id: str
+    baseline: ComparisonGroup
+    candidate: ComparisonGroup
+    metrics: list[MetricDelta] = Field(default_factory=list)
+    tasks: list[TaskDelta] = Field(default_factory=list)
+    comparability: list[ComparabilityNote] = Field(default_factory=list)
+    revision_confidence: str = "unknown"
+    notes: list[str] = Field(default_factory=list)

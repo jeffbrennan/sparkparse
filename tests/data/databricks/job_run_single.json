@@ -1,0 +1,81 @@
+{
+  "cleanup_duration": 0,
+  "creator_user_name": "user@example.com",
+  "effective_performance_target": "PERFORMANCE_OPTIMIZED",
+  "end_time": 1789249110616,
+  "environments": [
+    {
+      "environment_key": "default",
+      "spec": {
+        "client": "2",
+        "dependencies": [
+          "/Workspace/Users/user@example.com/.bundle/sparkparse/dev/files/dist/sparkparse-0.1.0-py3-none-any.whl",
+          "polars>=1.24.0",
+          "pydantic>=2.10.6"
+        ]
+      }
+    }
+  ],
+  "execution_duration": 36000,
+  "format": "MULTI_TASK",
+  "job_id": 240570464625850,
+  "job_run_id": 915049514672868,
+  "number_in_job": 915049514672868,
+  "original_attempt_run_id": 915049514672868,
+  "run_duration": 41745,
+  "run_id": 915049514672868,
+  "run_name": "[dev user] [dev user@example.com] sparkparse-validate-connect",
+  "run_page_url": "https://example.cloud.databricks.com/?o=0000000000000000#job/240570464625850/run/915049514672868",
+  "run_type": "JOB_RUN",
+  "setup_duration": 5000,
+  "start_time": 1789249068871,
+  "state": {
+    "life_cycle_state": "TERMINATED",
+    "result_state": "SUCCESS",
+    "state_message": "",
+    "user_cancelled_or_timedout": false
+  },
+  "status": {
+    "state": "TERMINATED",
+    "termination_details": {
+      "code": "SUCCESS",
+      "message": "",
+      "type": "SUCCESS"
+    }
+  },
+  "tasks": [
+    {
+      "attempt_number": 0,
+      "cleanup_duration": 0,
+      "effective_performance_target": "PERFORMANCE_OPTIMIZED",
+      "end_time": 1789249110191,
+      "environment_key": "default",
+      "execution_duration": 36000,
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/user@example.com/.bundle/sparkparse/dev/files/notebooks/validate_connect_capture",
+        "source": "WORKSPACE"
+      },
+      "run_id": 60603881665866,
+      "run_if": "ALL_SUCCESS",
+      "run_page_url": "https://example.cloud.databricks.com/?o=0000000000000000#job/240570464625850/run/60603881665866",
+      "setup_duration": 5000,
+      "start_time": 1789249068906,
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": "",
+        "user_cancelled_or_timedout": false
+      },
+      "status": {
+        "state": "TERMINATED",
+        "termination_details": {
+          "code": "SUCCESS",
+          "message": "",
+          "type": "SUCCESS"
+        }
+      },
+      "task_key": "validate_connect_capture"
+    }
+  ],
+  "trigger": "ONE_TIME"
+}
