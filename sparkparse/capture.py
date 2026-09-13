@@ -11,10 +11,9 @@ import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, overload
 
 import polars as pl
-from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
@@ -40,6 +39,9 @@ from sparkparse.storage import (
     remove_dir,
     write_text,
 )
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 _log = logging.getLogger(__name__)
 CaptureAction = Literal["viz", "get", "analyze"]
@@ -384,6 +386,8 @@ class SparkparseCapture:
         _log.warning("capture %s: %s", code, message)
 
     def _configure_owned_classic(self) -> None:
+        from pyspark.sql import SparkSession
+
         self._log_dir = self.temp_dir or tempfile.mkdtemp(prefix="sparkparse_")
         ensure_dir(self._log_dir)
         if SparkSession.getActiveSession() is not None:
@@ -774,6 +778,8 @@ class SparkparseCapture:
 def _resolve_spark(
     spark: SparkSession | None, *, own_session: bool
 ) -> tuple[SparkSession, bool]:
+    from pyspark.sql import SparkSession
+
     if spark is not None:
         if own_session:
             raise ValueError(
