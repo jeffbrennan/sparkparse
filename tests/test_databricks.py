@@ -475,6 +475,29 @@ def test_credentials_are_excluded_from_parameter_capture():
         assert secret not in serialized
 
 
+def test_secret_arguments_are_redacted_from_parameter_capture():
+    run = load_fixture("job_run_multi.json")
+    run["tasks"][0]["spark_python_task"] = {
+        "python_file": "task.py",
+        "parameters": [
+            "--verbose",
+            "--api-token",
+            "dummy-token",
+            "--shuffle",
+            "200",
+            "--password=dummy-password",
+        ],
+    }
+    raw = collect_run(client(make_runner(run=run)), run_id="123", outputs="none")
+    report = build_report(raw)
+    task = next(t for t in report.tasks if t.task_key == "ingest")
+    captured = task.parameters["spark_python_task.parameters"]
+    assert "dummy-token" not in captured
+    assert "dummy-password" not in captured
+    assert "<redacted>" in captured
+    assert "--shuffle,200" in captured
+
+
 def test_run_environments_and_performance_mode_are_normalized():
     raw = collect_run(
         client(make_runner(run=load_fixture("job_run_single.json"))),

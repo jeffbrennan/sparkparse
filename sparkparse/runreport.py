@@ -177,8 +177,34 @@ def _task_parameters(task: dict[str, Any]) -> dict[str, str]:
         if isinstance(args, dict):
             parameters.update(_string_map(args))
         elif isinstance(args, list):
-            parameters[f"{kind}.parameters"] = ",".join(str(arg) for arg in args)
+            parameters[f"{kind}.parameters"] = _sanitize_arguments(args)
     return parameters
+
+
+def _sanitize_arguments(args: list[Any]) -> str:
+    """Join an argument list, redacting values of recognizable secret flags.
+
+    Only flags whose name is credential-like are treated as secrets; an opaque
+    positional value under an arbitrary name is left alone.
+    """
+    parts: list[str] = []
+    redact_next = False
+    for arg in args:
+        text = str(arg)
+        if redact_next:
+            parts.append("<redacted>")
+            redact_next = False
+            continue
+        flag, separator, value = text.partition("=")
+        if flag.startswith("-") and is_sensitive_key(flag.lstrip("-")):
+            if separator:
+                parts.append(f"{flag}=<redacted>")
+            else:
+                parts.append(text)
+                redact_next = True
+            continue
+        parts.append(text)
+    return ",".join(parts)
 
 
 def normalize_identity(
