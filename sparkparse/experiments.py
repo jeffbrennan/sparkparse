@@ -249,7 +249,6 @@ def record_trial(
     if existing is not None:
         existing.variant = variant
         existing.snapshot_id = snapshot.snapshot_id
-        existing.created_at = snapshot.collected_at
         existing.revision = trial.revision
         existing.config_fingerprint = trial.config_fingerprint
         existing.input_snapshot = trial.input_snapshot
@@ -433,8 +432,8 @@ def compare_experiment(
                 aspect="metric_completeness",
                 status="partial",
                 detail=(
-                    "partial observations were excluded from samples: "
-                    + ", ".join(sorted(partial_metrics))
+                    "partial observations retained separately from eligible "
+                    "statistics: " + ", ".join(sorted(partial_metrics))
                 ),
             )
         )
@@ -453,15 +452,16 @@ def compare_experiment(
 
 def _measure_values(
     group: ComparisonGroup, snapshots: dict[str, TrialSnapshot]
-) -> tuple[dict[str, list[float]], set[str]]:
-    """Collect comparable per-trial values and the metrics that were partial.
+) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+    """Collect per-trial values split into complete and partial observations.
 
-    Query measures enter a sample only when their aggregate is complete. An
-    observed subtotal over queries that merely reported the metric is not a
-    total, so pooling it with complete totals would bias the median.
+    Eligible sample statistics use the complete observations only: an observed
+    subtotal over queries that merely reported the metric is not a total. The
+    partial observations are still returned so a raw delta can be reported with
+    a coverage caveat rather than the metric disappearing.
     """
-    values: dict[str, list[float]] = {}
-    partial: set[str] = set()
+    complete: dict[str, list[float]] = {}
+    partial: dict[str, list[float]] = {}
     for trial_id in group.trial_ids:
         snapshot = snapshots[trial_id]
         report = snapshot.report
@@ -469,19 +469,21 @@ def _measure_values(
             "workflow_elapsed_ms": report.timing.workflow_elapsed_ms,
             "task_execution_ms": report.timing.summed_task_execution_ms,
         }
+        raw_partial: dict[str, float] = {}
         if report.query_metrics is not None:
             for aggregate in report.query_metrics.aggregates:
                 if aggregate.value is None:
                     continue
-                if aggregate.completeness is not MetricCompleteness.complete:
-                    partial.add(aggregate.metric)
-                    continue
-                raw[aggregate.metric] = aggregate.value
+                if aggregate.completeness is MetricCompleteness.complete:
+                    raw[aggregate.metric] = aggregate.value
+                else:
+                    raw_partial[aggregate.metric] = aggregate.value
         for metric, value in raw.items():
-            if value is None:
-                continue
-            values.setdefault(metric, []).append(float(value))
-    return values, partial
+            if value is not None:
+                complete.setdefault(metric, []).append(float(value))
+        for metric, value in raw_partial.items():
+            partial.setdefault(metric, []).append(float(value))
+    return complete, partial
 
 
 def _compare_metrics(
@@ -489,23 +491,34 @@ def _compare_metrics(
     candidate: ComparisonGroup,
     snapshots: dict[str, TrialSnapshot],
 ) -> tuple[list[MetricDelta], set[str]]:
-    baseline_values, baseline_partial = _measure_values(baseline, snapshots)
-    candidate_values, candidate_partial = _measure_values(candidate, snapshots)
-    partial = baseline_partial | candidate_partial
+    b_complete, b_partial = _measure_values(baseline, snapshots)
+    c_complete, c_partial = _measure_values(candidate, snapshots)
+    partial = set(b_partial) | set(c_partial)
     deltas: list[MetricDelta] = []
-    for metric in sorted(set(baseline_values) | set(candidate_values)):
-        b = baseline_values.get(metric, [])
-        c = candidate_values.get(metric, [])
+    for metric in sorted(set(b_complete) | set(c_complete) | partial):
+        bc = b_complete.get(metric, [])
+        cc = c_complete.get(metric, [])
+        bp = b_partial.get(metric, [])
+        cp = c_partial.get(metric, [])
+        # Prefer complete observations for eligible statistics; fall back to a
+        # partial side so a partially observed metric is still reported.
+        b = bc or bp
+        c = cc or cp
         if not b or not c:
             continue
         b_median = statistics.median(b)
         c_median = statistics.median(c)
         delta = c_median - b_median
-        caveat = (
-            "sample excludes partial observations for this metric"
-            if metric in partial
-            else _metric_caveat(metric, snapshots)
-        )
+        is_partial = bool(bp or cp)
+        if is_partial and not (bc and cc):
+            caveat = "raw delta uses observed subtotals, not complete totals"
+        elif is_partial:
+            caveat = (
+                "statistics use complete observations; partial observations "
+                "are retained separately"
+            )
+        else:
+            caveat = _metric_caveat(metric, snapshots)
         deltas.append(
             MetricDelta(
                 metric=metric,
@@ -513,6 +526,8 @@ def _compare_metrics(
                 aggregation=_metric_aggregation(metric, snapshots),
                 baseline_values=b,
                 candidate_values=c,
+                baseline_partial_values=bp,
+                candidate_partial_values=cp,
                 baseline_median=b_median,
                 candidate_median=c_median,
                 baseline_min=min(b),
@@ -522,6 +537,7 @@ def _compare_metrics(
                 delta=delta,
                 pct_change=None if b_median == 0 else delta / b_median,
                 single_observation=len(b) == 1 and len(c) == 1,
+                partial=is_partial,
                 caveat=caveat,
             )
         )
@@ -667,7 +683,8 @@ def _measures_equal(a: dict[str, float], b: dict[str, float]) -> bool:
 def _compute_fingerprint(report: RunReport) -> str:
     """Derive configuration identity from measured run facts, not user labels.
 
-    Compute snapshot, run environments and the effective performance target all
+    Compute snapshot, run environments, job parameters, task parameters,
+    cluster Spark configuration and the effective performance target all
     participate so that two different configurations cannot be mistaken for one.
     """
     compute_parts = [
@@ -695,10 +712,25 @@ def _compute_fingerprint(report: RunReport) -> str:
         )
         for environment in sorted(report.environments, key=lambda e: e.environment_key)
     ]
+    parameter_parts = [
+        f"{name}={value}" for name, value in sorted(report.job_parameters.items())
+    ]
+    task_parts = [
+        "|".join(
+            [
+                task.task_key,
+                ",".join(f"{k}={v}" for k, v in sorted(task.parameters.items())),
+                ",".join(f"{k}={v}" for k, v in sorted(task.spark_conf.items())),
+            ]
+        )
+        for task in sorted(report.tasks, key=lambda t: t.task_key)
+    ]
     return "||".join(
         [
             ";".join(compute_parts),
             "&".join(environment_parts),
+            "&".join(parameter_parts),
+            ";".join(task_parts),
             report.effective_performance_target or "",
         ]
     )
@@ -930,7 +962,8 @@ def trial_rows(
                 "short_revision": (
                     report.revision.executed_commit or trial.revision or "unknown"
                 )[:8],
-                "collected_at": snapshot.collected_at.isoformat(),
+                "collected_at": trial.created_at.isoformat(),
+                "snapshot_collected_at": snapshot.collected_at.isoformat(),
                 "status": status,
                 "eligibility": _eligibility(status, trial.warmup, trial.correctness),
                 "warmup": trial.warmup,

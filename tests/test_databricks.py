@@ -433,6 +433,17 @@ def test_run_scoped_git_evidence_covers_the_run():
     assert report.revision.scope == "run"
 
 
+def test_job_parameters_are_normalized_for_config_identity():
+    run = load_fixture("job_run_multi.json")
+    run["job_parameters"] = [
+        {"name": "shuffle_partitions", "value": "200"},
+        {"name": "unused", "value": None},
+    ]
+    raw = collect_run(client(make_runner(run=run)), run_id="123", outputs="none")
+    report = build_report(raw)
+    assert report.job_parameters == {"shuffle_partitions": "200", "unused": ""}
+
+
 def test_run_environments_and_performance_mode_are_normalized():
     raw = collect_run(
         client(make_runner(run=load_fixture("job_run_single.json"))),

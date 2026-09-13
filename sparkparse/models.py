@@ -2111,6 +2111,8 @@ class WorkflowTask(BaseModel):
     task_kind: str | None = None
     is_nested_job: bool = False
     git_commit: str | None = None
+    parameters: dict[str, str] = Field(default_factory=dict)
+    spark_conf: dict[str, str] = Field(default_factory=dict)
     output_path: str | None = None
     output_status: str | None = None
     error_excerpt: str | None = None
@@ -2206,6 +2208,7 @@ class RunReport(BaseModel):
     compute: list[ComputeReference] = Field(default_factory=list)
     effective_performance_target: str | None = None
     environments: list[RunEnvironment] = Field(default_factory=list)
+    job_parameters: dict[str, str] = Field(default_factory=dict)
     revision: RevisionEvidence
     coverage: dict[str, str] = Field(default_factory=dict)
     limits: WorkflowCollectionLimits
@@ -2278,6 +2281,8 @@ class MetricDelta(BaseModel):
     aggregation: str
     baseline_values: list[float]
     candidate_values: list[float]
+    baseline_partial_values: list[float] = Field(default_factory=list)
+    candidate_partial_values: list[float] = Field(default_factory=list)
     baseline_median: float | None = None
     candidate_median: float | None = None
     baseline_min: float | None = None
@@ -2287,6 +2292,7 @@ class MetricDelta(BaseModel):
     delta: float | None = None
     pct_change: float | None = None
     single_observation: bool = False
+    partial: bool = False
     caveat: str | None = None
 
 

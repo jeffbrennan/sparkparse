@@ -110,6 +110,46 @@ def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _string_map(mapping: Any) -> dict[str, str]:
+    if not isinstance(mapping, dict):
+        return {}
+    return {
+        str(key): "" if value is None else str(value) for key, value in mapping.items()
+    }
+
+
+def normalize_job_parameters(run: dict[str, Any]) -> dict[str, str]:
+    """Flatten job parameters into a name/value map for configuration identity.
+
+    Parameter values select runtime behavior (for example shuffle partitions), so
+    two runs that differ only here are two configurations, not one.
+    """
+    parameters: dict[str, str] = {}
+    for entry in run.get("job_parameters") or []:
+        if not isinstance(entry, dict) or entry.get("name") is None:
+            continue
+        value = entry.get("value")
+        parameters[str(entry["name"])] = "" if value is None else str(value)
+    return parameters
+
+
+def _task_parameters(task: dict[str, Any]) -> dict[str, str]:
+    parameters: dict[str, str] = {}
+    for kind in _TASK_KIND_KEYS:
+        spec = task.get(kind)
+        if not isinstance(spec, dict):
+            continue
+        base = spec.get("base_parameters")
+        if isinstance(base, dict):
+            parameters.update(_string_map(base))
+        args = spec.get("parameters")
+        if isinstance(args, dict):
+            parameters.update(_string_map(args))
+        elif isinstance(args, list):
+            parameters[f"{kind}.parameters"] = ",".join(str(arg) for arg in args)
+    return parameters
+
+
 def normalize_identity(
     run: dict[str, Any], workspace_host: str | None
 ) -> WorkflowRunIdentity:
@@ -193,6 +233,10 @@ def normalize_tasks(
                 task_kind=kind_key.removesuffix("_task") if kind_key else None,
                 is_nested_job=kind_key == "run_job_task",
                 git_commit=git_commit,
+                parameters=_task_parameters(task),
+                spark_conf=_string_map(
+                    (task.get("new_cluster") or {}).get("spark_conf")
+                ),
                 output_path=attachment.path,
                 output_status=attachment.status,
                 error_excerpt=attachment.excerpt,
@@ -567,6 +611,7 @@ def build_report(
             raw.run.get("effective_performance_target")
         ),
         environments=normalize_environments(raw.run),
+        job_parameters=normalize_job_parameters(raw.run),
         revision=revision,
         coverage=coverage,
         limits=raw.limits,

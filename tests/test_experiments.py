@@ -245,18 +245,45 @@ def test_config_fingerprint_is_derived_when_not_supplied(tmp_path):
     assert ref.config_fingerprint
 
 
-def test_partial_metric_is_excluded_from_samples(tmp_path):
+def test_partial_metric_is_reported_with_caveat_not_dropped(tmp_path):
     exp_dir = tmp_path / "exp"
     record(exp_dir, make_report("1", read_bytes=1000), "baseline")
     record(exp_dir, make_report("2", read_bytes=500, query_final=False), "candidate")
     comparison = exp.compare_experiment(
         exp_dir, baseline_run_id="1", candidate_run_id="2"
     )
-    assert not any(m.metric == "read_bytes" for m in comparison.metrics)
+    # The raw delta survives so the metric does not disappear entirely.
+    read = next(m for m in comparison.metrics if m.metric == "read_bytes")
+    assert read.partial is True
+    assert read.delta == -500
+    assert read.candidate_partial_values == [500.0]
+    assert read.caveat and "subtotal" in read.caveat
     note = next(
         n for n in comparison.comparability if n.aspect == "metric_completeness"
     )
     assert note.status == "partial"
+
+
+def test_execution_parameters_change_config_fingerprint(tmp_path):
+    exp_dir = tmp_path / "exp"
+    baseline = make_report("1")
+    baseline.job_parameters = {"shuffle_partitions": "200"}
+    candidate = make_report("2")
+    candidate.job_parameters = {"shuffle_partitions": "800"}
+    ref_baseline, _ = record(exp_dir, baseline, "baseline")
+    ref_candidate, _ = record(exp_dir, candidate, "candidate")
+    assert ref_baseline.config_fingerprint != ref_candidate.config_fingerprint
+
+
+def test_recollection_keeps_first_trial_ordering(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(exp_dir, make_report("1"), "baseline")
+    record(exp_dir, make_report("2"), "candidate")
+    record(exp_dir, make_report("1"), "baseline")
+    manifest, snapshots = exp.load_experiment(exp_dir)
+    rows = exp.trial_rows(manifest, snapshots)
+    assert [row["run_id"] for row in rows] == ["1", "2"]
+    assert rows[0]["snapshot_collected_at"] is not None
 
 
 def test_per_task_comparison_uses_medians_and_keeps_spread(tmp_path):
