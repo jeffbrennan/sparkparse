@@ -169,7 +169,7 @@ def _trend_figure(
         )
         fig.add_trace(
             go.Bar(
-                x=xs,
+                x=[row["run_id"] for row in rows],
                 y=context_values,
                 name=_ALL_METRICS.get(context_metric, context_metric),
                 hovertemplate="%{y:.3f} " + context_label + "<extra></extra>",
@@ -219,12 +219,23 @@ def _add_median_line(
 
 
 def _task_samples_for_variant(
-    rows: list[dict[str, Any]], task_key: str, variant: str
+    rows: list[dict[str, Any]],
+    task_key: str,
+    variant: str,
+    config_fingerprint: str | None,
 ) -> list[float]:
+    """Eligible, same-configuration samples behind a variant's displayed spread.
+
+    Excluded trials (failed, active, warmup, incomplete) and trials of another
+    configuration must not move the median or spread shown next to a comparison.
+    """
     return [
         row["task_values"][task_key]
         for row in rows
-        if row["variant"] == variant and row["task_values"].get(task_key) is not None
+        if row["variant"] == variant
+        and row["config_fingerprint"] == config_fingerprint
+        and row["eligibility"] == "ok"
+        and row["task_values"].get(task_key) is not None
     ]
 
 
@@ -255,17 +266,20 @@ def _task_trend_figure(
             connectgaps=False,
         )
     )
-    variant_by_run = {row["run_id"]: row["variant"] for row in rows}
+    meta_by_run = {
+        row["run_id"]: (row["variant"], row["config_fingerprint"]) for row in rows
+    }
     for run_id, color, label in (
         (baseline_run, "#1f77b4", "baseline"),
         (candidate_run, "#ff7f0e", "candidate"),
     ):
         if not run_id:
             continue
-        variant = variant_by_run.get(run_id)
-        if variant is None:
+        meta = meta_by_run.get(run_id)
+        if meta is None:
             continue
-        samples = _task_samples_for_variant(rows, task_key, variant)
+        variant, config = meta
+        samples = _task_samples_for_variant(rows, task_key, variant, config)
         if not samples:
             continue
         median = statistics.median(samples)
@@ -312,6 +326,7 @@ def _metric_table(comparison: ExperimentComparison) -> list[dict[str, Any]]:
                 "pct_change": metric.pct_change,
                 "baseline_n": len(metric.baseline_values),
                 "candidate_n": len(metric.candidate_values),
+                "partial": metric.partial,
                 "caveat": metric.caveat,
             }
         )
@@ -412,6 +427,19 @@ def _context_table(
             }
         )
     return rows
+
+
+def flatten_trend_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten list-valued trend fields so CSV export has no nested columns."""
+    return [
+        {
+            key: ", ".join(str(item) for item in value)
+            if isinstance(value, list)
+            else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
 
 
 def _table(columns: list[str], data: list[dict[str, Any]], table_id: str) -> html.Div:
@@ -739,6 +767,7 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
                     "pct_change",
                     "baseline_n",
                     "candidate_n",
+                    "partial",
                     "caveat",
                 ],
                 _metric_table(comparison),
@@ -805,7 +834,7 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
             )
         import polars as pl
 
-        frame = pl.DataFrame(payload.get("trend", []))
+        frame = pl.DataFrame(flatten_trend_rows(payload.get("trend", [])))
         return dcc.send_string(frame.write_csv(), "experiment-trend.csv")
 
     return app
