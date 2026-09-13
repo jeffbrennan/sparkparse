@@ -6,6 +6,7 @@ import dash_bootstrap_components as dbc
 import dash_cytoscape
 from dash import Input, Output, State, callback, dcc, html
 
+from sparkparse.models import CaptureResult, ParsedLogDataFrames
 from sparkparse.pages import dag, home, summary
 from sparkparse.styling import SitePalette, get_site_colors
 
@@ -159,7 +160,11 @@ def layout():
     )
 
 
-def init_dashboard(log_dir: str) -> dash.Dash:
+def init_dashboard(
+    source: str | CaptureResult | ParsedLogDataFrames,
+) -> dash.Dash:
+    from sparkparse.dataset import Dataset
+
     app = dash.Dash(
         __name__,
         use_pages=True,
@@ -199,7 +204,7 @@ def init_dashboard(log_dir: str) -> dash.Dash:
     app.layout = layout()
     dash.register_page(home.__name__, name="home", path="/", layout=home.layout)
 
-    app.server.config["LOG_DIR"] = log_dir
+    app.server.config["DATASET"] = Dataset(source)
 
     dash.register_page(
         summary.__name__,

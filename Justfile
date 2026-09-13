@@ -39,6 +39,13 @@ jsonformat:
         jq '.' "$file" > "data/logs/sandbox/${base}.json"; \
     done
 
+# Build the wheel consumed by databricks.yml. The wheel filename carries the
+# version, so pass the resulting path to `databricks bundle deploy` via
+# `--var wheel_path=dist/<built-wheel>` when it differs from the default.
+build-wheel:
+    uv build --wheel
+    @ls -1 dist/*.whl
+
 live:
     open http://localhost:4040/
 

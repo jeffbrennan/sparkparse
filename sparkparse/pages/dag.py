@@ -8,9 +8,8 @@ import polars as pl
 from dash import Input, Output, State, callback, callback_context, dcc, get_app, html
 from plotly.graph_objs import Figure
 
-from sparkparse.common import create_header, resolve_dir, timeit
+from sparkparse.common import create_header, timeit
 from sparkparse.models import NodeType
-from sparkparse.parse import get_parsed_metrics
 from sparkparse.styling import get_site_colors
 from sparkparse.viz import get_node_color
 
@@ -49,6 +48,8 @@ def get_codegen_elements(
     )
 
     codegen_durations = [i["value"] for i in codegen_details if i["value"] is not None]
+    if not codegen_durations:
+        return None
     min_codegen_duration = min(codegen_durations)
     max_codegen_duration = max(codegen_durations)
 
@@ -166,6 +167,8 @@ def create_elements(
 
             hotspot_map[row["node_id"]] = metrics[0]["value"]
 
+    if not hotspot_map:
+        return codegen_elements or []
     min_hotspot = min(hotspot_map.values())
     max_hotspot = max(hotspot_map.values())
 
@@ -341,10 +344,11 @@ def update_cyto_border_color(dark_mode: bool) -> dict:
     Input("log-name", "data"),
 )
 def initialize_dropdown(log_name: str):
-    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
-    df = get_parsed_metrics(
-        log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
-    ).dag.filter(pl.col("node_type").is_not_null())
+    dataset = get_app().server.config["DATASET"]
+    df = dataset.dataframes(log_name).dag.filter(pl.col("node_type").is_not_null())
+
+    if df.is_empty():
+        return None, []
 
     query_records = (
         df.select("query_id", "query_header").unique().sort("query_id").to_dicts()
@@ -403,25 +407,33 @@ def hotspot_picker(df_data: list[dict[str, Any]]):
     ],
 )
 @timeit
-def get_records(log_name: str, query_id: int):
-    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
-    df = get_parsed_metrics(
-        log_dir=log_dir, log_file=log_name, out_dir=None, out_format=None
-    ).dag.filter(pl.col("node_type").is_not_null())
+def get_records(log_name: str, query_id: int | None):
+    dataset = get_app().server.config["DATASET"]
+    df = dataset.dataframes(log_name).dag.filter(pl.col("node_type").is_not_null())
+
+    if df.is_empty() or query_id is None:
+        return [], [log_name, "No plan nodes were captured."]
 
     filtered_df = df.filter(pl.col("query_id").eq(query_id))
+    if filtered_df.is_empty():
+        return [], [log_name, "No plan nodes were captured for this query."]
     records = filtered_df.to_pandas().to_dict("records")
 
     title = filtered_df.select(
         "query_start_timestamp",
         pl.col("query_duration_seconds").mul(1 / 60).alias("query_duration_minutes"),
     ).to_dicts()[0]
+    duration_text = (
+        f"{title['query_duration_minutes']:.2f} minutes"
+        if title["query_duration_minutes"] is not None
+        else "duration not available"
+    )
     dag_title = [
         html.Div(
             f"{log_name}",
             style={"fontWeight": "bold", "fontSize": "24px"},
         ),
-        f"{title['query_start_timestamp']} - {title['query_duration_minutes']:.2f} minutes",
+        f"{title['query_start_timestamp']} - {duration_text}",
     ]
 
     return records, dag_title

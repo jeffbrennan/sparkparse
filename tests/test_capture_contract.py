@@ -5,6 +5,7 @@ from typing import Any, cast
 import polars as pl
 import pytest
 
+from sparkparse.artifact import load_capture_artifact
 from sparkparse.capture import SparkparseCapture, _capabilities, capture
 from sparkparse.connect import empty_capture_dataframes
 from sparkparse.history import record_from_dfs
@@ -105,6 +106,73 @@ def test_user_exception_wins_over_finalization_failure(tmp_path: Path):
     with pytest.raises(ValueError, match="user failed"):
         with cap:
             raise ValueError("user failed")
+
+
+def test_failed_workload_still_writes_artifact(tmp_path: Path):
+    spark = _BorrowedSpark(tmp_path / "event-log")
+    artifact = tmp_path / "artifact"
+    cap = SparkparseCapture("get", spark=cast(Any, spark), artifact_path=str(artifact))
+
+    with pytest.raises(ValueError, match="user failed"):
+        with cap:
+            raise ValueError("user failed")
+
+    loaded = load_capture_artifact(artifact)
+    assert loaded.metadata.status == CaptureStatus.failed
+    assert loaded.dag.is_empty()
+    assert loaded.combined.is_empty()
+
+
+def test_artifact_write_failure_marks_partial_and_raises(tmp_path: Path):
+    spark = _BorrowedSpark(tmp_path / "event-log")
+    cap = SparkparseCapture(
+        "get", spark=cast(Any, spark), artifact_path=str(tmp_path / "artifact")
+    )
+    cap._write_artifact = lambda: (_ for _ in ()).throw(OSError("disk full"))
+
+    with pytest.raises(OSError, match="disk full"):
+        with cap:
+            pass
+
+    assert cap.result is not None
+    assert cap.result.metadata.status == CaptureStatus.partial
+    assert any(d.code == "artifact_write_failed" for d in cap.result.diagnostics)
+
+
+def test_artifact_write_failure_is_recorded_when_policy_allows(tmp_path: Path):
+    spark = _BorrowedSpark(tmp_path / "event-log")
+    cap = SparkparseCapture(
+        "get",
+        spark=cast(Any, spark),
+        artifact_path=str(tmp_path / "artifact"),
+        capture_errors="record",
+    )
+    cap._write_artifact = lambda: (_ for _ in ()).throw(OSError("disk full"))
+
+    with cap:
+        pass
+
+    assert cap.result is not None
+    assert cap.result.metadata.status == CaptureStatus.partial
+    assert any(d.code == "artifact_write_failed" for d in cap.result.diagnostics)
+
+
+def test_workload_exception_wins_over_artifact_write_failure(tmp_path: Path):
+    spark = _BorrowedSpark(tmp_path / "event-log")
+    cap = SparkparseCapture(
+        "get",
+        spark=cast(Any, spark),
+        artifact_path=str(tmp_path / "artifact"),
+        capture_errors="raise",
+    )
+    cap._write_artifact = lambda: (_ for _ in ()).throw(OSError("disk full"))
+
+    with pytest.raises(ValueError, match="user failed"):
+        with cap:
+            raise ValueError("user failed")
+
+    assert cap.result is not None
+    assert cap.result.metadata.status == CaptureStatus.failed
 
 
 def test_capture_result_serialization_round_trip():

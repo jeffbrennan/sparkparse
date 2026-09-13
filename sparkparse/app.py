@@ -1,3 +1,4 @@
+import importlib.metadata
 import json
 import sys
 from enum import StrEnum
@@ -8,7 +9,7 @@ import typer
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
-from sparkparse.dashboard import init_dashboard, run_app
+from sparkparse.artifact import save_capture_artifact
 from sparkparse.eventlog import discover_sources
 from sparkparse.models import OutputFormat, ParsedLogDataFrames, RunRecord
 from sparkparse.parse import get_all_parsed_metrics, get_parsed_metrics
@@ -19,9 +20,36 @@ from sparkparse.storage import (
     write_text,
 )
 
-__version__ = "0.1.0"
+
+def _package_version() -> str:
+    try:
+        return importlib.metadata.version("sparkparse")
+    except importlib.metadata.PackageNotFoundError:
+        return "0.0.0"
+
+
+__version__ = _package_version()
 
 app = typer.Typer(pretty_exceptions_enable=False)
+
+
+def _resolve_log_dir(
+    log_dir: str, log_dir_option: str | None, *, require_exists: bool = True
+) -> str:
+    """Accept ``--log-dir`` as an alias for the positional log directory.
+
+    The positional argument is canonical; the option exists only so the
+    previously documented ``sparkparse get --log-dir ./logs`` keeps working.
+    """
+    if log_dir_option is not None:
+        if log_dir != "data/logs/raw":
+            raise typer.BadParameter(
+                "Pass the log directory either as the argument or --log-dir, not both."
+            )
+        log_dir = log_dir_option
+    if require_exists and not is_cloud_path(log_dir) and not Path(log_dir).exists():
+        raise typer.BadParameter(f"Log directory does not exist: {log_dir}")
+    return log_dir
 
 
 class AnalysisFormat(StrEnum):
@@ -60,11 +88,24 @@ def viz_parsed_metrics(
     log_dir: Annotated[
         str, typer.Argument(help="Directory containing raw Spark event logs.")
     ] = "data/logs/raw",
+    log_dir_option: Annotated[
+        str | None,
+        typer.Option("--log-dir", help="Alias for the log-dir argument."),
+    ] = None,
     force_port: bool = typer.Option(
         default=False, help="Force kill any process using port 8050 before starting."
     ),
 ) -> None:
     """Launch the interactive Dash dashboard for a directory of Spark event logs."""
+    log_dir = _resolve_log_dir(log_dir, log_dir_option)
+    try:
+        from sparkparse.dashboard import init_dashboard, run_app
+    except ImportError as exc:  # pragma: no cover - exercised only without [viz]
+        raise typer.BadParameter(
+            "The dashboard requires the 'viz' extra: install with "
+            "`pip install sparkparse[viz]`."
+        ) from exc
+
     app = init_dashboard(log_dir)
     run_app(app=app, force_port=force_port)
 
@@ -74,6 +115,10 @@ def get(
     log_dir: Annotated[
         str, typer.Argument(help="Directory containing raw Spark event logs.")
     ] = "data/logs/raw",
+    log_dir_option: Annotated[
+        str | None,
+        typer.Option("--log-dir", help="Alias for the log-dir argument."),
+    ] = None,
     log_file: Annotated[
         str | None,
         typer.Option(
@@ -104,8 +149,19 @@ def get(
         bool,
         typer.Option(help="Hard-fail on unrecognized node types or detail models."),
     ] = False,
+    artifact: Annotated[
+        str | None,
+        typer.Option(
+            "--artifact",
+            help="Write a portable capture artifact directory that the dashboard "
+            "can open without the raw event logs.",
+        ),
+    ] = None,
 ) -> ParsedLogDataFrames:
     """Parse Spark event logs and write structured DataFrames to disk."""
+    log_dir = _resolve_log_dir(log_dir, log_dir_option, require_exists=log_file is None)
+    if artifact is not None and all_apps:
+        raise typer.BadParameter("--artifact cannot be combined with --all-apps")
     if all_apps:
         if log_file is not None:
             raise typer.BadParameter("--all-apps cannot be combined with --log-file")
@@ -122,7 +178,7 @@ def get(
         typer.echo(f"Parsed {len(results)} application(s): {', '.join(results)}")
         return results[sorted(results)[-1]]
 
-    return get_parsed_metrics(
+    result = get_parsed_metrics(
         log_dir=log_dir,
         log_file=log_file,
         out_dir=out_dir,
@@ -131,6 +187,11 @@ def get(
         verbose=verbose,
         strict=strict,
     )
+    if artifact is not None:
+        label = out_name or (get_path_stem(log_file) if log_file else None)
+        path = save_capture_artifact(result, artifact, label=label)
+        typer.echo(f"Capture artifact written to {path}", err=True)
+    return result
 
 
 @app.command("logs")
@@ -138,6 +199,10 @@ def logs(
     log_dir: Annotated[
         str, typer.Argument(help="Directory containing raw Spark event logs.")
     ] = "data/logs/raw",
+    log_dir_option: Annotated[
+        str | None,
+        typer.Option("--log-dir", help="Alias for the log-dir argument."),
+    ] = None,
     format: Annotated[
         AnalysisFormat,
         typer.Option(help="Output format: 'text' (default) or 'json'."),
@@ -148,6 +213,7 @@ def logs(
     Rolling logs collapse into one source with ordered segments; marker files
     and checksums are ignored. The last row is the one a bare parse selects.
     """
+    log_dir = _resolve_log_dir(log_dir, log_dir_option)
     sources = discover_sources(log_dir)
     if not sources:
         typer.echo(f"No event log sources found in {log_dir}")
@@ -175,6 +241,10 @@ def analyze(
     log_dir: Annotated[
         str, typer.Argument(help="Directory containing raw Spark event logs.")
     ] = "data/logs/raw",
+    log_dir_option: Annotated[
+        str | None,
+        typer.Option("--log-dir", help="Alias for the log-dir argument."),
+    ] = None,
     log_file: Annotated[
         str | None,
         typer.Option(help="Analyze a single log file instead of the whole directory."),
@@ -217,6 +287,7 @@ def analyze(
     states measured facts, the findings interpret them and carry their own
     evidence, thresholds and coverage status.
     """
+    log_dir = _resolve_log_dir(log_dir, log_dir_option, require_exists=log_file is None)
     dfs = get_parsed_metrics(
         log_dir=log_dir,
         log_file=log_file,

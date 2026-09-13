@@ -2,20 +2,17 @@ name: test
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-# Runs when a PR is opened or reopened, and when a draft PR is marked ready --
-# not on every push, to keep runner usage down. The intended flow is to open
-# work as a draft, push freely at no cost, then mark it ready:
-#
-#   gh pr create --draft      # no CI
-#   git push                  # no CI
-#   gh pr ready               # CI runs, and gates the merge
-#
-# To re-run after pushing to an already-ready PR, send it back and forward
-# again: `gh pr ready --undo && gh pr ready`.
-#
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runs when a PR is opened, pushed to (synchronize), reopened, or marked
+# ready. Concurrent runs for the same ref are cancelled so a stale push cannot
+# leave the PR showing old results.
+
 # Only a run from one of these pull_request events can satisfy branch
 # protection. A workflow_dispatch run does NOT: its check suite is not
 # associated with the pull request, so the check lands on the commit but the
@@ -46,6 +43,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Resolve nothing at CI time: install exactly what uv.lock pins.
+      UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -71,3 +71,51 @@ jobs:
 
       - name: Unit tests
         run: uv run pytest tests/ --ignore=tests/test.py --ignore=tests/test_capture.py -v
+
+  packaging:
+    # Builds the wheel once and proves the optional-dependency boundaries in
+    # fresh environments: base parsing/CLI must work without PySpark or Dash.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build wheel
+        run: uv build --wheel --out-dir dist
+
+      - name: Verify base install (no PySpark, no Dash)
+        run: |
+          uv venv /tmp/base --python 3.11
+          wheel=$(ls dist/*.whl)
+          uv pip install --python /tmp/base/bin/python "$wheel"
+          /tmp/base/bin/python - <<'PY'
+          import sys
+          import sparkparse  # noqa: F401
+          assert "pyspark" not in sys.modules, "base install pulled in pyspark"
+          assert "dash" not in sys.modules, "base install pulled in dash"
+          print("base import ok")
+          PY
+          /tmp/base/bin/sparkparse --version
+          /tmp/base/bin/sparkparse --help >/dev/null
+
+      - name: Verify [viz] install
+        run: |
+          uv venv /tmp/viz --python 3.11
+          wheel=$(ls dist/*.whl)
+          uv pip install --python /tmp/viz/bin/python "${wheel}[viz]"
+          /tmp/viz/bin/python -c "import sparkparse.dashboard; print('viz import ok')"
+
+      - name: Verify [spark] install
+        run: |
+          uv venv /tmp/spark --python 3.11
+          wheel=$(ls dist/*.whl)
+          uv pip install --python /tmp/spark/bin/python "${wheel}[spark]"
+          /tmp/spark/bin/python -c "import sparkparse; sparkparse.SparkparseCapture; print('spark import ok')"
+

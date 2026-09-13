@@ -17,19 +17,28 @@ sparkparse parses Apache Spark event logs and provides:
 ## install
 
 ```bash
+# base install: parsing, analysis, history and the CLI
 pip install sparkparse
+
+# optional extras
+pip install "sparkparse[viz]"    # Dash dashboard
+pip install "sparkparse[spark]"  # PySpark capture
+pip install "sparkparse[cloud]"  # s3 / azure / gcs storage backends
 ```
 
 ## usage
 
 ### CLI
 
+The log directory is a positional argument. ``--log-dir`` is accepted as an
+alias for the commands documented with it.
+
 ```bash
 # list the event-log sources found in a directory
 sparkparse logs ./logs
 
 # parse the newest log and write output files
-sparkparse get --log-dir ./logs --out-format parquet
+sparkparse get ./logs --out-format parquet
 
 # parse one application explicitly (file name, rolling-log dir, or app id)
 sparkparse get ./logs --log-file eventlog_v2_app-20260912-0001
@@ -38,7 +47,7 @@ sparkparse get ./logs --log-file eventlog_v2_app-20260912-0001
 sparkparse get ./logs --all-apps
 
 # launch the dashboard
-sparkparse viz --log-dir ./logs
+sparkparse viz ./logs
 
 # produce LLM-friendly analysis JSON
 sparkparse analyze ./logs
@@ -170,6 +179,31 @@ just ci
 just ci-full
 ```
 
+Dependencies are managed with `uv` and locked in `uv.lock`. To change a
+dependency, edit `pyproject.toml`, run `uv lock`, then `uv sync --dev`. CI
+installs the lockfile frozen (`UV_FROZEN=1`) so a stale lock fails instead of
+silently resolving.
+
+## capture artifacts
+
+A capture can be written to a portable artifact directory that opens in the
+dashboard without the raw event logs:
+
+```python
+with sparkparse.capture_context(spark=spark, action="viz", artifact_path="runs/job-a") as cap:
+    df.groupBy("id").count().show()
+```
+
+```bash
+sparkparse viz runs/job-a   # opens the artifact directly
+```
+
+Artifacts hold `manifest.json` (metadata, capabilities, diagnostics) plus
+`dag.arrow` and `combined.arrow`. The dashboard reads either a raw-log
+directory, an artifact, or an in-memory result, and caches parsed frames on the
+server so callbacks do not re-read logs.
+
+
 ## TODOs
 
 - [x] structured node details like project columns and scan sources
@@ -177,5 +211,5 @@ just ci-full
 - [x] metric capture via context manager / decorator
 - [ ] hotspot highlighting by metrics other than duration (spill, records, etc.)
 - [x] `analyze` command with LLM-friendly JSON output
-- [ ] reading from cloud storage
-- [ ] ruff + pyrefly CI
+- [x] reading from cloud storage
+- [x] ruff + pyrefly CI

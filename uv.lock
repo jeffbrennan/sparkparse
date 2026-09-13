@@ -2365,6 +2365,7 @@ source = { editable = "." }
 dependencies = [
     { name = "polars" },
     { name = "pydantic" },
+    { name = "typer" },
 ]
 
 [package.optional-dependencies]
@@ -2389,6 +2390,7 @@ spark = [
     { name = "pyspark" },
 ]
 viz = [
+    { name = "dash" },
     { name = "dash-ag-grid" },
     { name = "dash-bootstrap-components" },
     { name = "dash-cytoscape" },
@@ -2421,6 +2423,7 @@ dev = [
 requires-dist = [
     { name = "adlfs", marker = "extra == 'azure'", specifier = ">=2024.1.0" },
     { name = "adlfs", marker = "extra == 'cloud'", specifier = ">=2024.1.0" },
+    { name = "dash", marker = "extra == 'viz'", specifier = ">=2.18.0" },
     { name = "dash-ag-grid", marker = "extra == 'viz'", specifier = ">=31.3.0" },
     { name = "dash-bootstrap-components", marker = "extra == 'viz'", specifier = ">=1.6.0,<2" },
     { name = "dash-cytoscape", marker = "extra == 'viz'", specifier = ">=1.0.2" },
@@ -2434,6 +2437,7 @@ requires-dist = [
     { name = "pyspark", marker = "extra == 'spark'", specifier = ">=3.5.5" },
     { name = "s3fs", marker = "extra == 'cloud'", specifier = ">=2024.1.0" },
     { name = "s3fs", marker = "extra == 's3'", specifier = ">=2024.1.0" },
+    { name = "typer", specifier = ">=0.15.2" },
     { name = "zstandard", marker = "extra == 'zstd'", specifier = ">=0.22" },
 ]
 provides-extras = ["viz", "spark", "s3", "azure", "gcs", "cloud", "delta", "zstd"]
