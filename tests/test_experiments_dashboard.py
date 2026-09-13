@@ -52,11 +52,32 @@ def test_trend_figure_keeps_missing_context_as_a_gap():
             "variant": "v",
             "short_revision": "abc",
             "values": {"workflow_elapsed_ms": 1000.0},
+            "partial_metrics": [],
         }
     ]
     figure = _trend_figure(rows, "workflow_elapsed_ms", None, None)
     context_trace = figure.data[1]
     assert list(context_trace.y) == [None]  # type: ignore[missing-attribute]
+
+
+def test_trend_figure_marks_partial_values_distinctly():
+    rows: list[dict[str, Any]] = [
+        {
+            "run_id": "1",
+            "variant": "v",
+            "short_revision": "abc",
+            "values": {"read_bytes": 100.0},
+            "partial_metrics": ["read_bytes"],
+        }
+    ]
+    figure = _trend_figure(rows, "read_bytes", None, None)
+    partial = [
+        trace
+        for trace in figure.data
+        if "partial" in (trace.name or "")  # type: ignore[missing-attribute]
+    ]
+    assert partial
+    assert partial[0].marker.symbol == "circle-open"  # type: ignore[missing-attribute,union-attr]
 
 
 def test_context_table_surfaces_compute_and_revision(tmp_path):

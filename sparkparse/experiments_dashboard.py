@@ -106,10 +106,12 @@ def _trend_figure(
         shared_xaxes=True,
         subplot_titles=(_ALL_METRICS.get(metric, metric), f"Context ({scale_label})"),
     )
-    xs = [row["run_id"] for row in rows]
+    complete = [row for row in rows if metric not in row["partial_metrics"]]
+    partial = [row for row in rows if metric in row["partial_metrics"]]
+    xs = [row["run_id"] for row in complete]
     primary = [
         row["values"].get(metric) / scale if metric in row["values"] else None
-        for row in rows
+        for row in complete
     ]
     fig.add_trace(
         go.Scatter(
@@ -117,13 +119,34 @@ def _trend_figure(
             y=primary,
             mode="markers+lines",
             name=_ALL_METRICS.get(metric, metric),
-            text=[f"{row['variant']} {row['short_revision']}" for row in rows],
+            text=[f"{row['variant']} {row['short_revision']}" for row in complete],
             hovertemplate="%{text}<br>%{y:.3f} " + scale_label + "<extra></extra>",
             connectgaps=False,
         ),
         row=1,
         col=1,
     )
+    if partial:
+        fig.add_trace(
+            go.Scatter(
+                x=[row["run_id"] for row in partial],
+                y=[
+                    row["values"].get(metric) / scale
+                    if metric in row["values"]
+                    else None
+                    for row in partial
+                ],
+                mode="markers",
+                marker={"symbol": "circle-open", "size": 11},
+                name=f"{_ALL_METRICS.get(metric, metric)} (partial)",
+                text=[f"{row['variant']} {row['short_revision']}" for row in partial],
+                hovertemplate=(
+                    "%{text}<br>%{y:.3f} " + scale_label + " partial<extra></extra>"
+                ),
+            ),
+            row=1,
+            col=1,
+        )
     context_metric = "workflow_elapsed_ms" if metric in _BYTE_METRICS else "read_bytes"
     if context_metric in _ALL_METRICS:
         _, context_scale = _SCALE[
@@ -185,7 +208,9 @@ def _add_median_line(
     values = [
         row["values"][metric] / scale
         for row in rows
-        if row["run_id"] == run_id and metric in row["values"]
+        if row["run_id"] == run_id
+        and metric in row["values"]
+        and metric not in row["partial_metrics"]
     ]
     if not values:
         return
@@ -661,6 +686,7 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
                         {
                             "run_id": row["run_id"],
                             "variant": row["variant"],
+                            "partial_metrics": row["partial_metrics"],
                             **row["values"],
                         }
                         for row in filtered
@@ -687,7 +713,12 @@ def init_experiments_dashboard(exp_dir: str) -> dash.Dash:
         )
         payload = {
             "trend": [
-                {"run_id": row["run_id"], "variant": row["variant"], **row["values"]}
+                {
+                    "run_id": row["run_id"],
+                    "variant": row["variant"],
+                    "partial_metrics": row["partial_metrics"],
+                    **row["values"],
+                }
                 for row in filtered
             ],
             "metrics": [m.model_dump(mode="json") for m in comparison.metrics],
