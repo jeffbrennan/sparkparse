@@ -982,9 +982,11 @@ def trial_rows(
         values: dict[str, float] = {}
         if report.timing.workflow_elapsed_ms is not None:
             values["workflow_elapsed_ms"] = float(report.timing.workflow_elapsed_ms)
+        partial: list[str] = []
         if report.timing.summed_task_execution_ms is not None:
             values["task_execution_ms"] = float(report.timing.summed_task_execution_ms)
-        partial: list[str] = []
+            if not _task_coverage_complete(report):
+                partial.append("task_execution_ms")
         if report.query_metrics is not None:
             for aggregate in report.query_metrics.aggregates:
                 if aggregate.value is None:

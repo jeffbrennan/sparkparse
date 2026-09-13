@@ -303,6 +303,19 @@ def test_partial_task_list_marks_timing_partial_and_suppresses_added(tmp_path):
     )
 
 
+def test_partial_task_list_marks_trial_row_metric_partial(tmp_path):
+    exp_dir = tmp_path / "exp"
+    record(
+        exp_dir,
+        make_report("1", task_list_partial=True, task_count=1),
+        "baseline",
+    )
+    manifest, snapshots = exp.load_experiment(exp_dir)
+    rows = exp.trial_rows(manifest, snapshots)
+    assert "task_execution_ms" in rows[0]["partial_metrics"]
+    assert "task_execution_ms" in rows[0]["values"]
+
+
 def test_derived_fingerprint_refreshes_on_recollection(tmp_path):
     exp_dir = tmp_path / "exp"
     first, _ = record(exp_dir, make_report("1"), "baseline")
