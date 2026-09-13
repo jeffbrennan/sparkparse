@@ -1,15 +1,22 @@
+from __future__ import annotations
+
 import datetime
+import logging
 import time
 from functools import wraps
 from io import IOBase
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
-from pyspark.sql import SparkSession
 
 from sparkparse.models import OutputFormat
 from sparkparse.storage import is_cloud_path, open_file
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_time() -> datetime.datetime:
@@ -24,8 +31,12 @@ def timeit(func):
         result = func(*args, **kwargs)
         end_time = time.perf_counter()
         total_time = end_time - start_time
-        print(
-            f"{get_current_time()} -- Function {func.__name__} Took {total_time * 1000:.2f} ms"
+        # Logs go to the logger, never stdout: stdout carries piped command output.
+        logger.info(
+            "%s -- Function %s Took %.2f ms",
+            get_current_time(),
+            func.__name__,
+            total_time * 1000,
         )
         return result
 
@@ -70,6 +81,8 @@ def write_dataframe(
 
 
 def get_spark(log_dir: Path) -> SparkSession:
+    from pyspark.sql import SparkSession
+
     return (
         SparkSession.builder.appName("sparkparse")
         .config("spark.eventLog.enabled", "true")

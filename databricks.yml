@@ -1,6 +1,14 @@
 bundle:
   name: sparkparse
 
+# The wheel filename includes the package version, so keep it in one place.
+# Build with `just build-wheel`, then override if needed:
+#   databricks bundle deploy --var wheel_path=dist/sparkparse-<version>-py3-none-any.whl
+variables:
+  wheel_path:
+    description: Path to the built sparkparse wheel inside the synced bundle files.
+    default: dist/sparkparse-0.1.0-py3-none-any.whl
+
 # Force-sync the pre-built wheel even if dist/ is gitignored.
 # Run `uv build --wheel` before `databricks bundle deploy`.
 sync:
@@ -23,7 +31,7 @@ resources:
             dependencies:
               # Databricks serverless runtime provides: pandas, numpy, fsspec, pyarrow, pyspark.
               # Only list packages the runtime does NOT include.
-              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/dist/sparkparse-0.1.0-py3-none-any.whl
+              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/${var.wheel_path}
               - "polars>=1.24.0"
               - "pydantic>=2.10.6"
               - "dash-bootstrap-components>=1.6.0,<2"
@@ -42,7 +50,7 @@ resources:
           spec:
             client: "2"
             dependencies:
-              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/dist/sparkparse-0.1.0-py3-none-any.whl
+              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/${var.wheel_path}
               - "polars>=1.24.0"
               - "pydantic>=2.10.6"
       tasks:
@@ -60,7 +68,7 @@ resources:
             dependencies:
               # Databricks serverless runtime provides: pandas, numpy, fsspec, pyarrow, pyspark.
               # Only list packages the runtime does NOT include.
-              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/dist/sparkparse-0.1.0-py3-none-any.whl
+              - /Workspace/Users/${workspace.current_user.userName}/.bundle/sparkparse/dev/files/${var.wheel_path}
               - "polars>=1.24.0"
               - "pydantic>=2.10.6"
       tasks:

@@ -9,10 +9,9 @@ import pandas as pd
 from dash import Input, Output, callback, dcc, get_app, html
 from pydantic import BaseModel
 
-from sparkparse.common import resolve_dir, timeit
-from sparkparse.eventlog import discover_sources, iter_lines
-from sparkparse.models import EventLogSource
-from sparkparse.parse import source_has_queries
+from sparkparse.common import timeit
+from sparkparse.eventlog import iter_lines
+from sparkparse.models import CaptureMetadata, EventLogSource
 
 
 @callback(
@@ -22,15 +21,8 @@ from sparkparse.parse import source_has_queries
 @timeit
 @lru_cache
 def get_available_logs(_) -> list[str]:
-    log_path = resolve_dir(get_app().server.config["LOG_DIR"])
-    # discover_sources collapses rolled segments into one logical log and skips
-    # marker files, so the table lists applications rather than files.
-    sources = discover_sources(log_path)
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        results = list(executor.map(source_has_queries, sources))
-
-    return sorted(source.name for source, has in zip(sources, results) if has)
+    # The dataset discovers sources once and caches parsed frames server-side.
+    return get_app().server.config["DATASET"].list_logs()
 
 
 class LogDuration(BaseModel):
@@ -48,6 +40,16 @@ class RawLogDetails(BaseModel):
     end_time: datetime.datetime
     duration_seconds: float
     duration_formatted: str
+
+
+def format_duration(duration_seconds: float) -> str:
+    if duration_seconds < 60:
+        return f"{duration_seconds:.0f} sec"
+    if duration_seconds < 3600:
+        return f"{duration_seconds / 60:.2f} min"
+    if duration_seconds < 86400:
+        return f"{duration_seconds / 3600:.2f} hr"
+    return f"{duration_seconds / 86400:.2f} day"
 
 
 def get_log_duration(source: EventLogSource) -> LogDuration:
@@ -74,65 +76,68 @@ def get_log_duration(source: EventLogSource) -> LogDuration:
         raise ValueError("Could not find start and end timestamps in log")
 
     duration_seconds = (end_timestamp - start_timestamp).total_seconds()
-
-    if duration_seconds < 60:
-        duration_formatted = f"{duration_seconds:.0f} sec"
-    elif duration_seconds < 3600:
-        duration_formatted = f"{duration_seconds / 60:.2f} min"
-    elif duration_seconds < 86400:
-        duration_formatted = f"{duration_seconds / 3600:.2f} hr"
-    else:
-        duration_formatted = f"{duration_seconds / 86400:.2f} day"
-
     return LogDuration(
         start_time=start_timestamp,
         end_time=end_timestamp,
         duration_seconds=duration_seconds,
-        duration_formatted=duration_formatted,
+        duration_formatted=format_duration(duration_seconds),
     )
 
 
-@callback(
-    [
-        Output("log-table-container", "children"),
-        Output("log-table-container", "style"),
-    ],
-    [
-        Input("available-logs", "data"),
-        Input("color-mode-switch", "value"),
-    ],
-)
-def get_log_table(available_logs: list[Path], dark_mode: bool):
-    log_items = []
-    theme = "ag-theme-alpine-dark" if dark_mode else "ag-theme-alpine"
+def _artifact_details(metadata: CaptureMetadata) -> RawLogDetails:
+    start = metadata.capture_start
+    end = metadata.capture_end or metadata.capture_start
+    duration_seconds = (end - start).total_seconds()
+    return RawLogDetails(
+        name=metadata.workload_label or "capture",
+        modified=start.strftime("%Y-%m-%d %H:%M:%S"),
+        size_mb=0.0,
+        start_time=start,
+        end_time=end,
+        duration_seconds=duration_seconds,
+        duration_formatted=format_duration(duration_seconds),
+    )
 
-    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
-    sources = {source.name: source for source in discover_sources(log_dir)}
 
-    for log_str in available_logs:
-        source = sources.get(str(log_str))
-        if source is None:
-            continue
+def collect_log_details(log_names: list[str]) -> list[RawLogDetails]:
+    dataset = get_app().server.config["DATASET"]
+    if dataset.kind != "event_log":
+        metadata = dataset.metadata(dataset.label)
+        return [_artifact_details(metadata)] if metadata is not None else []
+
+    sources = {
+        source.name: source
+        for source in (dataset.event_log_source(name) for name in log_names)
+        if source is not None
+    }
+
+    def build(source: EventLogSource) -> RawLogDetails:
         duration = get_log_duration(source)
         size_bytes = sum(
             Path(uri).stat().st_size for uri in source.uris if Path(uri).exists()
         )
         modified = source.modified or 0
-        log_items.append(
-            RawLogDetails(
-                name=source.name,
-                modified=datetime.datetime.fromtimestamp(modified).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-                size_mb=round(size_bytes / 1024 / 1024, 2),
-                start_time=duration.start_time,
-                end_time=duration.end_time,
-                duration_seconds=duration.duration_seconds,
-                duration_formatted=duration.duration_formatted,
-            )
+        return RawLogDetails(
+            name=source.name,
+            modified=datetime.datetime.fromtimestamp(modified).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+            size_mb=round(size_bytes / 1024 / 1024, 2),
+            start_time=duration.start_time,
+            end_time=duration.end_time,
+            duration_seconds=duration.duration_seconds,
+            duration_formatted=duration.duration_formatted,
         )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        return list(executor.map(build, sources.values()))
+
+
+def _log_records(log_items: list[RawLogDetails]) -> list[dict]:
+    if not log_items:
+        return []
     log_df = pd.DataFrame([log.model_dump() for log in log_items])
-    log_records = (
+    return (
         log_df.assign(
             days_old=lambda x: (
                 (pd.Timestamp.now() - pd.to_datetime(x["modified"])).dt.total_seconds()
@@ -149,6 +154,21 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
         .drop(columns=["modified"])
         .to_dict(orient="records")
     )
+
+
+@callback(
+    [
+        Output("log-table-container", "children"),
+        Output("log-table-container", "style"),
+    ],
+    [
+        Input("available-logs", "data"),
+        Input("color-mode-switch", "value"),
+    ],
+)
+def get_log_table(available_logs: list[str], dark_mode: bool):
+    theme = "ag-theme-alpine-dark" if dark_mode else "ag-theme-alpine"
+    log_records = _log_records(collect_log_details(available_logs or []))
 
     grid = dag.AgGrid(
         id="log-table",
@@ -167,6 +187,8 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
             "sortable": True,
             "resizable": True,
         },
+        # Bounded pagination keeps the browser payload small for large histories.
+        dashGridOptions={"pagination": True, "paginationPageSize": 25},
         columnSize="sizeToFit",
         className=theme,
         style={"height": "100vh", "width": "85%", "marginLeft": "7.5%"},

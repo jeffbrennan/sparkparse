@@ -18,6 +18,7 @@ from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
+from sparkparse.artifact import save_capture_artifact
 from sparkparse.eventlog import discover_sources
 from sparkparse.models import (
     CapabilityStatus,
@@ -33,9 +34,11 @@ from sparkparse.models import (
 from sparkparse.parse import get_parsed_metrics
 from sparkparse.storage import (
     ensure_dir,
+    join_path,
     list_files,
     path_exists,
     remove_dir,
+    write_text,
 )
 
 _log = logging.getLogger(__name__)
@@ -303,6 +306,7 @@ class SparkparseCapture:
         backend: str = "auto",
         log_file: str | None = None,
         capture_errors: str = "raise",
+        artifact_path: str | None = None,
     ) -> None:
         if action not in ("viz", "get", "analyze"):
             raise ValueError(f"Invalid action: {action}")
@@ -317,6 +321,7 @@ class SparkparseCapture:
         self.backend = backend
         self.log_file = log_file
         self.capture_errors = capture_errors
+        self._artifact_path = artifact_path
         self.report: str | None = None
         self._owned_stopped = False
         self.action = action
@@ -536,6 +541,16 @@ class SparkparseCapture:
             hist_df = history.read(self._history_path, effective_log_name)
             self._triggered_alerts = alerts.check_alerts(record, hist_df, rules)
 
+    def _write_artifact(self) -> None:
+        """Persist the result so it can be reopened without the raw event logs."""
+        if self._result is None or self._artifact_path is None:
+            return
+        target = save_capture_artifact(
+            self._result, self._artifact_path, label=self._log_name
+        )
+        if self.report is not None:
+            write_text(join_path(target, "report.html"), self.report)
+
     def _set_result(self, dfs: ParsedLogDataFrames) -> None:
         # A backend that observes real execution identifiers supplies them itself;
         # classic event logs identify an execution by its query id.
@@ -710,6 +725,18 @@ class SparkparseCapture:
                 self._finish_metadata(CaptureStatus.partial)
             else:
                 self._finish_metadata(CaptureStatus.complete)
+            # Persist after the final status is known so failed workloads keep a
+            # partial artifact. A write failure must not mask the workload error,
+            # but it does make the capture incomplete.
+            if self._artifact_path is not None and self._result is not None:
+                try:
+                    self._write_artifact()
+                except Exception as exc:
+                    self._add_diagnostic("artifact_write_failed", str(exc), "finalize")
+                    if exc_type is None:
+                        self._finish_metadata(CaptureStatus.partial)
+                        if finalization_error is None:
+                            finalization_error = exc
             self._entered = False
             if self._active_token is not None:
                 _ACTIVE_CAPTURE.reset(self._active_token)
@@ -781,6 +808,7 @@ def capture_context(
     backend: str = "auto",
     log_file: str | None = None,
     capture_errors: str = "raise",
+    artifact_path: str | None = None,
 ) -> SparkparseCapture:
     return SparkparseCapture(
         action,
@@ -795,6 +823,7 @@ def capture_context(
         backend=backend,
         log_file=log_file,
         capture_errors=capture_errors,
+        artifact_path=artifact_path,
     )
 
 
@@ -814,6 +843,7 @@ def capture(
     backend: str = ...,
     log_file: str | None = ...,
     capture_errors: str = ...,
+    artifact_path: str | None = ...,
 ) -> Callable[..., tuple[R, SparkparseCapture]]: ...
 
 
@@ -833,6 +863,7 @@ def capture(
     backend: str = ...,
     log_file: str | None = ...,
     capture_errors: str = ...,
+    artifact_path: str | None = ...,
 ) -> Callable[[Callable[..., R]], Callable[..., tuple[R, SparkparseCapture]]]: ...
 
 
@@ -851,6 +882,7 @@ def capture(
     backend: str = "auto",
     log_file: str | None = None,
     capture_errors: str = "raise",
+    artifact_path: str | None = None,
 ) -> Any:
     def decorator(
         func: Callable[..., R],
@@ -870,6 +902,7 @@ def capture(
                 backend=backend,
                 log_file=log_file,
                 capture_errors=capture_errors,
+                artifact_path=artifact_path,
             )
             with cap:
                 bound = inspect.signature(func).bind_partial(*args, **kwargs)
