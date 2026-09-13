@@ -72,3 +72,82 @@ def test_analyze_stdout_is_pure_json():
 def test_double_log_dir_sources_are_rejected():
     result = runner.invoke(app, ["logs", str(FULL_LOGS), "--log-dir", str(FULL_LOGS)])
     assert result.exit_code == 2
+
+
+def _write_history(path: Path) -> None:
+    import datetime
+    import uuid
+
+    from sparkparse.history import append
+    from sparkparse.models import RunRecord
+
+    base = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+    for i in range(3):
+        append(
+            RunRecord(
+                run_id=uuid.uuid4().hex,
+                run_at=base + datetime.timedelta(hours=i),
+                log_name="job",
+                duration_s=100.0,
+                coverage={"query_elapsed_time": "available"},
+                workload_fingerprint="fp1",
+            ),
+            str(path),
+            format="jsonl",
+        )
+
+
+def test_compare_prints_report(tmp_path):
+    history_path = tmp_path / "history.jsonl"
+    _write_history(history_path)
+
+    result = runner.invoke(
+        app,
+        ["compare", str(history_path), "--log-name", "job", "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["log_name"] == "job"
+    assert payload["plan_changed"] is False
+    assert any(m["metric"] == "duration_s" for m in payload["metrics"])
+
+
+def test_compare_missing_history_is_clear_error(tmp_path):
+    result = runner.invoke(
+        app, ["compare", str(tmp_path / "none.jsonl"), "--log-name", "job"]
+    )
+    assert result.exit_code == 1
+    assert "No history records" in result.output
+
+
+def test_check_alerts_reports_all_statuses(tmp_path):
+    history_path = tmp_path / "history.jsonl"
+    _write_history(history_path)
+    config = tmp_path / "alerts.toml"
+    config.write_text(
+        """
+[[alerts]]
+name = "known"
+log_name = "job"
+metric = "duration_s"
+condition = "threshold"
+threshold = 1.0
+
+[[alerts]]
+name = "missing"
+log_name = "job"
+metric = "bytes_read"
+condition = "threshold"
+threshold = 1.0
+"""
+    )
+
+    result = runner.invoke(
+        app,
+        ["check-alerts", str(history_path), "job", str(config)],
+    )
+    assert result.exit_code == 0, result.output
+    assessments = json.loads(result.stdout)
+    by_name = {a["alert_name"]: a for a in assessments}
+    assert by_name["known"]["status"] == "triggered"
+    assert by_name["missing"]["status"] == "skipped"

@@ -131,6 +131,27 @@ def _observed_metadata(spark: SparkSession, *, connect: bool) -> dict[str, str |
     return updates
 
 
+_CONFIG_KEYS: tuple[str, ...] = (
+    "spark.sql.adaptive.enabled",
+    "spark.sql.adaptive.coalescePartitions.enabled",
+    "spark.sql.shuffle.partitions",
+    "spark.sql.autoBroadcastJoinThreshold",
+    "spark.executor.memory",
+    "spark.executor.cores",
+    "spark.driver.memory",
+)
+
+
+def _relevant_config(spark: SparkSession) -> dict[str, str]:
+    """Capture a small, comparable slice of configuration for run provenance."""
+    config: dict[str, str] = {}
+    for key in _CONFIG_KEYS:
+        value = _first_conf(spark, (key,))
+        if value is not None:
+            config[key] = value
+    return config
+
+
 def _coverage(
     status: CapabilityStatus,
     *,
@@ -303,6 +324,7 @@ class SparkparseCapture:
         history_path: str | None = None,
         log_name: str | None = None,
         alert_config: str | None = None,
+        alert_output_path: str | None = None,
         strict: bool = False,
         owns_spark: bool = False,
         backend: str = "auto",
@@ -337,8 +359,10 @@ class SparkparseCapture:
         self._history_path = history_path
         self._log_name = log_name
         self._alert_config = alert_config
+        self._alert_output_path = alert_output_path
         self._strict = strict
         self._last_record: RunRecord | None = None
+        self._alert_assessments: list[Any] = []
         self._triggered_alerts: list[dict] = []
         self._connect_cap: Any = None
         self._result: CaptureResult | None = None
@@ -360,6 +384,7 @@ class SparkparseCapture:
         self.report = None
         self._owned_stopped = False
         self._last_record = None
+        self._alert_assessments = []
         self._triggered_alerts = []
         self._connect_cap = None
         self._result = None
@@ -486,6 +511,7 @@ class SparkparseCapture:
                 update={
                     "backend": "spark_connect",
                     "transport": "spark_connect",
+                    "configuration": _relevant_config(self.spark),
                     **_observed_metadata(self.spark, connect=True),
                 }
             )
@@ -505,6 +531,7 @@ class SparkparseCapture:
             update={
                 "backend": "classic_event_log",
                 "transport": "classic",
+                "configuration": _relevant_config(self.spark),
             }
         )
         if not self._owns_spark:
@@ -543,7 +570,14 @@ class SparkparseCapture:
         if self._alert_config is not None:
             rules = alerts.load_alert_config(self._alert_config)
             hist_df = history.read(self._history_path, effective_log_name)
-            self._triggered_alerts = alerts.check_alerts(record, hist_df, rules)
+            self._alert_assessments = alerts.check_alerts(
+                record, hist_df, rules, self._alert_output_path
+            )
+            self._triggered_alerts = [
+                assessment.model_dump(mode="json")
+                for assessment in self._alert_assessments
+                if assessment.status == alerts.AlertStatus.triggered
+            ]
 
     def _write_artifact(self) -> None:
         """Persist the result so it can be reopened without the raw event logs."""
@@ -774,6 +808,10 @@ class SparkparseCapture:
     def triggered_alerts(self) -> list[dict]:
         return self._triggered_alerts
 
+    @property
+    def alert_assessments(self) -> list[Any]:
+        return self._alert_assessments
+
 
 def _resolve_spark(
     spark: SparkSession | None, *, own_session: bool
@@ -809,6 +847,7 @@ def capture_context(
     history_path: str | None = None,
     log_name: str | None = None,
     alert_config: str | None = None,
+    alert_output_path: str | None = None,
     strict: bool = False,
     own_session: bool = False,
     backend: str = "auto",
@@ -824,6 +863,7 @@ def capture_context(
         history_path=history_path,
         log_name=log_name,
         alert_config=alert_config,
+        alert_output_path=alert_output_path,
         strict=strict,
         owns_spark=own_session,
         backend=backend,
@@ -844,6 +884,7 @@ def capture(
     history_path: str | None = ...,
     log_name: str | None = ...,
     alert_config: str | None = ...,
+    alert_output_path: str | None = ...,
     strict: bool = ...,
     own_session: bool = ...,
     backend: str = ...,
@@ -864,6 +905,7 @@ def capture(
     history_path: str | None = ...,
     log_name: str | None = ...,
     alert_config: str | None = ...,
+    alert_output_path: str | None = ...,
     strict: bool = ...,
     own_session: bool = ...,
     backend: str = ...,
@@ -883,6 +925,7 @@ def capture(
     history_path: str | None = None,
     log_name: str | None = None,
     alert_config: str | None = None,
+    alert_output_path: str | None = None,
     strict: bool = False,
     own_session: bool = False,
     backend: str = "auto",
@@ -903,6 +946,7 @@ def capture(
                 history_path=history_path,
                 log_name=log_name,
                 alert_config=alert_config,
+                alert_output_path=alert_output_path,
                 strict=strict,
                 own_session=own_session,
                 backend=backend,

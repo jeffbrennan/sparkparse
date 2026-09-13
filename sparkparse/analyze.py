@@ -519,6 +519,48 @@ def total_basis(column: str) -> str:
     return "retained_outputs" if column in OUTPUT_ACCOUNTING_COLUMNS else "all_attempts"
 
 
+def workload_fingerprint(dfs: Dfs, *, redact: bool = False) -> str | None:
+    """A stable identity for a query workload's plan shape.
+
+    The digest is built from operator types and the details that change
+    semantics — join type and scanned paths — with node order and node ids
+    removed. Two runs of the same query keep the same fingerprint even after
+    renumbering, while a changed join strategy or scan target changes it. It is
+    a coarse identity for cohort selection, not an audit of every field.
+    """
+    dag = dfs.dag
+    if dag.height == 0:
+        return None
+    redactor = Redactor(redact)
+    query_parts: list[str] = []
+    for query_id in dag["query_id"].unique().sort().to_list():
+        qdf = dag.filter(pl.col("query_id") == query_id)
+        descriptors: list[str] = []
+        for row in qdf.to_dicts():
+            node_type = str(row.get("node_type"))
+            detail = _detail_dict(row.get("details")) or {}
+            descriptor = node_type
+            if node_type in _JOIN_NODE_TYPES:
+                descriptor = f"{node_type}:{detail.get('join_type')}"
+            elif node_type in _SOURCE_SCAN_TYPES:
+                location = detail.get("location", {})
+                paths = (
+                    location.get("location", []) if isinstance(location, dict) else []
+                )
+                names = sorted(
+                    redactor.path(_path_name(path)) or ""
+                    for path in paths
+                    if isinstance(path, str)
+                )
+                descriptor = f"{node_type}:{'|'.join(names)}"
+            descriptors.append(descriptor)
+        descriptors.sort()
+        function = qdf["query_function"][0] if "query_function" in qdf.columns else None
+        query_parts.append(f"{function}:{','.join(descriptors)}")
+    digest = hashlib.sha256("||".join(query_parts).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
 def _safe_node_name(row: dict[str, Any], redactor: Redactor) -> str | None:
     """Return the node's display name, redacted when it carries workload text.
 
