@@ -306,32 +306,56 @@ def _merge_array(target: dict[str, Any], page: dict[str, Any]) -> None:
             target[key] = value
 
 
-def fetch_full_run(cli: DatabricksCLI, run_id: str) -> dict[str, Any]:
-    """Fetch a run, following page tokens for paginated array properties."""
+def fetch_full_run(cli: DatabricksCLI, run_id: str) -> tuple[dict[str, Any], bool]:
+    """Fetch a run, following page tokens for paginated array properties.
+
+    Returns the merged run plus whether every page was retrieved. Budget or
+    transport exhaustion stops pagination but keeps the pages already merged,
+    so a partial run is never discarded.
+    """
     run = cli.jobs_get_run(run_id)
     token = run.get("next_page_token")
+    complete = True
     while token:
-        cli.budget.take_page()
-        page = cli.jobs_get_run(run_id, page_token=token)
+        try:
+            cli.budget.take_page()
+            page = cli.jobs_get_run(run_id, page_token=token)
+        except DatabricksError:
+            complete = False
+            break
         _merge_array(run, page)
         token = page.get("next_page_token")
-    return run
+    return run, complete
 
 
 def resolve_run_id(cli: DatabricksCLI, job_id: str) -> tuple[str, bool]:
-    """Return the latest run for a job and whether it is still active."""
-    response = cli.jobs_list_runs(job_id=job_id, limit=25)
-    runs = response.get("runs") or []
-    if not runs:
+    """Return the latest run for a job and whether it is still active.
+
+    Runs are returned newest first, so the first terminal run encountered is the
+    latest terminal run. Pagination continues past a page of active runs until a
+    terminal run is found or the page budget is exhausted.
+    """
+    token: str | None = None
+    fallback: dict[str, Any] | None = None
+    while True:
+        try:
+            cli.budget.take_page()
+            response = cli.jobs_list_runs(job_id=job_id, page_token=token, limit=25)
+        except DatabricksError:
+            break
+        runs = response.get("runs") or []
+        for run in runs:
+            if fallback is None:
+                fallback = run
+            state = (run.get("state") or {}).get("life_cycle_state")
+            if state not in (None, "RUNNING", "PENDING", "QUEUED", "BLOCKED"):
+                return str(run["run_id"]), False
+        token = response.get("next_page_token")
+        if not token:
+            break
+    if fallback is None:
         raise DatabricksError(f"job {job_id} has no retained runs", code="no_runs")
-    terminal = [
-        run
-        for run in runs
-        if (run.get("state") or {}).get("life_cycle_state")
-        not in (None, "RUNNING", "PENDING", "QUEUED", "BLOCKED")
-    ]
-    selected = terminal[0] if terminal else runs[0]
-    return str(selected["run_id"]), not terminal
+    return str(fallback["run_id"]), True
 
 
 def _task_failure(task: dict[str, Any]) -> bool:
@@ -362,10 +386,15 @@ def collect_run(
     diagnostics: list[ReportDiagnostic] = []
     status = CollectionStatus.complete
 
-    try:
-        run = fetch_full_run(cli, run_id)
-    except DatabricksError:
-        raise
+    run, run_complete = fetch_full_run(cli, run_id)
+    if not run_complete:
+        diagnostics.append(
+            ReportDiagnostic(
+                code="run_pagination_incomplete",
+                message="run metadata pagination stopped early; task list may be partial",
+                severity="warning",
+            )
+        )
     parent_run_id = run.get("job_run_id")
     if parent_run_id is not None and str(parent_run_id) != str(run.get("run_id")):
         raise DatabricksError(
@@ -436,18 +465,18 @@ def collect_run(
     start_ms = run.get("start_time")
     end_ms = run.get("end_time") or _now_ms()
     if start_ms is not None:
-        try:
-            queries, query_discovery_complete, discovered_query_count = (
-                _collect_queries(
-                    cli, start_time_ms=int(start_ms), end_time_ms=int(end_ms)
-                )
-            )
-        except DatabricksError as exc:
-            query_denied = exc.code == "auth_error"
+        (
+            queries,
+            query_discovery_complete,
+            discovered_query_count,
+            query_error,
+        ) = _collect_queries(cli, start_time_ms=int(start_ms), end_time_ms=int(end_ms))
+        if query_error is not None:
+            query_denied = query_error.code == "auth_error"
             diagnostics.append(
                 ReportDiagnostic(
                     code="query_history_unavailable",
-                    message=str(exc),
+                    message=str(query_error),
                     severity="warning",
                 )
             )
@@ -461,7 +490,7 @@ def collect_run(
                 severity="info",
             )
         )
-    if not query_discovery_complete:
+    if not run_complete or not query_discovery_complete:
         status = CollectionStatus.partial
     if cli.budget.exhausted:
         status = CollectionStatus.partial
@@ -493,18 +522,30 @@ def collect_run(
 
 def _collect_queries(
     cli: DatabricksCLI, *, start_time_ms: int, end_time_ms: int
-) -> tuple[list[dict[str, Any]], bool, int]:
+) -> tuple[list[dict[str, Any]], bool, int, DatabricksError | None]:
+    """Page through Query History, returning everything collected so far.
+
+    A later-page failure is reported through the returned error while the pages
+    already fetched are preserved, so a useful partial snapshot survives budget
+    exhaustion or a transport error.
+    """
     queries: list[dict[str, Any]] = []
     token: str | None = None
     complete = True
     discovered = 0
+    error: DatabricksError | None = None
     while True:
-        cli.budget.take_page()
-        page = cli.query_history_page(
-            start_time_ms=start_time_ms,
-            end_time_ms=end_time_ms,
-            page_token=token,
-        )
+        try:
+            cli.budget.take_page()
+            page = cli.query_history_page(
+                start_time_ms=start_time_ms,
+                end_time_ms=end_time_ms,
+                page_token=token,
+            )
+        except DatabricksError as exc:
+            complete = False
+            error = exc
+            break
         results = page.get("res") or []
         discovered += len(results)
         queries.extend(results)
@@ -514,4 +555,4 @@ def _collect_queries(
         if not token:
             complete = False
             break
-    return queries, complete, discovered
+    return queries, complete, discovered, error

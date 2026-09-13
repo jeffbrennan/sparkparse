@@ -60,6 +60,9 @@ class ScriptedRunner:
             self.rate_limit_once = False
             return _proc(args, 1, "", "429 Too Many Requests")
         if "runs/list" in joined:
+            if isinstance(self.runs_list, list):
+                page = self.runs_list.pop(0) if self.runs_list else {"runs": []}
+                return _proc(args, 0, json.dumps(page))
             return _proc(args, 0, json.dumps(self.runs_list or {"runs": []}))
         if "runs/get" in joined:
             if self.run_pages:
@@ -130,8 +133,25 @@ def test_paginated_get_run_merges_array_properties():
     first = {"run_id": 123, "tasks": [{"task_key": "a"}], "next_page_token": "t1"}
     second = {"run_id": 123, "tasks": [{"task_key": "b"}]}
     runner = make_runner(run_pages=[first, second])
-    merged = fetch_full_run(client(runner), "123")
+    merged, complete = fetch_full_run(client(runner), "123")
+    assert complete is True
     assert [t["task_key"] for t in merged["tasks"]] == ["a", "b"]
+
+
+def test_run_pagination_exhaustion_keeps_partial_tasks():
+    first = {
+        "run_id": 123,
+        "tasks": [{"task_key": "a"}],
+        "next_page_token": "t1",
+        "state": {"life_cycle_state": "TERMINATED"},
+    }
+    runner = make_runner(
+        run_pages=[first, {"run_id": 123, "tasks": [{"task_key": "b"}]}]
+    )
+    # max_pages=0 leaves no room for the follow-up page.
+    merged, complete = fetch_full_run(client(runner, max_pages=0), "123")
+    assert complete is False
+    assert [t["task_key"] for t in merged["tasks"]] == ["a"]
 
 
 def test_executed_git_snapshot_beats_asserted_revision():
@@ -218,6 +238,50 @@ def test_auth_failure_is_clear():
             outputs="none",
         )
     assert excinfo.value.code == "auth_error"
+
+
+def test_resolve_run_id_finds_terminal_run_on_a_later_page():
+    runs_pages = [
+        {
+            "runs": [{"run_id": 2, "state": {"life_cycle_state": "RUNNING"}}],
+            "next_page_token": "p2",
+        },
+        {
+            "runs": [
+                {
+                    "run_id": 3,
+                    "state": {
+                        "life_cycle_state": "TERMINATED",
+                        "result_state": "SUCCESS",
+                    },
+                }
+            ]
+        },
+    ]
+    from sparkparse.databricks import resolve_run_id
+
+    selected, active = resolve_run_id(client(make_runner(runs_list=runs_pages)), "42")
+    assert selected == "3"
+    assert active is False
+
+
+def test_query_pagination_exhaustion_preserves_collected_queries():
+    first = {
+        "has_next_page": True,
+        "next_page_token": "t",
+        "res": [{"query_id": "q1"}],
+    }
+    second = {"has_next_page": False, "res": [{"query_id": "q2"}]}
+    runner = make_runner(
+        run=load_fixture("job_run_multi.json"), query_pages=[first, second]
+    )
+    raw = collect_run(client(runner, max_requests=2), run_id="123", outputs="none")
+    # The first page was fetched and must survive the follow-up request failure.
+    assert [q["query_id"] for q in raw.queries] == ["q1"]
+    assert raw.discovered_query_count == 1
+    assert raw.query_discovery_complete is False
+    assert raw.collection_status.value == "partial"
+    assert any(d.code == "collection_budget_exhausted" for d in raw.diagnostics)
 
 
 def test_query_budget_exhaustion_is_partial_not_fatal():
