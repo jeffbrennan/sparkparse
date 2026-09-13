@@ -9,8 +9,9 @@ import typer
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
 from sparkparse.dashboard import init_dashboard, run_app
+from sparkparse.eventlog import discover_sources
 from sparkparse.models import OutputFormat, ParsedLogDataFrames, RunRecord
-from sparkparse.parse import get_parsed_metrics
+from sparkparse.parse import get_all_parsed_metrics, get_parsed_metrics
 from sparkparse.storage import (
     get_path_name,
     get_path_stem,
@@ -75,8 +76,19 @@ def get(
     ] = "data/logs/raw",
     log_file: Annotated[
         str | None,
-        typer.Option(help="Parse a single log file instead of the whole directory."),
+        typer.Option(
+            help="Event log to parse: file name, rolling-log directory, "
+            "application id, or full path. Default: the newest source in "
+            "log_dir (most recent mtime, name order when there is none)."
+        ),
     ] = None,
+    all_apps: Annotated[
+        bool,
+        typer.Option(
+            "--all-apps",
+            help="Parse every application in log_dir instead of just the newest.",
+        ),
+    ] = False,
     out_dir: Annotated[
         str | None, typer.Option(help="Directory to write parsed output files.")
     ] = "data/logs/parsed",
@@ -94,6 +106,22 @@ def get(
     ] = False,
 ) -> ParsedLogDataFrames:
     """Parse Spark event logs and write structured DataFrames to disk."""
+    if all_apps:
+        if log_file is not None:
+            raise typer.BadParameter("--all-apps cannot be combined with --log-file")
+        results = get_all_parsed_metrics(
+            log_dir=log_dir,
+            out_dir=out_dir,
+            out_format=out_format,
+            verbose=verbose,
+            strict=strict,
+        )
+        # Query ids restart per application, so the results stay separate. The
+        # command returns the newest one for interactive use; every one of them
+        # is written to out_dir.
+        typer.echo(f"Parsed {len(results)} application(s): {', '.join(results)}")
+        return results[sorted(results)[-1]]
+
     return get_parsed_metrics(
         log_dir=log_dir,
         log_file=log_file,
@@ -103,6 +131,43 @@ def get(
         verbose=verbose,
         strict=strict,
     )
+
+
+@app.command("logs")
+def logs(
+    log_dir: Annotated[
+        str, typer.Argument(help="Directory containing raw Spark event logs.")
+    ] = "data/logs/raw",
+    format: Annotated[
+        AnalysisFormat,
+        typer.Option(help="Output format: 'text' (default) or 'json'."),
+    ] = AnalysisFormat.text,
+) -> None:
+    """List the event-log sources discovered in a directory.
+
+    Rolling logs collapse into one source with ordered segments; marker files
+    and checksums are ignored. The last row is the one a bare parse selects.
+    """
+    sources = discover_sources(log_dir)
+    if not sources:
+        typer.echo(f"No event log sources found in {log_dir}")
+        raise typer.Exit(1)
+
+    ordered = sorted(sources, key=lambda item: (item.modified or 0, item.name))
+    if format == AnalysisFormat.json:
+        typer.echo(json.dumps([s.model_dump(mode="json") for s in ordered], indent=2))
+        return
+
+    for source in ordered:
+        codecs = ",".join(codec.value for codec in source.codecs)
+        typer.echo(
+            f"{source.name}\t"
+            f"segments={len(source.segments)}\t"
+            f"rolling={source.rolling}\t"
+            f"complete={source.complete}\t"
+            f"codec={codecs}"
+        )
+    typer.echo(f"\nNewest (default selection): {ordered[-1].name}", err=True)
 
 
 @app.command("analyze")

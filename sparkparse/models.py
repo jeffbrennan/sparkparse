@@ -30,10 +30,29 @@ class Job(BaseModel):
     stages: list[int] | None = Field(alias="Stage IDs", default=None)
 
 
+class StageStatus(StrEnum):
+    """Outcome of one stage attempt.
+
+    ``running`` means the attempt was submitted but no completion event was
+    observed — an incomplete log, not a stage that took zero time.
+    """
+
+    succeeded = "succeeded"
+    failed = "failed"
+    running = "running"
+
+
 class Stage(BaseModel):
+    """One stage *attempt*. ``stage_id`` alone is not a unique key: a retried
+    stage emits a second Submitted/Completed pair with a higher attempt id."""
+
     stage_id: int
+    stage_attempt_id: int = 0
     event_type: EventType
-    stage_timestamp: int
+    stage_timestamp: int | None = None
+    num_tasks: int | None = None
+    status: StageStatus = StageStatus.running
+    failure_reason: str | None = None
 
 
 class Metric(BaseModel):
@@ -1433,10 +1452,20 @@ class Metrics(BaseModel):
     output_metrics: OutputMetrics
 
 
+class TaskStatus(StrEnum):
+    """Outcome of one task attempt, taken from ``Task End Reason``."""
+
+    success = "success"
+    failed = "failed"
+    killed = "killed"
+
+
 class Task(BaseModel):
     task_id: int = Field(alias="Task ID")
     stage_id: int = Field(alias="Stage ID")
+    stage_attempt_id: int = Field(alias="Stage Attempt ID", default=0)
     index: int = Field(alias="Index")
+    partition_id: int | None = Field(alias="Partition ID", default=None)
     attempt: int = Field(alias="Attempt")
     task_start_time: int = Field(alias="Launch Time")
     task_finish_time: int = Field(alias="Finish Time")
@@ -1447,14 +1476,80 @@ class Task(BaseModel):
     speculative: bool = Field(alias="Speculative")
     failed: bool = Field(alias="Failed")
     killed: bool = Field(alias="Killed")
-    metrics: Metrics
-    accumulators: list[Accumulator]
+    status: TaskStatus = TaskStatus.success
+    failure_reason: str | None = None
+    # A task that died before its metrics were serialized has no metrics at
+    # all. None says "not measured"; zeros would claim the task did no work.
+    metrics: Metrics | None = None
+    accumulators: list[Accumulator] = Field(default_factory=list)
 
 
 class DriverAccumUpdates(BaseModel):
     query_id: int
     accumulator_id: int
     update: int
+
+
+class EventLogCodec(StrEnum):
+    """Compression codecs recognized on event-log file names.
+
+    Only ``none``, ``zstd`` and ``gz`` can actually be read: Spark's ``lz4``,
+    ``lzf`` and ``snappy`` event logs use Java-specific block framing
+    (``LZ4BlockOutputStream``, Xerial Snappy) that no Python codec reads. Those
+    are recognized so the failure names the codec instead of surfacing as a
+    JSON decode error.
+    """
+
+    none = "none"
+    zstd = "zstd"
+    gz = "gz"
+    lz4 = "lz4"
+    lzf = "lzf"
+    snappy = "snappy"
+
+
+READABLE_CODECS: frozenset[EventLogCodec] = frozenset(
+    {EventLogCodec.none, EventLogCodec.zstd, EventLogCodec.gz}
+)
+
+
+class EventLogSegment(BaseModel):
+    """One physical file belonging to a logical event log."""
+
+    uri: str
+    index: int | None = None
+    codec: EventLogCodec = EventLogCodec.none
+    in_progress: bool = False
+
+
+class EventLogSource(BaseModel):
+    """A logical event log: one application, one or more ordered segments."""
+
+    name: str
+    application_id: str | None = None
+    attempt_id: str | None = None
+    segments: list[EventLogSegment] = Field(default_factory=list)
+    rolling: bool = False
+    complete: bool = True
+    modified: float | None = None
+    root_uri: str | None = None
+
+    @property
+    def uris(self) -> list[str]:
+        return [segment.uri for segment in self.segments]
+
+    @property
+    def codecs(self) -> list[EventLogCodec]:
+        return sorted({segment.codec for segment in self.segments})
+
+
+class LogDiagnostic(BaseModel):
+    """One recoverable problem encountered while reading an event log."""
+
+    code: str
+    message: str
+    uri: str | None = None
+    line: int | None = None
 
 
 class ParsedLog(BaseModel):
@@ -1465,6 +1560,13 @@ class ParsedLog(BaseModel):
     queries: list[PhysicalPlan]
     query_times: list[QueryEvent]
     driver_accum_updates: list[DriverAccumUpdates]
+    source: EventLogSource | None = None
+    diagnostics: list[LogDiagnostic] = Field(default_factory=list)
+    spark_version: str | None = None
+    application_id: str | None = None
+    application_name: str | None = None
+    unknown_events: dict[str, int] = Field(default_factory=dict)
+    events_read: int = 0
 
 
 class OutputFormat(StrEnum):
@@ -1475,9 +1577,20 @@ class OutputFormat(StrEnum):
 
 
 class ParsedLogDataFrames(BaseModel):
+    """Parsed output frames.
+
+    ``combined`` holds one row per task *attempt*. ``job_stage`` and
+    ``query_stage`` are association tables: a stage can belong to several jobs
+    and serve several queries, and joining those relations into ``combined``
+    would duplicate task rows and double-count their metrics.
+    """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
     combined: pl.DataFrame
     dag: pl.DataFrame
+    job_stage: pl.DataFrame | None = None
+    query_stage: pl.DataFrame | None = None
+    diagnostics: list[LogDiagnostic] = Field(default_factory=list)
 
 
 class CaptureStatus(StrEnum):

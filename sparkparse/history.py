@@ -22,7 +22,12 @@ from typing import cast
 
 import polars as pl
 
-from sparkparse.analyze import find_cartesian_joins, find_largest_scans
+from sparkparse.analyze import (
+    OUTPUT_ACCOUNTING_COLUMNS,
+    find_cartesian_joins,
+    find_largest_scans,
+    retained_outputs,
+)
 from sparkparse.models import (
     CapabilityStatus,
     CaptureResult,
@@ -110,10 +115,16 @@ def record_from_dfs(
     else:
         duration_s = None
 
+    kept = retained_outputs(combined)
+
     def total(column: str) -> int | None:
-        if column not in combined.columns or combined.height == 0:
+        # Output totals count retained outputs only; a recomputed or raced
+        # partition would otherwise report its bytes twice. Spill and time
+        # count every attempt.
+        frame = kept if column in OUTPUT_ACCOUNTING_COLUMNS else combined
+        if column not in frame.columns or frame.height == 0:
             return None
-        values = combined[column].drop_nulls()
+        values = frame[column].drop_nulls()
         if len(values) == 0:
             return None
         return int(values.sum() or 0)

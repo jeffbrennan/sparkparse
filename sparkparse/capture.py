@@ -18,6 +18,7 @@ from pyspark.sql import SparkSession
 
 from sparkparse import alerts, history
 from sparkparse.analyze import to_analysis_export, to_plan_summary
+from sparkparse.eventlog import discover_sources
 from sparkparse.models import (
     CapabilityStatus,
     CaptureCapabilities,
@@ -602,16 +603,27 @@ class SparkparseCapture:
             return self.log_file
         assert self._log_dir is not None
         app_id = self._metadata.source_application_id
+        # Rolling logs are a directory and compressed logs carry a codec
+        # suffix, so match on the discovered application identity rather than
+        # on an exact file name.
         candidates = [
-            Path(f).name
-            for f in list_files(self._log_dir)
-            if Path(f).name in {app_id, f"{app_id}.inprogress"}
-        ]
-        if app_id is None or len(candidates) != 1:
-            raise ValueError(
-                "Cannot uniquely identify this application log; supply log_file explicitly. Rolled/compressed logs require post-run ingestion."
+            source
+            for source in discover_sources(self._log_dir)
+            if source.application_id is not None
+            and app_id is not None
+            and (
+                source.application_id == app_id
+                # Rolling dirs and multi-attempt logs append _<attemptId>.
+                or source.application_id.startswith(f"{app_id}_")
             )
-        return candidates[0]
+        ]
+        if len(candidates) != 1:
+            raise ValueError(
+                "Cannot uniquely identify this application log; supply log_file "
+                f"explicitly. Found {len(candidates)} candidate(s) for "
+                f"application {app_id!r} in {self._log_dir}."
+            )
+        return candidates[0].root_uri or candidates[0].name
 
     def _finalize_capture(self, dfs: ParsedLogDataFrames) -> None:
         self._set_result(dfs)

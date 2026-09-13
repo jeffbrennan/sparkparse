@@ -15,6 +15,9 @@ Dash dashboard for identifying performance bottlenecks.
 Spark event log (JSONL)
         │
         ▼
+  sparkparse/eventlog.py       – discover logical log sources (rolled, compressed,
+        │                         in-progress) and stream their events line by line
+        ▼
   sparkparse/parse.py          – parse raw log into ParsedLog (Pydantic model)
         │
         ▼
@@ -36,7 +39,9 @@ Spark event log (JSONL)
 | File                    | Purpose                                                                                                                                                          |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sparkparse/models.py`  | All Pydantic models. `NodeType` enum (30+ values), `ParsedLog`, `ParsedLogDataFrames`, `NODE_TYPE_DETAIL_MAP` (node type → detail model class)                   |
-| `sparkparse/parse.py`   | `get_parsed_metrics()` is the main entry point. `parse_spark_ui_tree()` converts indented ASCII plans to node graphs. `parse_log()` orchestrates everything.     |
+| `sparkparse/parse.py`   | `get_parsed_metrics()` is the main entry point (`get_all_parsed_metrics()` for every application in a directory). `parse_source()` parses one logical log incrementally; `parse_spark_ui_tree()` converts indented ASCII plans to node graphs.     |
+| `sparkparse/eventlog.py`| Event-log source discovery and streaming. `discover_sources()` collapses rolled `eventlog_v2_*` directories into one source and skips markers/checksums; `resolve_source()` implements explicit selection and the newest-source default; `iter_lines()` streams segments. Readable codecs: none, `zstd`, `gz`. |
+| `sparkparse/schemas.py` | Canonical typed empty frame schemas (`DAG_SCHEMA`, `COMBINED_SCHEMA`) shared by the event-log and Connect paths. |
 | `sparkparse/clean.py`   | `log_to_dag_df()` and `log_to_combined_df()` produce the two output DataFrames. `get_readable_size()` and `get_readable_timing()` are Polars expression helpers. |
 | `sparkparse/app.py`     | Typer CLI. `get` → parses and writes output files. `viz` → launches dashboard.                                                                                   |
 | `sparkparse/connect.py` | Spark Connect adapter. Intercepts client action boundaries and `_build_metrics`, attributes metrics per execution/thread, and builds the dag frame. `probe_connect_support()` reports the client surface; `SparkConnectCapture.from_plan_metrics()` replays recorded executions offline. |
@@ -56,13 +61,52 @@ Spark event log (JSONL)
 
 ### `combined` DataFrame columns (per task)
 
-- `log_name`, `parsed_log_name`, `query_id`, `query_function`
+- `log_name`, `parsed_log_name`, `query_id`, `query_function`, `query_count`
 - `query/job/stage/task` start/end timestamps and duration_seconds
-- `task_id`, `executor_id`, `nodes` (list of physical plan nodes for this task)
+- `stage_attempt_id`, `stage_num_tasks`, `stage_status`, `stage_failure_reason`
+- `task_id`, `partition_id`, `attempt`, `task_status`, `task_succeeded`,
+  `task_failure_reason`, `executor_id`, `nodes` (plan nodes this task fed)
 - Executor metrics: `executor_run_time_seconds`, `executor_cpu_time_seconds`, `jvm_gc_time_seconds`, `peak_execution_memory_bytes`
 - Input/output: `bytes_read`, `records_read`, `bytes_written`, `records_written`
 - Shuffle: `shuffle_remote_bytes_read`, `shuffle_local_bytes_read`, `shuffle_bytes_written`
 - Spill: `memory_bytes_spilled`, `disk_bytes_spilled`
+
+### Attempt and association contract
+
+- One row per task **attempt**, keyed by `(stage_id, stage_attempt_id, task_id)`.
+  A retried stage keeps both attempts; keying on `stage_id` alone would fold a
+  retry's metrics into the original.
+- Resource usage (`executor_run_time_seconds`, spill, GC) counts every attempt;
+  output accounting (`bytes_read/written`, `records_*`, shuffle bytes) counts
+  only *retained* outputs. Success alone is not enough: a losing speculative
+  copy and a partition recomputed in a later stage attempt both end
+  successfully, so `analyze.retained_outputs()` keeps one attempt per
+  `(stage_id, partition)` — latest stage attempt, earliest finish within it.
+  `to_plan_summary()["total_basis"]` records which basis each total used.
+- A stage can belong to several jobs and serve several queries. Those relations
+  live in `ParsedLogDataFrames.job_stage` / `.query_stage`; joining them into
+  `combined` would duplicate task rows and double-count their metrics. The task
+  frame carries the earliest attributed query plus `query_count`.
+- Tasks no SQL execution claims (schema inference, RDD work) stay in `combined`
+  with a null `query_id` rather than being dropped.
+
+### Event-log source contract
+
+- `parse_source()` requires neither `SparkListenerApplicationStart` nor an
+  adaptive execution update. The plan comes from the strongest event seen:
+  final adaptive plan > in-progress adaptive plan > the plan on
+  `SQLExecutionStart`. A non-AQE workload is normal, not an error.
+- A line that fails to decode is `corrupt_line` when more lines follow and
+  `truncated_tail` when it is the last line of the last segment. Tolerant mode
+  records both in `ParsedLog.diagnostics`; `strict=True` raises with URI and
+  line number.
+- Missing data stays missing: a task with no `Task Metrics` has `metrics=None`,
+  a query with no end event has a null end timestamp and duration.
+- Reads are incremental: segments stream line by line and the log text is never
+  copied whole (`tests/test_eventlog.py` asserts no `read()`/`readlines()` on a
+  log handle). Peak RSS still grows with retained model state — roughly 36 KB
+  per task on the recorded fixtures. `python -m tests.benchmark_ingestion
+  <log_dir> [log_file]` reports elapsed time and peak RSS for a single log.
 
 ### Metric and findings contract
 
@@ -204,6 +248,9 @@ uv run pyrefly check sparkparse/ tests/  # type check
 
 ## Known quirks
 
+- Spark's `lz4`, `lzf` and `snappy` event-log codecs use Java-specific block
+  framing that no Python codec reads; those raise `UnsupportedCodecError` naming
+  the codec. `zstd` needs the `zstandard` package (`sparkparse[zstd]`).
 - `capture.py` borrows supplied SparkSessions and requires event logging to be enabled
   before capture. Use `cap.spark` inside the context; opt into an owned session explicitly.
 - `test.py` and `test_capture.py` in `tests/` are integration tests that spin up a local

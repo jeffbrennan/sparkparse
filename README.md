@@ -25,8 +25,17 @@ pip install sparkparse
 ### CLI
 
 ```bash
-# parse logs and write output files
+# list the event-log sources found in a directory
+sparkparse logs ./logs
+
+# parse the newest log and write output files
 sparkparse get --log-dir ./logs --out-format parquet
+
+# parse one application explicitly (file name, rolling-log dir, or app id)
+sparkparse get ./logs --log-file eventlog_v2_app-20260912-0001
+
+# parse every application in the directory
+sparkparse get ./logs --all-apps
 
 # launch the dashboard
 sparkparse viz --log-dir ./logs
@@ -56,6 +65,21 @@ sparkparse should own a local session, opt in explicitly with
 `capture_context(own_session=True)`. Connect captures expose the same result contract,
 with unavailable task/stage telemetry called out in `result.capabilities` rather than
 represented as zeroes.
+
+### event logs
+
+Rolled logs (`spark.eventLog.rolling.enabled=true`) are read as one logical source
+with ordered segments; `.inprogress` logs are read as far as they go and reported as
+incomplete. Segments are streamed line by line, never copied into memory whole.
+Zstd-compressed logs need `sparkparse[zstd]`; Spark's `lz4`, `lzf` and `snappy`
+codecs use Java-specific framing that Python cannot decode, and fail with an error
+naming the codec.
+
+Neither `SparkListenerApplicationStart` nor adaptive execution is required. A
+non-AQE query keeps the plan from its `SQLExecutionStart` event, a query with no
+end event keeps a null duration, and a truncated final line is reported as
+truncation rather than corruption. `strict=True` turns those diagnostics into
+errors.
 
 Use `backend="classic"` or `backend="connect"` to override detection. For post-run
 ingestion without a Spark session, use `backend="event_log", log_file="/path/to/log"`.

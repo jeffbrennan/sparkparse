@@ -10,7 +10,9 @@ from dash import Input, Output, callback, dcc, get_app, html
 from pydantic import BaseModel
 
 from sparkparse.common import resolve_dir, timeit
-from sparkparse.parse import check_if_log_has_queries
+from sparkparse.eventlog import discover_sources, iter_lines
+from sparkparse.models import EventLogSource
+from sparkparse.parse import source_has_queries
 
 
 @callback(
@@ -20,15 +22,15 @@ from sparkparse.parse import check_if_log_has_queries
 @timeit
 @lru_cache
 def get_available_logs(_) -> list[str]:
-    log_path = Path(resolve_dir(get_app().server.config["LOG_DIR"]))
-    log_files = tuple(log_path.glob("*"))
+    log_path = resolve_dir(get_app().server.config["LOG_DIR"])
+    # discover_sources collapses rolled segments into one logical log and skips
+    # marker files, so the table lists applications rather than files.
+    sources = discover_sources(log_path)
 
-    # filter out logs that don't have queries
     with ThreadPoolExecutor(max_workers=8) as executor:
-        results = list(executor.map(check_if_log_has_queries, log_files))
-    log_files_filtered = [x.as_posix() for x, y in zip(log_files, results) if y]
+        results = list(executor.map(source_has_queries, sources))
 
-    return sorted(log_files_filtered)
+    return sorted(source.name for source, has in zip(sources, results) if has)
 
 
 class LogDuration(BaseModel):
@@ -48,30 +50,25 @@ class RawLogDetails(BaseModel):
     duration_formatted: str
 
 
-def get_log_duration(log: Path) -> LogDuration:
-    with log.open("r") as f:
-        lines = f.readlines()
-
+def get_log_duration(source: EventLogSource) -> LogDuration:
     start_timestamp: datetime.datetime | None = None
     end_timestamp: datetime.datetime | None = None
 
-    # iterate over first few lines until first timestamp found
-    for line in lines:
+    # One streaming pass: keep the first timestamp seen and overwrite the last.
+    # Reading the whole log into a list costs memory proportional to log size.
+    for _, _, line in iter_lines(source):
         if "Timestamp" not in line:
             continue
-
-        entry = json.loads(line)
-        start_timestamp = datetime.datetime.fromtimestamp(entry["Timestamp"] / 1000)
-        break
-
-    # iterate backwards until last timestamp found
-    for line in reversed(lines):
-        if "Timestamp" not in line:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
             continue
-
-        entry = json.loads(line)
-        end_timestamp = datetime.datetime.fromtimestamp(entry["Timestamp"] / 1000)
-        break
+        timestamp = entry.get("Timestamp")
+        if timestamp is None:
+            continue
+        end_timestamp = datetime.datetime.fromtimestamp(timestamp / 1000)
+        if start_timestamp is None:
+            start_timestamp = end_timestamp
 
     if start_timestamp is None or end_timestamp is None:
         raise ValueError("Could not find start and end timestamps in log")
@@ -109,16 +106,25 @@ def get_log_table(available_logs: list[Path], dark_mode: bool):
     log_items = []
     theme = "ag-theme-alpine-dark" if dark_mode else "ag-theme-alpine"
 
+    log_dir = resolve_dir(get_app().server.config["LOG_DIR"])
+    sources = {source.name: source for source in discover_sources(log_dir)}
+
     for log_str in available_logs:
-        log = Path(log_str)
-        duration = get_log_duration(log)
+        source = sources.get(str(log_str))
+        if source is None:
+            continue
+        duration = get_log_duration(source)
+        size_bytes = sum(
+            Path(uri).stat().st_size for uri in source.uris if Path(uri).exists()
+        )
+        modified = source.modified or 0
         log_items.append(
             RawLogDetails(
-                name=log.stem,
-                modified=datetime.datetime.fromtimestamp(log.stat().st_mtime).strftime(
+                name=source.name,
+                modified=datetime.datetime.fromtimestamp(modified).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 ),
-                size_mb=round(log.stat().st_size / 1024 / 1024, 2),
+                size_mb=round(size_bytes / 1024 / 1024, 2),
                 start_time=duration.start_time,
                 end_time=duration.end_time,
                 duration_seconds=duration.duration_seconds,
