@@ -2024,6 +2024,14 @@ class WorkflowRunStatus(BaseModel):
     user_cancelled_or_timedout: bool | None = None
 
 
+class RunEnvironment(BaseModel):
+    """A run-level environment specification, part of configuration identity."""
+
+    environment_key: str
+    client: str | None = None
+    dependencies: list[str] = Field(default_factory=list)
+
+
 class WorkflowTiming(BaseModel):
     """Run-level timing.
 
@@ -2102,6 +2110,7 @@ class WorkflowTask(BaseModel):
     compute: ComputeReference | None = None
     task_kind: str | None = None
     is_nested_job: bool = False
+    git_commit: str | None = None
     output_path: str | None = None
     output_status: str | None = None
     error_excerpt: str | None = None
@@ -2195,6 +2204,8 @@ class RunReport(BaseModel):
     tasks: list[WorkflowTask] = Field(default_factory=list)
     query_metrics: QueryMetrics | None = None
     compute: list[ComputeReference] = Field(default_factory=list)
+    effective_performance_target: str | None = None
+    environments: list[RunEnvironment] = Field(default_factory=list)
     revision: RevisionEvidence
     coverage: dict[str, str] = Field(default_factory=dict)
     limits: WorkflowCollectionLimits

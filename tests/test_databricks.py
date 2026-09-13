@@ -355,12 +355,96 @@ def test_query_metrics_observed_subtotal_not_complete_total():
     }
     read = next(a for a in metrics.aggregates if a.metric == "read_bytes")
     assert read.value_exact == 3000
-    assert read.completeness.value == "complete"
+    # Queries lack is_final and one query in the window is unattributed, so the
+    # read total cannot be presented as a complete total.
+    assert read.completeness.value == "observed_subtotal"
     cache = next(a for a in metrics.aggregates if a.metric == "read_cache_bytes")
     assert cache.value_exact == 400
     assert cache.completeness.value == "observed_subtotal"
     assert cache.counted_query_count == 1
     assert cache.observed_query_count == 2
+
+
+def test_non_final_query_prevents_complete_total():
+    queries = [
+        {
+            "query_id": "q-1",
+            "is_final": False,
+            "status": "RUNNING",
+            "query_source": {"job_info": {"job_task_run_id": "1001"}},
+            "metrics": {"read_bytes": 100},
+        }
+    ]
+    report = _report_with_queries(queries)
+    metrics = report.query_metrics
+    assert metrics is not None
+    read = next(a for a in metrics.aggregates if a.metric == "read_bytes")
+    assert read.value_exact == 100
+    assert read.completeness.value == "observed_subtotal"
+
+
+def test_unattributed_query_prevents_complete_total():
+    queries = [
+        {
+            "query_id": "q-1",
+            "is_final": True,
+            "status": "FINISHED",
+            "query_source": {"job_info": {"job_task_run_id": "1001"}},
+            "metrics": {"read_bytes": 100},
+        },
+        {
+            "query_id": "q-2",
+            "is_final": True,
+            "status": "FINISHED",
+            "query_source": {"notebook_id": "1"},
+            "metrics": {"read_bytes": 50},
+        },
+    ]
+    report = _report_with_queries(queries)
+    metrics = report.query_metrics
+    assert metrics is not None
+    read = next(a for a in metrics.aggregates if a.metric == "read_bytes")
+    assert read.completeness.value == "observed_subtotal"
+
+
+def test_task_scoped_git_evidence_is_not_the_whole_run():
+    run = load_fixture("job_run_multi.json")
+    run.pop("git_source", None)
+    run["tasks"][1]["git_source"] = {
+        "git_url": "https://example/repo",
+        "git_snapshot": {"used_commit": "task-only-sha"},
+    }
+    raw = collect_run(client(make_runner(run=run)), run_id="123", outputs="none")
+    report = build_report(raw)
+    assert report.revision.confidence == "executed"
+    assert report.revision.scope == "task"
+    join = next(t for t in report.tasks if t.task_key == "join")
+    assert join.git_commit == "task-only-sha"
+    assert any(t.git_commit is None for t in report.tasks)
+
+
+def test_run_scoped_git_evidence_covers_the_run():
+    raw = collect_run(
+        client(make_runner(run=load_fixture("job_run_multi.json"))),
+        run_id="123",
+        outputs="none",
+    )
+    report = build_report(raw)
+    assert report.revision.scope == "run"
+
+
+def test_run_environments_and_performance_mode_are_normalized():
+    raw = collect_run(
+        client(make_runner(run=load_fixture("job_run_single.json"))),
+        run_id="915049514672868",
+        outputs="none",
+    )
+    report = build_report(raw)
+    assert report.effective_performance_target == "PERFORMANCE_OPTIMIZED"
+    assert report.environments
+    default = report.environments[0]
+    assert default.environment_key == "default"
+    assert any("polars" in dep for dep in default.dependencies)
 
 
 def test_missing_metric_is_none_not_zero():

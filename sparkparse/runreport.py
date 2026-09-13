@@ -29,6 +29,7 @@ from sparkparse.models import (
     ReportDiagnostic,
     ReportObservation,
     RevisionEvidence,
+    RunEnvironment,
     RunReport,
     TaskTiming,
     WorkflowRunIdentity,
@@ -166,6 +167,12 @@ def normalize_tasks(
         if reference is not None:
             compute.append(reference)
         attachment = _attachment_for(task, raw)
+        git_source = task.get("git_source")
+        git_commit = None
+        if isinstance(git_source, dict):
+            git_commit = _as_str(
+                (git_source.get("git_snapshot") or {}).get("used_commit")
+            )
         tasks.append(
             WorkflowTask(
                 task_key=task_key,
@@ -185,6 +192,7 @@ def normalize_tasks(
                 compute=reference,
                 task_kind=kind_key.removesuffix("_task") if kind_key else None,
                 is_nested_job=kind_key == "run_job_task",
+                git_commit=git_commit,
                 output_path=attachment.path,
                 output_status=attachment.status,
                 error_excerpt=attachment.excerpt,
@@ -285,12 +293,20 @@ def _attachment_for(task: dict[str, Any], raw: RawRunCollection) -> OutputAttach
 def normalize_revision(
     run: dict[str, Any], asserted_revision: str | None, artifact_digest: str | None
 ) -> RevisionEvidence:
-    sources: list[dict[str, Any]] = []
-    if isinstance(run.get("git_source"), dict):
-        sources.append(run["git_source"])
-    for task in run.get("tasks") or []:
-        if isinstance(task.get("git_source"), dict):
-            sources.append(task["git_source"])
+    """Build run revision evidence with the scope the evidence actually covers.
+
+    A Git snapshot on the run describes the whole run; one carried only by an
+    individual task describes that task. The two are never conflated, so a
+    single task's commit cannot be presented as the run's executed revision.
+    """
+    run_source = run.get("git_source")
+    run_has_git = isinstance(run_source, dict)
+    task_sources = [
+        task["git_source"]
+        for task in run.get("tasks") or []
+        if isinstance(task.get("git_source"), dict)
+    ]
+    sources = ([run_source] if run_has_git else []) + task_sources
 
     commits = {
         str((source.get("git_snapshot") or {}).get("used_commit"))
@@ -305,7 +321,12 @@ def normalize_revision(
     if len(commits) == 1:
         executed_commit = next(iter(commits))
         confidence = "executed"
-        scope = "run" if len(sources) == 1 else "mixed"
+        if run_has_git and task_sources:
+            scope = "mixed"
+        elif run_has_git:
+            scope = "run"
+        else:
+            scope = "task"
     elif len(commits) > 1:
         confidence = "mixed"
         scope = "mixed"
@@ -327,6 +348,26 @@ def normalize_revision(
 
 def normalize_outputs(raw: RawRunCollection) -> list[OutputAttachment]:
     return [_attachment_for(task, raw) for task in raw.tasks]
+
+
+def normalize_environments(run: dict[str, Any]) -> list[RunEnvironment]:
+    environments: list[RunEnvironment] = []
+    for environment in run.get("environments") or []:
+        if not isinstance(environment, dict):
+            continue
+        spec = environment.get("spec") or {}
+        environments.append(
+            RunEnvironment(
+                environment_key=str(environment.get("environment_key", "default")),
+                client=_as_str(spec.get("client")),
+                dependencies=[
+                    str(dependency)
+                    for dependency in spec.get("dependencies") or []
+                    if dependency is not None
+                ],
+            )
+        )
+    return environments
 
 
 def aggregate_queries(raw: RawRunCollection, tasks: list[WorkflowTask]) -> QueryMetrics:
@@ -373,7 +414,14 @@ def aggregate_queries(raw: RawRunCollection, tasks: list[WorkflowTask]) -> Query
             observations[observation.query_id] = observation
 
     kept = list(observations.values())
-    aggregates = _aggregate_metrics(kept, raw.query_discovery_complete)
+    final = bool(kept) and all(observation.is_final is True for observation in kept)
+    attribution_certain = attribution_counts.get("unattributed", 0) == 0
+    aggregates = _aggregate_metrics(
+        kept,
+        raw.query_discovery_complete,
+        observations_final=final,
+        attribution_certain=attribution_certain,
+    )
     unavailable = [
         "memory_bytes_spilled",
         "per_executor_distributions",
@@ -392,7 +440,11 @@ def aggregate_queries(raw: RawRunCollection, tasks: list[WorkflowTask]) -> Query
 
 
 def _aggregate_metrics(
-    observations: list[QueryObservation], discovery_complete: bool
+    observations: list[QueryObservation],
+    discovery_complete: bool,
+    *,
+    observations_final: bool,
+    attribution_certain: bool,
 ) -> list[MetricAggregate]:
     total = len(observations)
     aggregates: list[MetricAggregate] = []
@@ -413,7 +465,11 @@ def _aggregate_metrics(
             value = float(value_exact)
             completeness = (
                 MetricCompleteness.complete
-                if len(values) == total and discovery_complete and total > 0
+                if len(values) == total
+                and discovery_complete
+                and total > 0
+                and observations_final
+                and attribution_certain
                 else MetricCompleteness.observed_subtotal
             )
         aggregates.append(
@@ -448,7 +504,10 @@ def _aggregate_metrics(
         cache_exact = cached
         cache_completeness = (
             MetricCompleteness.complete
-            if cached_counted == total and discovery_complete
+            if cached_counted == total
+            and discovery_complete
+            and observations_final
+            and attribution_certain
             else MetricCompleteness.observed_subtotal
         )
     aggregates.append(
@@ -504,6 +563,10 @@ def build_report(
         tasks=tasks,
         query_metrics=query_metrics,
         compute=compute,
+        effective_performance_target=_as_str(
+            raw.run.get("effective_performance_target")
+        ),
+        environments=normalize_environments(raw.run),
         revision=revision,
         coverage=coverage,
         limits=raw.limits,
@@ -540,7 +603,11 @@ def _coverage(
             if query_metrics.matched_query_count
             else "unavailable"
         ),
-        "git_revision": "available" if raw.run.get("git_source") else "unknown",
+        "git_revision": (
+            "available"
+            if raw.run.get("git_source") or any(t.git_commit for t in tasks)
+            else "unknown"
+        ),
         "compute": status(bool(raw.run.get("tasks"))),
         "child_tasks": (
             "incomplete"
